@@ -17,7 +17,7 @@ What it does not do today:
 
 - Public action repo: `https://github.com/Noa-Lia/codetitan-action`
 - Demo repo: `https://github.com/Noa-Lia/codetitan-sarif-demo`
-- Successful run: `https://github.com/Noa-Lia/codetitan-sarif-demo/actions/runs/23710853479`
+- Successful run: `https://github.com/Noa-Lia/codetitan-sarif-demo/actions/runs/23715735884`
 - Live alert: `https://github.com/Noa-Lia/codetitan-sarif-demo/security/code-scanning/2`
 
 ## Example Workflow
