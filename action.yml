@@ -66,5 +66,5 @@ outputs:
     description: 'Short markdown bullet list of top findings'
 
 runs:
-  using: 'node20'
+  using: 'node24'
   main: 'dist/index.js'

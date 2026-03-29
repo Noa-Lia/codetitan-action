@@ -15,9 +15,10 @@ What it does not do today:
 
 ## Public Proof
 
+- Public action repo: `https://github.com/Noa-Lia/codetitan-action`
 - Demo repo: `https://github.com/Noa-Lia/codetitan-sarif-demo`
-- Successful run: `https://github.com/Noa-Lia/codetitan-sarif-demo/actions/runs/23706295083`
-- Live alert: `https://github.com/Noa-Lia/codetitan-sarif-demo/security/code-scanning/1`
+- Successful run: `https://github.com/Noa-Lia/codetitan-sarif-demo/actions/runs/23710853479`
+- Live alert: `https://github.com/Noa-Lia/codetitan-sarif-demo/security/code-scanning/2`
 
 ## Example Workflow
 
@@ -44,7 +45,7 @@ jobs:
           path: .codetitan-action-runtime
           key: ${{ runner.os }}-codetitan-action-${{ hashFiles('package-lock.json', 'package.json') }}
 
-      - uses: Noa-Lia/codetitan-action@main
+      - uses: Noa-Lia/codetitan-action@v1
         id: codetitan
         with:
           path: .
