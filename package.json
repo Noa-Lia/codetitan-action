@@ -1,0 +1,16 @@
+{
+  "name": "codetitan-action",
+  "version": "1.0.1",
+  "description": "Public GitHub Action distribution for CodeTitan JS/TS PR verification",
+  "main": "dist/index.js",
+  "author": "Noa-Lia",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Noa-Lia/codetitan-action.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Noa-Lia/codetitan-action/issues"
+  },
+  "homepage": "https://codetitan.dev"
+}

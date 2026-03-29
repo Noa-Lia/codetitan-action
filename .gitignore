@@ -1,0 +1,5 @@
+node_modules/
+.codetitan-action-runtime/
+codetitan-report.json
+codetitan-report.sarif
+codetitan-summary.md

@@ -1,0 +1,70 @@
+name: 'CodeTitan PR Verification'
+description: 'Verify AI-generated JS/TS code in GitHub PRs and CI with a JSON report, markdown summary, and optional SARIF.'
+author: 'CodeTitan'
+branding:
+  icon: 'shield'
+  color: 'blue'
+
+inputs:
+  api-key:
+    description: 'Optional CodeTitan API key'
+    required: false
+  github-token:
+    description: 'GitHub token for PR comments (defaults to GITHUB_TOKEN)'
+    required: false
+  path:
+    description: 'Path to analyze'
+    required: false
+    default: '.'
+  level:
+    description: 'Analysis level (1-8)'
+    required: false
+    default: '4'
+  fail-on-severity:
+    description: 'Fail the build if findings at this severity or above are found (LOW, MEDIUM, HIGH, CRITICAL)'
+    required: false
+    default: 'HIGH'
+  format:
+    description: 'Report format to emit in addition to JSON (json, sarif, both)'
+    required: false
+    default: 'json'
+  config-path:
+    description: 'Optional path to a project config file'
+    required: false
+  runtime-root:
+    description: 'Optional persistent runtime directory for caching the packed core runtime between workflow runs'
+    required: false
+  comment-on-pr:
+    description: 'Post analysis summary as a comment on the PR'
+    required: false
+    default: 'true'
+
+outputs:
+  passed:
+    description: 'Whether the configured quality gate passed'
+  findings:
+    description: 'Total number of surfaced MVP-scope findings'
+  runtime-mode:
+    description: 'Which runtime path was used (workspace, bundled-pack, or published)'
+  runtime-cache-hit:
+    description: 'Whether the packed/published runtime was restored from cache'
+  runtime-root:
+    description: 'Resolved runtime directory used for packed or published core installs'
+  runtime-bootstrap-ms:
+    description: 'Milliseconds spent preparing the action runtime before analysis'
+  analysis-ms:
+    description: 'Milliseconds spent inside the CodeTitan analysis engine'
+  total-ms:
+    description: 'Total milliseconds spent inside the action run'
+  report-path:
+    description: 'Path to the generated JSON report'
+  summary-path:
+    description: 'Path to the generated markdown summary'
+  sarif-path:
+    description: 'Path to the generated SARIF report when requested'
+  top-findings-summary:
+    description: 'Short markdown bullet list of top findings'
+
+runs:
+  using: 'node20'
+  main: 'dist/index.js'

@@ -1,0 +1,50 @@
+{
+  "name": "@noalia/codetitan-core",
+  "version": "1.0.1",
+  "description": "CodeTitan core verification engine for AI-generated JavaScript and TypeScript changes",
+  "main": "index.js",
+  "types": "index.d.ts",
+  "scripts": {
+    "test": "jest",
+    "test:watch": "jest --watch",
+    "test:coverage": "jest --coverage"
+  },
+  "keywords": [
+    "code-analysis",
+    "static-analysis",
+    "security",
+    "performance"
+  ],
+  "author": "Noalia",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Noa-Lia/codetitan-action.git"
+  },
+  "homepage": "https://codetitan.dev",
+  "bugs": {
+    "url": "https://github.com/Noa-Lia/codetitan-action/issues"
+  },
+  "dependencies": {
+    "@babel/parser": "^7.28.5",
+    "@babel/traverse": "^7.28.5",
+    "@supabase/supabase-js": "^2.39.0",
+    "@xenova/transformers": "^2.17.2",
+    "dotenv": "^16.3.1",
+    "simple-git": "^3.30.0",
+    "sqlite3": "^5.1.6"
+  },
+  "devDependencies": {
+    "jest": "^30.2.0"
+  },
+  "files": [
+    "index.js",
+    "index.d.ts",
+    "src",
+    "lib",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
