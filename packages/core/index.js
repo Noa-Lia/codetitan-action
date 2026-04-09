@@ -58,6 +58,10 @@ const SarifExporter = require('./lib/sarif-exporter');
 const TechnicalDebtCalculator = require('./lib/technical-debt-calculator');
 const DuplicationDetector = require('./lib/duplication-detector');
 const CoverageParser = require('./lib/coverage-parser');
+const LearnedProfileManager = require('./lib/learned-profile');
+const PRRiskScorer = require('./lib/pr-risk-scorer');
+const { MLConfidenceScorer } = require('./lib/ml-confidence-scorer');
+const GitDiffUtils = require('./lib/git-diff-utils');
 
 // Utilities
 const CacheManager = require('./lib/cache-manager');
@@ -103,6 +107,10 @@ module.exports = {
     TechnicalDebtCalculator,
     DuplicationDetector,
     CoverageParser,
+    LearnedProfileManager,
+    PRRiskScorer,
+    MLConfidenceScorer,
+    GitDiffUtils,
 
     // Utilities
     CacheManager,

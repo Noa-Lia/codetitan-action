@@ -84,7 +84,10 @@ class HierarchicalOrchestrator {
 
     try {
       // Step 1: Discover all files in project
-      const files = await this.discoverFiles(projectPath);
+      // Use profileProjectRoot (the real repo root) for ignore patterns when available.
+      // This matters in diff-aware mode where projectPath is a temp workspace dir.
+      const ignoreRoot = options.profileProjectRoot || projectPath;
+      const files = await this.discoverFiles(projectPath, ignoreRoot);
       this.metrics.totalFiles = files.length;
       if (this.verbose) {
         console.log(`[FILES] Discovered ${files.length} files`);
@@ -168,11 +171,14 @@ class HierarchicalOrchestrator {
   }
 
   /**
-   * Discover all relevant files in project
+   * Discover all relevant files in project.
+   * @param {string} projectPath - Root directory to walk for source files.
+   * @param {string} [ignoreRoot] - Directory containing .codetitanignore (defaults to projectPath).
    */
-  async discoverFiles(projectPath) {
+  async discoverFiles(projectPath, ignoreRoot) {
     const files = [];
-    const ignorePatterns = await this.loadIgnorePatterns(projectPath);
+    const resolvedIgnoreRoot = ignoreRoot || projectPath;
+    const ignorePatterns = await this.loadIgnorePatterns(resolvedIgnoreRoot);
     const SKIP_DIRS = new Set([
       'node_modules',
       '.git',
@@ -195,6 +201,7 @@ class HierarchicalOrchestrator {
       '.cache',
       'site-packages'
     ]);
+    const SKIP_DIR_PREFIXES = ['.next'];
 
     // File extensions to analyze
     const extensions = ['.js', '.ts', '.jsx', '.tsx', '.py', '.java', '.go', '.rb'];
@@ -209,13 +216,13 @@ class HierarchicalOrchestrator {
 
           // Skip node_modules, .git, build directories, etc.
           if (entry.isDirectory()) {
-            if (SKIP_DIRS.has(entry.name)) continue;
-            if (ignorePatterns.length > 0 && self.matchesIgnorePattern(fullPath, projectPath, ignorePatterns)) continue;
+            if (SKIP_DIRS.has(entry.name) || SKIP_DIR_PREFIXES.some(prefix => entry.name.startsWith(prefix))) continue;
+            if (ignorePatterns.length > 0 && self.matchesIgnorePattern(fullPath, resolvedIgnoreRoot, ignorePatterns)) continue;
             await walk(fullPath);
           } else if (entry.isFile()) {
             const ext = path.extname(entry.name);
             if (!extensions.includes(ext)) continue;
-            if (ignorePatterns.length > 0 && self.matchesIgnorePattern(fullPath, projectPath, ignorePatterns)) continue;
+            if (ignorePatterns.length > 0 && self.matchesIgnorePattern(fullPath, resolvedIgnoreRoot, ignorePatterns)) continue;
             files.push(fullPath);
           }
         }

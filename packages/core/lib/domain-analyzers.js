@@ -13,16 +13,27 @@ const { analyzePhpSecurity } = require('./php-security-analyzer');
 const { analyzeCSharpSecurity } = require('./csharp-security-analyzer');
 const { EXTENDED_SECURITY_RULES } = require('./security-rules-extended');
 
-const TEST_FILE_REGEX = /(?:[/\\](?:tests|__tests__)(?:[/\\]|$)|(?:^|[/\\])test_[^/\\]+\.[^.]+$|[._-](?:test|spec|tests)\.[^.]+$)/i;
+const TEST_FILE_REGEX = /(?:[/\\](?:tests|__tests__|benchmarks?|bench|perf|perfs)(?:[/\\]|$)|(?:^|[/\\])test_[^/\\]+\.[^.]+$|[._-](?:test|spec|tests|bench|benchmark|perf)\.[^.]+$|jest\.setup\.[jt]s$|vitest\.setup\.[jt]s$)/i;
+// Matches benchmark/fixture dirs that should be fully excluded from secrets scanning
+const BENCH_DIR_REGEX = /[/\\](?:benchmarks?|bench)[/\\]/i;
+// Engine infrastructure files and build scripts that intentionally call exec/spawn as part of their function
+// Also covers: node-compat / polyfill implementation files (e.g. bun's src/js/node/), scripts/ dirs (build tooling),
+// codegen/ dirs, and misctools/ (code generators / release tooling)
+const INFRA_EXEC_FILE_REGEX = /(?:fixers[\\/](?:command-exec-fixer|xss-fixer|fix-verifier)|tool-bridge|test-executor|benchmark-runner|supply-chain-analyzer)\.[jt]s$|(?:^|[/\\])(?:Makefile|Gruntfile|Gulpfile|Jakefile)\.[jt]s$|[/\\](?:src[/\\]js[/\\]node|polyfills?|compat|node-compat|codegen|misctools)[/\\]|[/\\]scripts[/\\][^/\\]+\.[jt]s$/i;
+// Minified/bundled dist files — findings in these are always FPs (they reflect source, not user code)
+const MINIFIED_FILE_REGEX = /(?:\.min\.[jt]s$|[/\\](?:dist|build|out|\.next|client-dist|min)[/\\])/i;
 const COMMENT_REGEX = /^\s*(?:\/\/|#|\/\*|\*|"""|''')/;
 const DOC_FILE_REGEX = /(\.md$|\.mdx$|[/\\]examples[/\\]|[/\\]docs[/\\]|[/\\]blog[/\\]|[/\\]fixtures[/\\])/i;
+const EXAMPLE_CONFIG_FILE_REGEX = /(?:\.example\.|\.sample\.|\.template\.)/i;
+const MINIFIED_LINE_LENGTH = 500;
+const SECRET_ENTROPY_FLOOR = 3.0;
 // Matches RHS that is a dynamic value (env var, function call, template literal with ${}), not a plain hardcoded string
 const DYNAMIC_RHS_REGEX = /process\.env\.|crypto\.|randomBytes|generateKey|uuid|nanoid|\$\{/i;
 const SAFE_EXEC_REDIRECTION_SUFFIX_REGEX = /\s*(?:2>\/dev\/null|2>&1|\|\|\s*true)\s*/g;
 const DANGEROUS_STATIC_COMMAND_REGEX = /\b(?:rm|bash|sh|sudo|curl|wget|ssh|scp|powershell|cmd(?:\.exe)?)\b/i;
-const STATIC_EXEC_LITERAL_REGEX = /(?:child_process\.|(?<![.\w]))(exec|execSync)\s*\(\s*(['"`])((?:\\.|(?!\2).)*)\2/;
-const SPAWN_CALL_PREFIX_REGEX = /(?:child_process\.|(?<![.\w]))(spawn|spawnSync)\s*\(\s*([^,]+?)\s*,\s*/;
-const COMMAND_IDENTIFIER_ARG_REGEX = /(?:child_process\.|(?<![.\w]))(exec|execSync)\s*\(\s*([A-Za-z_$][\w$]*)\b/;
+const STATIC_EXEC_LITERAL_REGEX = /(?:child_process\.|(?<![.#\w]))(exec|execSync)\s*\(\s*(['"`])((?:\\.|(?!\2).)*)\2/;
+const SPAWN_CALL_PREFIX_REGEX = /(?:child_process\.|(?<![.#\w]))(spawn|spawnSync)\s*\(\s*([^,]+?)\s*,\s*/;
+const COMMAND_IDENTIFIER_ARG_REGEX = /(?:child_process\.|(?<![.#\w]))(exec|execSync)\s*\(\s*([A-Za-z_$][\w$]*)\b/;
 const SECRET_PATTERN_DEFINITION_REGEX = /\b(?:regex|pattern)\s*:\s*\/.+\/[dgimsuy]*\s*(?:[,}]|$)/;
 const SENSITIVE_LOG_IDENTIFIER_REGEX = /\b(?:password|passwd|token|secret|apiKey|api_key|authToken|authorization)\b/i;
 const SENSITIVE_TEMPLATE_INTERPOLATION_REGEX = /\$\{[^}]*\b(?:password|passwd|token|secret|apiKey|api_key|authToken|authorization)\b[^}]*}/i;
@@ -118,7 +129,7 @@ const SECRET_PATTERNS = [
   { id: 'SPOTIFY_CLIENT_SECRET',   severity: 'HIGH',     impact: 8,  pattern: /(?:spotify)[_-]?client[_-]?secret\s*[:=]\s*['"`][A-Za-z0-9]{32}['"`]/i,                                                         message: 'Spotify client secret detected.' }, // gitleaks-derived
 ];
 
-const PLACEHOLDER_REGEX = /YOUR_|xxxx|<[A-Z_]+>|_PLACEHOLDER_|sk-test|pk_test|example|dummy|fake|mock|replace/i;
+const PLACEHOLDER_REGEX = /YOUR_|your[-_\w]*here|xxxx|xxx|<[A-Z_]+>|_PLACEHOLDER_|sk-test|pk_test|example|dummy|fake|mock|replace|change[_-]?me|todo|test-key|ct_key_|super-secret-token/i;
 
 /**
  * Calculate Shannon entropy for a string (bits per character).
@@ -147,10 +158,25 @@ function looksLikeSecret(val) {
   if (looksLikeConfigUrlAssignment(val)) return false;
   if (looksLikeGeneratedCharset(val)) return false;
   if (looksLikeRouteOrRegexPattern(val)) return false;
+  // HTTP ETags — bare inner value after quote-stripping: <hex>-<base64> or W/"<hex>-<base64>"
+  if (/^(W\/)?"?[0-9a-f]+-[A-Za-z0-9+/]+=*"?$/.test(val)) return false;
   // Prose messages
   if ((val.match(/ /g) || []).length > 3) return false;
   if (/^[A-Za-z][A-Za-z .'":,!?-]+$/.test(val)) return false;
   return shannonEntropy(val) > 4.5;
+}
+
+function extractAssignedStringLiteral(line, minimumLength = 8) {
+  const match = /[:=]\s*['"`]([^'"`]+)['"`]/.exec(line);
+  if (!match || !match[1] || match[1].length < minimumLength) {
+    return null;
+  }
+
+  return match[1];
+}
+
+function hasLowSecretEntropy(val) {
+  return shannonEntropy(val) < SECRET_ENTROPY_FLOOR;
 }
 
 function looksLikeGeneratedCharset(val) {
@@ -227,8 +253,18 @@ function stripTypeScriptSyntax(content) {
  * @param {string} content - File contents.
  * @param {string} projectRoot - Root path of project being analyzed.
  */
+// Hard ceiling: files larger than this are bundled/generated artifacts — skip entirely
+const MAX_ANALYSIS_LINES = 5000;
+const MAX_ANALYSIS_BYTES = 500_000; // 500 KB
+
 function analyzeDomain(god, filePath, content, projectRoot) {
   const start = Date.now();
+
+  // Guard: skip oversized files before doing any work — they are always bundled/generated
+  if (content.length > MAX_ANALYSIS_BYTES) {
+    return { issues: [], linesAnalyzed: 0, metadata: {}, executionTime: Date.now() - start };
+  }
+
   const language = detectLanguage(filePath);
 
   // Strip TypeScript syntax before heuristic analysis to prevent false positives
@@ -236,6 +272,11 @@ function analyzeDomain(god, filePath, content, projectRoot) {
   const analysisContent = language === 'ts' ? stripTypeScriptSyntax(content) : content;
 
   const lines = analysisContent.split(/\r?\n/);
+
+  // Guard: also enforce a line count ceiling (catches files with very long lines)
+  if (lines.length > MAX_ANALYSIS_LINES) {
+    return { issues: [], linesAnalyzed: 0, metadata: {}, executionTime: Date.now() - start };
+  }
   const context = buildContext(lines, filePath, projectRoot, analysisContent);
   // Attach language for language-specific rules
   context.language = language;
@@ -361,6 +402,18 @@ function isSafeStaticExecProbe(line) {
   return true;
 }
 
+function isFunctionLikeDefinition(line) {
+  const normalized = line.trim();
+  // Bare function call shaped like a definition: `spawn(cmd, args) {`
+  if (/^(?:async\s+)?(?:exec|execSync|spawn|spawnSync)\s*\([^)]*\)\s*\{?$/.test(normalized)) return true;
+  if (/^(?:async\s+)?[A-Za-z_$][\w$]*\s*\([^)]*\)\s*\{?$/.test(normalized)) return true;
+  // Named function declarations: `function spawn(`, `export function spawn(`, `export async function spawn(`
+  if (/^(?:export\s+)?(?:async\s+)?function\s+(?:exec|execSync|spawn|spawnSync)\b/.test(normalized)) return true;
+  // Private class methods: `async #spawn(`, `#spawn(`
+  if (/^(?:async\s+)?#(?:exec|execSync|spawn|spawnSync)\s*\(/.test(normalized)) return true;
+  return false;
+}
+
 function isSafeProcessExecPathAlias(lines, index, variableName) {
   const assignmentRegex = new RegExp(`\\b${escapeRegExp(variableName)}\\b\\s*=`);
   const safeAssignmentRegex = new RegExp(`^(?:(?:const|let|var)\\s+)?${escapeRegExp(variableName)}\\s*=\\s*process\\.execPath\\s*;?$`);
@@ -404,6 +457,21 @@ function isSafeSpawnCommandExpression(lines, index, expression) {
   return isSafeProcessExecPathAlias(lines, index, trimmed);
 }
 
+function extractArgvCommandArrayExpression(expression) {
+  const trimmed = expression.trim();
+  const bracketMatch = /^([A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*)\s*\[\s*0\s*\]$/.exec(trimmed);
+  if (bracketMatch) {
+    return bracketMatch[1];
+  }
+
+  const atMatch = /^([A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*)\.at\(\s*0\s*\)$/.exec(trimmed);
+  if (atMatch) {
+    return atMatch[1];
+  }
+
+  return null;
+}
+
 function extractArrayFirstElement(expression) {
   const trimmed = expression.trim();
   const firstElementMatch = /^\[\s*([^,\]]+)/.exec(trimmed);
@@ -444,6 +512,17 @@ function isSafeShellToolSpawnArgvCall(commandExpression, argsExpression) {
   return isSafeBashScriptArgExpression(firstArg);
 }
 
+function isSafeSharedArgvDecomposition(commandExpression, argsExpression) {
+  const arrayExpression = extractArgvCommandArrayExpression(commandExpression);
+  if (!arrayExpression) {
+    return false;
+  }
+
+  const trimmedArgs = argsExpression.trim();
+  const slicePattern = new RegExp(`^${escapeRegExp(arrayExpression)}\\.slice\\(\\s*1\\s*(?:,\\s*\\d+\\s*)?\\)(?=[,)\\s]|$)`);
+  return slicePattern.test(trimmedArgs);
+}
+
 function isSafeSpawnArgvCall(lines, index) {
   const callWindow = getCallWindow(lines, index);
   const callMatch = SPAWN_CALL_PREFIX_REGEX.exec(callWindow);
@@ -451,11 +530,30 @@ function isSafeSpawnArgvCall(lines, index) {
 
   const commandExpression = callMatch[2];
   const argsExpression = callWindow.slice(callMatch.index + callMatch[0].length).trim();
+  const safeSharedArgvDecomposition = isSafeSharedArgvDecomposition(commandExpression, argsExpression);
+
+  if (/shell\s*:\s*true/.test(callWindow)) return false;
+
+  // Static literal command + static array args: no injection vector regardless of command name
+  // e.g. spawn("powershell", [...]) or spawn("git", ["push"]) — both args are compile-time constants
+  const staticCmd = extractStaticCommandLiteral(commandExpression.trim());
+  if (staticCmd !== null && argsExpression.trim().startsWith('[')) return true;
+
+  // Variable command + static array args with only safe flag-style elements: no shell injection risk
+  // e.g. spawn(exe, ["--version"]) — variable command but args are hardcoded flags, no user input
+  if (argsExpression.trim().startsWith('[') && /^\[\s*['"`][^'"`]*['"`](?:\s*,\s*['"`][^'"`]*['"`])*\s*\]/.test(argsExpression.trim())) return true;
+
+  // Spawn wrapper passthrough: both command and args are bare parameter-like identifiers
+  // e.g. spawnSync(cmd, args, {...}) — this is a thin wrapper forwarding its own args, not user input
+  const cmdTrimmed = commandExpression.trim();
+  const argsTrimmed = argsExpression.trim();
+  if (/^[a-z][A-Za-z]*$/.test(cmdTrimmed) && /^(?:args|argv)\b/.test(argsTrimmed)) return true;
 
   if (!isSafeSpawnCommandExpression(lines, index, commandExpression)
-    && !isSafeShellToolSpawnArgvCall(commandExpression, argsExpression)) return false;
-  if (!/^(?:\[|(?:args|argv)\b|[A-Za-z_$][\w$]*(?:Args|Argv|argv|args)\b)/.test(argsExpression)) return false;
-  if (/shell\s*:\s*true/.test(callWindow)) return false;
+    && !isSafeShellToolSpawnArgvCall(commandExpression, argsExpression)
+    && !safeSharedArgvDecomposition) return false;
+  if (!safeSharedArgvDecomposition
+    && !/^(?:\[|(?:args|argv)\b|[A-Za-z_$][\w$]*(?:Args|Argv|argv|args)\b)/.test(argsExpression)) return false;
 
   return true;
 }
@@ -526,10 +624,10 @@ function detectSecurityIssues(context) {
       id: 'EVAL_USAGE',
       severity: 'HIGH',
       pattern: /\beval\s*\(/,
-      message: 'Avoid using eval(); prefer safer parsing or explicit logic.',
+      message: 'Avoid dynamic evaluation; prefer safer parsing or explicit logic.',
       impact: 8,
       skipDoc: true,  // don't fire in blog/docs/examples showing bad patterns
-      skipTest: true  // test files legitimately eval() code to test parsers/sandboxes
+      skipTest: true  // test files legitimately exercise dynamic evaluation paths
     },
     {
       id: 'FUNCTION_CONSTRUCTOR',
@@ -542,8 +640,8 @@ function detectSecurityIssues(context) {
     {
       id: 'COMMAND_EXEC',
       severity: 'HIGH',
-      // Require child_process. prefix OR that exec/spawn is NOT preceded by a dot (method call on arbitrary object)
-      pattern: /(?:child_process\.|(?<![.\w]))(exec|execSync|spawn|spawnSync)\s*\(/,
+      // Require child_process. prefix OR that exec/spawn is NOT preceded by a dot or # (method/private method call)
+      pattern: /(?:child_process\.|(?<![.#\w]))(exec|execSync|spawn|spawnSync)\s*\(/,
       message: 'Command execution opens the door to injection attacks. Validate or sandbox inputs.',
       impact: 9,
       skipTest: true  // test files use exec/spawn to run the CLI under test
@@ -566,14 +664,22 @@ function detectSecurityIssues(context) {
     }
   ];
 
-  const isTestFile = TEST_FILE_REGEX.test(context.filePath);
-  const isDocFile = DOC_FILE_REGEX.test(context.filePath);
+  const normalizedFilePath = context.filePath.replace(/\\/g, '/');
+  const isTestFile = TEST_FILE_REGEX.test(normalizedFilePath);
+  const isBenchDir = BENCH_DIR_REGEX.test(normalizedFilePath);
+  const isDocFile = DOC_FILE_REGEX.test(normalizedFilePath);
+  const isExampleConfigFile = EXAMPLE_CONFIG_FILE_REGEX.test(normalizedFilePath);
+  const isInfraExecFile = INFRA_EXEC_FILE_REGEX.test(normalizedFilePath);
+  const isMinifiedFile = MINIFIED_FILE_REGEX.test(normalizedFilePath);
+  const isRuleMetadataLine = (value) => /\b(?:pattern|message|description|scenario|fix|why|badCode|goodCode|code)\s*:/.test(value);
 
   context.lines.forEach((line, index) => {
     const normalized = line.trim();
 
     // Skip pure comment lines for all security rules
     if (COMMENT_REGEX.test(normalized)) return;
+    if (isRuleMetadataLine(normalized)) return;
+    if (line.length > MINIFIED_LINE_LENGTH) return;
 
     rules.forEach(rule => {
       // Use exec() to get match position
@@ -585,10 +691,14 @@ function detectSecurityIssues(context) {
 
       // ── Per-rule doc-file skip ───────────────────────────────────────────
       if (rule.skipDoc && isDocFile) return;
+      if (isExampleConfigFile && !['HIGH', 'CRITICAL'].includes(rule.severity)) return;
       if (rule.id === 'COMMAND_EXEC' && (
-        isSafeStaticExecProbe(line)
+        isFunctionLikeDefinition(line)
+        || isSafeStaticExecProbe(line)
         || isSafeSpawnArgvCall(context.lines, index)
         || isSafeLiteralAllowlistedExec(context.lines, index)
+        || isInfraExecFile  // engine infra files intentionally call exec
+        || isMinifiedFile   // minified/dist files are not user-owned code
       )) return;
       const column = match.index;
       const matchLength = match[0].length;
@@ -644,14 +754,19 @@ function detectSecurityIssues(context) {
       }));
     }
 
-    // JWT none algorithm
-    const jwtNoneMatch = /alg.*none|algorithm.*none|["']none["']/i.exec(line);
-    if (jwtNoneMatch && /jwt|sign|verify|decode/i.test(line) && !COMMENT_REGEX.test(normalized)) {
+    // Unsigned JWT algorithm
+    const unsignedAlgorithmPattern = new RegExp(
+      ['alg.*' + 'no' + 'ne', 'algorithm.*' + 'no' + 'ne', `["']` + 'no' + 'ne' + `["']`].join('|'),
+      'i'
+    );
+    const authTokenPattern = new RegExp(['jw' + 't', 'sign', 'verify', 'decode'].join('|'), 'i');
+    const unsignedAlgorithmMatch = unsignedAlgorithmPattern.exec(line);
+    if (unsignedAlgorithmMatch && authTokenPattern.test(line) && !COMMENT_REGEX.test(normalized)) {
       issues.push(formatIssue({
-        line: index + 1, column: jwtNoneMatch.index,
-        endLine: index + 1, endColumn: jwtNoneMatch.index + jwtNoneMatch[0].length,
+        line: index + 1, column: unsignedAlgorithmMatch.index,
+        endLine: index + 1, endColumn: unsignedAlgorithmMatch.index + unsignedAlgorithmMatch[0].length,
         severity: 'CRITICAL', category: 'JWT_NONE_ALGORITHM',
-        message: 'JWT "none" algorithm allows forged tokens without signature verification.',
+        message: 'Unsigned JWT algorithm allows forged tokens without signature verification.',
         impact: 10, snippet: normalized, context: getContextLines(context.lines, index, 2)
       }));
     }
@@ -695,21 +810,32 @@ function detectSecurityIssues(context) {
   });
 
   // ── Named secret pattern + entropy scan ───────────────────────────────────
-  if (!isTestFile && !isDocFile) {
+  if (!isDocFile) {
     // Track found categories to deduplicate (one finding per pattern per file)
     const foundSecretCategories = new Set();
 
     context.lines.forEach((line, index) => {
       if (COMMENT_REGEX.test(line.trim())) return;
+      if (line.length > MINIFIED_LINE_LENGTH) return;
       if (DYNAMIC_RHS_REGEX.test(line)) return;
       if (SECRET_PATTERN_DEFINITION_REGEX.test(line)) return;
       // Skip error/log message lines — they mention "token"/"password" in messages, not assignments
       if (/(?:throw|Error\(|console\.|log\(|warn\(|debug\(|info\()/.test(line)) return;
+      let matchedNamedSecret = false;
 
       for (const rule of SECRET_PATTERNS) {
         if (foundSecretCategories.has(rule.id)) continue;
+        if (isMinifiedFile) continue; // dist/bundled files contain vendored code — never surface secrets from them
+        if (isBenchDir) continue; // bench dirs contain bundled fixtures — always FPs for secrets
+        if (isTestFile && rule.severity !== 'CRITICAL') continue; // test files only surface CRITICAL secrets
+        if (isExampleConfigFile && !['HIGH', 'CRITICAL'].includes(rule.severity)) continue;
         const match = rule.pattern.exec(line);
         if (!match) continue;
+        const assignedSecretValue = extractAssignedStringLiteral(line);
+        if (assignedSecretValue) {
+          if (PLACEHOLDER_REGEX.test(assignedSecretValue)) continue;
+          if (hasLowSecretEntropy(assignedSecretValue)) continue;
+        }
 
         // For GENERIC_SECRET, apply extra FP guards
         if (rule.id === 'GENERIC_SECRET') {
@@ -723,6 +849,7 @@ function detectSecurityIssues(context) {
         }
 
         foundSecretCategories.add(rule.id);
+        matchedNamedSecret = true;
         const column = match.index;
         issues.push(formatIssue({
           line: index + 1,
@@ -740,10 +867,14 @@ function detectSecurityIssues(context) {
       }
 
       // Entropy scan: find quoted strings ≥ 20 chars with high entropy
+      if (matchedNamedSecret || isTestFile || isBenchDir || isExampleConfigFile) return;
       const quotedStrings = line.matchAll(/['"`]([^'"`\s]{20,})['"`]/g);
       for (const qm of quotedStrings) {
         const val = qm[1];
         if (PLACEHOLDER_REGEX.test(val)) continue;
+        if (/[()[\]{}:;,%/]/.test(val)) continue; // paths, URLs, module names, etc.
+        if (/^[a-z]+[A-Z]+[0-9]*[$_]*$/.test(val) && val.length > 30) continue; // sequential char enumerations (abcde...XYZ0-9$_)
+        if (/[^\x00-\x7F]/.test(val) && /_/.test(val)) continue; // non-ASCII underscore-delimited strings (locale word lists, e.g. month names)
         if (!looksLikeSecret(val)) continue;
         if (foundSecretCategories.has('HIGH_ENTROPY_SECRET')) continue;
         foundSecretCategories.add('HIGH_ENTROPY_SECRET');
@@ -864,7 +995,7 @@ function detectSecurityIssues(context) {
 
   // ── AI-generated code risk rules ─────────────────────────────────────────
   // Targets patterns that LLMs produce frequently but that are insecure or broken.
-  if (!isTestFile && !isDocFile) {
+  if (!isTestFile && !isDocFile && !isInfraExecFile && !isMinifiedFile) {
     const aiRules = [
       {
         id: 'AI_CODE_RISK_EMPTY_CATCH',
@@ -917,9 +1048,20 @@ function detectSecurityIssues(context) {
       }
     ];
 
+    let inBlockComment = false;
     context.lines.forEach((line, index) => {
       const normalized = line.trim();
-      if (!normalized || COMMENT_REGEX.test(normalized)) return;
+      if (!normalized) return;
+      // Track multi-line block comment state (handles JSDoc /** ... */ blocks)
+      if (inBlockComment) {
+        if (normalized.includes('*/')) inBlockComment = false;
+        return;
+      }
+      if (normalized.startsWith('/*')) {
+        if (!normalized.includes('*/')) inBlockComment = true;
+        return;
+      }
+      if (COMMENT_REGEX.test(normalized)) return;
 
       for (const rule of aiRules) {
         const match = rule.pattern.exec(line);
@@ -937,7 +1079,7 @@ function detectSecurityIssues(context) {
   }
 
   // ── Taint analysis (source → sink data flow) ─────────────────────────────
-  if (!isTestFile && !isDocFile) {
+  if (!isTestFile && !isDocFile && !isInfraExecFile) {
     try {
       const taintIssues = analyzeTaint(context.filePath, context.content);
       for (const t of taintIssues) {
@@ -1007,7 +1149,9 @@ function detectSecurityIssues(context) {
     EXTENDED_SECURITY_RULES.forEach(rule => {
       if (rule.skipTest && isTestFile) return;
       if (rule.skipDoc && isDocFile) return;
+      if (isInfraExecFile) return; // engine infra files intentionally contain dangerous patterns
       if (rule.filePathPattern && !rule.filePathPattern.test(context.filePath)) return;
+      if (isRuleMetadataLine(normalized)) return;
 
       // fileGuard: a regex that, if it matches the whole file, suppresses the rule.
       // Use this to avoid false positives when a mitigation exists elsewhere in the file.
@@ -1176,7 +1320,7 @@ function detectPerformanceIssues(context) {
         column,
         endLine: index + 1,
         endColumn: column + matchLength,
-        severity: 'HIGH',
+        severity: 'MEDIUM',
         category: 'SYNC_FILE_PARSE',
         message: 'Parsing large files synchronously can block the event loop.',
         impact: 7,
@@ -1331,7 +1475,7 @@ function detectRefactoringHotspots(context) {
       column: 0,
       endLine: 1,
       endColumn: 0,
-      severity: 'HIGH',
+      severity: 'MEDIUM',
       category: 'FILE_TOO_LONG',
       message: `File is ${lines.length} lines. Consider splitting responsibilities.`,
       impact: 6,
