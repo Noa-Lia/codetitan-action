@@ -24,6 +24,17 @@ inputs:
     description: 'Fail the build if findings at this severity or above are found (LOW, MEDIUM, HIGH, CRITICAL)'
     required: false
     default: 'HIGH'
+  risk-threshold:
+    description: 'Fail the build if the repo-specific PR risk score meets or exceeds this threshold'
+    required: false
+    default: '80'
+  changed-only:
+    description: 'Analyze only changed files. Defaults to enabled for pull_request events when omitted.'
+    required: false
+    default: ''
+  diff-base:
+    description: 'Optional git base ref or commit SHA used with changed-only mode'
+    required: false
   format:
     description: 'Report format to emit in addition to JSON (json, sarif, both)'
     required: false
@@ -38,6 +49,10 @@ inputs:
     description: 'Post analysis summary as a comment on the PR'
     required: false
     default: 'true'
+  debug:
+    description: 'Enable verbose action debug logging'
+    required: false
+    default: 'false'
 
 outputs:
   passed:
@@ -56,6 +71,10 @@ outputs:
     description: 'Milliseconds spent inside the CodeTitan analysis engine'
   total-ms:
     description: 'Total milliseconds spent inside the action run'
+  personalization-score:
+    description: 'Repo personalization score (0-100) after the current run'
+  risk-score:
+    description: 'Repo-specific PR risk score for the current analysis'
   report-path:
     description: 'Path to the generated JSON report'
   summary-path:
@@ -64,6 +83,10 @@ outputs:
     description: 'Path to the generated SARIF report when requested'
   top-findings-summary:
     description: 'Short markdown bullet list of top findings'
+  failure-kind:
+    description: 'Failure classification (none, quality_gate, risk_gate, action_error)'
+  report-url:
+    description: 'Public shareable report URL (only set when api-key is provided and share succeeds)'
 
 runs:
   using: 'node24'
