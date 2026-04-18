@@ -1006,8 +1006,13 @@ async function runCoreAnalysisWith(coreApi, projectPath, level, options = {}) {
             ? (path.isAbsolute(rawPath) ? rawPath : path.resolve(analysisRoot, rawPath))
             : '';
         const displayFile = isFileTarget && absoluteFile ? projectPath : absoluteFile;
-        const relativePath = displayFile
-            ? path.relative(rootPath, displayFile).replace(/\\/g, '/')
+        // When changed-only mode copies files into a temp workspace, remap the
+        // temp path back to the original rootPath so findings show clean repo-relative paths.
+        const resolvedDisplay = tempDir && displayFile && displayFile.startsWith(tempDir)
+            ? path.join(rootPath, displayFile.slice(tempDir.length))
+            : displayFile;
+        const relativePath = resolvedDisplay
+            ? path.relative(rootPath, resolvedDisplay).replace(/\\/g, '/')
             : 'unknown';
         return {
             file_path: relativePath,
