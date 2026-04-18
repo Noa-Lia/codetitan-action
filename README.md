@@ -13,7 +13,7 @@ What it does:
 
 Live PR with CodeTitan comment:
 - PR: `https://github.com/Noa-Lia/codetitan-sarif-demo/pull/1`
-- Run: `https://github.com/Noa-Lia/codetitan-sarif-demo/actions/runs/24600799306`
+- Run: `https://github.com/Noa-Lia/codetitan-sarif-demo/actions/runs/24601119155`
 - Live code scanning alert: `https://github.com/Noa-Lia/codetitan-sarif-demo/security/code-scanning/2`
 
 ## Example Workflow
