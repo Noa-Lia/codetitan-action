@@ -482,7 +482,7 @@ function createFinding(node, sinkType, sink, taintInfo, code, context = {}) {
  */
 function getRemediation(sinkType) {
     const remediations = {
-        CODE_EXECUTION: 'Never use eval() or Function() with user input. Use a sandboxed environment like vm2.',
+        CODE_EXECUTION: 'Never use dynamic code execution with user input. Use a sandboxed environment like vm2.',
         COMMAND_INJECTION: 'Use parameterized commands or shell-escape libraries. Avoid shell: true.',
         SQL_INJECTION: 'Use parameterized queries or an ORM. Never concatenate user input into SQL.',
         NOSQL_INJECTION: 'Validate object keys and reject $where operators from user input.',
@@ -757,26 +757,36 @@ function analyzeDataFlow(code, filePath, options = {}) {
 }
 
 /**
- * Analyze multiple files with cross-file taint tracking
+ * Analyze multiple files with cross-file taint tracking (up to 2 levels: A→B→C).
  */
 async function analyzeDataFlowCrossFile(files, options = {}) {
     const results = new Map();
-    const globalTaint = new Map();
+    let globalTaint = new Map();
 
-    // First pass: collect exports
+    // Pass 1: collect exports from each file (level 0 — local sources only)
     for (const { path: filePath, content } of files) {
         const result = analyzeDataFlow(content, filePath, options);
         results.set(filePath, result);
-
-        // Collect exported taint
         for (const [name, info] of Object.entries(result.exportedTaint)) {
             globalTaint.set(`${filePath}:${name}`, info);
         }
     }
 
-    // Second pass: propagate imports
+    // Pass 2: propagate level-1 imports — A's exports flow into B
     for (const { path: filePath, content } of files) {
-        // Re-analyze with imported taint context
+        const result = analyzeDataFlow(content, filePath, {
+            ...options,
+            importedTaint: Object.fromEntries(globalTaint),
+        });
+        results.set(filePath, result);
+        // Collect re-exported taint (B now carries A's taint through its exports)
+        for (const [name, info] of Object.entries(result.exportedTaint)) {
+            globalTaint.set(`${filePath}:${name}`, info);
+        }
+    }
+
+    // Pass 3: propagate level-2 imports — B's re-exports flow into C
+    for (const { path: filePath, content } of files) {
         const result = analyzeDataFlow(content, filePath, {
             ...options,
             importedTaint: Object.fromEntries(globalTaint),
