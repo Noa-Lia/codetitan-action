@@ -72,7 +72,12 @@ const BUFFER_BASE64_EXEC = /Buffer\.from\s*\(\s*['"`][A-Za-z0-9+/]{40,}={0,2}['"
  * @param {boolean} [opts.isPackageFile] - True if this is inside node_modules
  * @returns {Array<object>} Array of findings in CodeTitan format
  */
+const SUPPLY_CHAIN_INFRA_FILE_REGEX = /(?:fixers[\\/](?:command-exec-fixer|xss-fixer|fix-verifier)|tool-bridge|test-executor|benchmark-runner|supply-chain-analyzer)\.[jt]s$/i;
+
 function analyzeSupplyChain(filePath, content, opts = {}) {
+  // Skip engine infrastructure files that intentionally contain dangerous patterns as targets
+  if (SUPPLY_CHAIN_INFRA_FILE_REGEX.test(filePath.replace(/\\/g, '/'))) return [];
+
   const findings = [];
   const lines = content.split(/\r?\n/);
 
