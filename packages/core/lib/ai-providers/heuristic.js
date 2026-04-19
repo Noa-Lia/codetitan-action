@@ -104,8 +104,8 @@ class HeuristicProvider extends AIProvider {
    */
   generateSuggestion(issue) {
     const suggestions = {
-      'EVAL_USAGE': 'Replace eval() with JSON.parse() for data, or refactor to use explicit logic instead of dynamic code execution.',
-      'FUNCTION_CONSTRUCTOR': 'Avoid new Function(). Use explicit function definitions or safe alternatives.',
+      'EVAL_USAGE': 'Replace dynamic evaluation with JSON.parse() for data, or refactor to use explicit logic instead of runtime code execution.',
+      'FUNCTION_CONSTRUCTOR': 'Avoid dynamic function construction. Use explicit function definitions or safe alternatives.',
       'COMMAND_EXEC': 'Validate all inputs before executing commands. Use libraries like shell-escape or safer alternatives like execa with shell: false.',
       'INSECURE_HTTP': 'Replace http:// with https:// in all external requests to encrypt data in transit.',
       'HARDCODED_SECRET': 'Move credentials to environment variables (process.env.API_KEY) and use a secrets manager in production.',
