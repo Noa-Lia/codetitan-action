@@ -1309,38 +1309,46 @@ async function shareReport(report, apiKey, apiBase) {
         }
     });
 }
+// Low-signal categories that fire on nearly every repo — suppress from "top pattern"
+const NOISY_CATEGORIES = new Set(['MISSING_TESTS', 'LONG_LINE', 'FILE_TOO_LONG', 'MISSING_DOCS']);
 function buildRepoSignalsSection(report) {
     const profile = report.learnedProfile;
     if (!profile || !profile.runCount || profile.runCount < 1) {
         return [];
     }
     const lines = ['', '## Repo Signals', ''];
-    // Top hot directory (relative path only)
+    // Personalization score (merged from former "## Repo Learning" section)
+    if (profile.personalizationScore !== undefined) {
+        lines.push(`- Profile maturity: ${profile.personalizationScore}/100 (${profile.runCount} scan${profile.runCount === 1 ? '' : 's'})`);
+    }
+    // Top hot directory — leaf name only avoids GitHub's doubled-path checkout layout
     const hotDirs = profile.hotDirectories || {};
     const topDir = Object.entries(hotDirs)
         .sort((a, b) => b[1].count - a[1].count)
         .slice(0, 1)[0];
     if (topDir) {
         const [absPath, stats] = topDir;
-        const relDir = absPath.replace(/\\/g, '/').split('/').slice(-2).join('/');
-        lines.push(`- Hottest directory: \`${relDir}/\` (${stats.count} findings across ${profile.runCount} scan${profile.runCount === 1 ? '' : 's'})`);
+        const leafDir = absPath.replace(/\\/g, '/').split('/').filter(Boolean).pop() || absPath;
+        lines.push(`- Hottest directory: \`${leafDir}/\` (${stats.count} finding${stats.count === 1 ? '' : 's'} seen here)`);
     }
-    // Top category
+    // Top meaningful category — skip structural noise
     const catStats = profile.categoryStats || {};
     const topCat = Object.entries(catStats)
+        .filter(([cat]) => !NOISY_CATEGORIES.has(cat.toUpperCase()))
         .sort((a, b) => b[1].count - a[1].count)
         .slice(0, 1)[0];
     if (topCat) {
         const [cat, stats] = topCat;
         const label = cat.toLowerCase().replace(/_/g, ' ');
-        lines.push(`- Most common pattern: ${label} (avg confidence ${Math.round(stats.averageConfidence * 100)}%)`);
+        lines.push(`- Top finding pattern: ${label} (avg confidence ${Math.round(stats.averageConfidence * 100)}%)`);
     }
-    // Suppression learning signal
+    // Suppression learning — the moat signal: a fresh scanner can never say this
     const suppressionCount = Object.keys(profile.suppressionRules || {}).length;
     if (suppressionCount > 0) {
-        lines.push(`- Profile has learned ${suppressionCount} suppression rule${suppressionCount === 1 ? '' : 's'} from your dismissals`);
+        lines.push(`- Learned ${suppressionCount} suppression rule${suppressionCount === 1 ? '' : 's'} from your dismissals`);
     }
-    // AI code density (when attribution data exists — deferred wiring; branch ready)
+    // AI code density — wired when report.aiAttribution is populated (Phase 4 Tier 2 / §4.7)
+    // Contract: expect aiAttribution.coverage (number, 0–100) and aiAttribution.aiHigherFindingRate (number, delta %)
     const aiAttrib = report.aiAttribution;
     if (aiAttrib && typeof aiAttrib.coverage === 'number' && aiAttrib.coverage > 0) {
         const densityPct = aiAttrib.coverage;
@@ -1377,9 +1385,6 @@ function buildMarkdownSummary(report, findings, failOnSeverity, riskThreshold, r
     }
     if (runtimeMetrics) {
         lines.push(`- Runtime mode: ${runtimeMetrics.runtimeLabel}`, `- Runtime cache: ${runtimeMetrics.cacheHit ? 'HIT' : 'MISS'}`, `- Runtime bootstrap: ${formatDuration(runtimeMetrics.bootstrapDurationMs)}`, `- Analysis time: ${formatDuration(runtimeMetrics.analysisDurationMs)}`, `- Total action time: ${formatDuration(runtimeMetrics.totalDurationMs)}`);
-    }
-    if (report.summary?.personalizationScore !== undefined) {
-        lines.push('', '## Repo Learning', '', `- Personalization score: ${report.summary.personalizationScore}/100`);
     }
     if (report.prRiskScore?.score !== undefined) {
         lines.push('', '## PR Risk', '', `- Score: ${report.prRiskScore.score}`, `- Level: ${report.prRiskScore.level || 'low'}`, `- Grade: ${report.prRiskScore.grade || 'A'}`, `- Summary: ${report.prRiskScore.reason || 'Risk is driven by current findings.'}`);
