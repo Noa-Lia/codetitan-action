@@ -13,6 +13,9 @@ class AgentSDK extends EventEmitter {
   constructor({
     agentId = null,
     agentName,
+    role = null,
+    toolBudget = null,
+    verificationStatus = 'not_started',
     registryManager,
     messageBus = null,
     logger = console,
@@ -26,6 +29,7 @@ class AgentSDK extends EventEmitter {
 
     this.agentId = agentId;
     this.agentName = agentName;
+    this.role = role;
     this.registry = registryManager;
     this.messageBus = messageBus;
     this.logger = logger;
@@ -37,6 +41,25 @@ class AgentSDK extends EventEmitter {
       tasksFailed: 0,
       totalExecutionTime: 0,
       heartbeatsSent: 0
+    };
+    this.runtimeState = {
+      role,
+      reasoningMode: 'standard',
+      toolBudget: toolBudget ? { ...toolBudget } : { limit: null, used: 0, remaining: null },
+      evidenceCount: 0,
+      verificationStatus,
+      toolCallsUsed: 0,
+      providerUsage: {
+        selectedProvider: null,
+        selectedModel: null,
+        totalCostUsd: 0,
+        retries: 0,
+        tokensUsed: { input: 0, output: 0, cached: 0 }
+      },
+      toolMetrics: {},
+      reviewArtifactPath: null,
+      fixSessionId: null,
+      fixSessionPath: null
     };
 
     this.sessionStartedAt = null;
@@ -84,6 +107,9 @@ class AgentSDK extends EventEmitter {
     const identifier = this.ensureAgentIdentifier();
     if (identifier) {
       this.registry.updateAgentStatus(identifier, status);
+      if (typeof this.registry.updateAgentRuntimeState === 'function') {
+        this.registry.updateAgentRuntimeState(identifier, this.runtimeState);
+      }
     } else {
       callLogger(this.logger, 'warn', '[AgentSDK] Unable to resolve agent identifier during startSession');
     }
@@ -124,7 +150,7 @@ class AgentSDK extends EventEmitter {
       return;
     }
 
-    this.registry.touchAgent(identifier, status);
+    this.registry.touchAgent(identifier, status, this.runtimeState);
     this.metrics.heartbeatsSent += 1;
     this.emit('heartbeat', { identifier, status, timestamp: Date.now() });
   }
@@ -159,13 +185,44 @@ class AgentSDK extends EventEmitter {
     resultSummary = null,
     qualityScore = success ? 1 : 0,
     error = null,
-    statusOnComplete = success ? 'idle' : 'active'
+    statusOnComplete = success ? 'idle' : 'active',
+    role = this.runtimeState.role,
+    toolBudget = this.runtimeState.toolBudget,
+    evidenceCount = this.runtimeState.evidenceCount,
+    verificationStatus = success ? 'verified' : 'failed',
+    toolCallsUsed = this.runtimeState.toolCallsUsed,
+    reasoningMode = this.runtimeState.reasoningMode || 'standard',
+    providerUsage = this.runtimeState.providerUsage || null,
+    toolMetrics = this.runtimeState.toolMetrics || null,
+    reviewArtifactPath = this.runtimeState.reviewArtifactPath || null,
+    fixSessionId = this.runtimeState.fixSessionId || null,
+    fixSessionPath = this.runtimeState.fixSessionPath || null
   } = {}) {
     const activeTask = this.currentTask;
     const resolvedTaskId = taskId || (activeTask ? activeTask.id : null);
     const startedAt = activeTask ? activeTask.startedAt : Date.now();
     const duration = executionTime != null ? executionTime : Math.max(0, Date.now() - startedAt);
     const identifier = this.ensureAgentIdentifier();
+
+    this.runtimeState = {
+      role,
+      reasoningMode,
+      toolBudget: toolBudget ? { ...toolBudget } : { limit: null, used: toolCallsUsed, remaining: null },
+      evidenceCount,
+      verificationStatus,
+      toolCallsUsed,
+      providerUsage: providerUsage ? { ...providerUsage } : {
+        selectedProvider: null,
+        selectedModel: null,
+        totalCostUsd: 0,
+        retries: 0,
+        tokensUsed: { input: 0, output: 0, cached: 0 }
+      },
+      toolMetrics: toolMetrics ? { ...toolMetrics } : {},
+      reviewArtifactPath,
+      fixSessionId,
+      fixSessionPath
+    };
 
     if (identifier && resolvedTaskId) {
       const completed = this.registry.completeTask(
@@ -178,7 +235,18 @@ class AgentSDK extends EventEmitter {
           action: activeTask?.metadata?.action,
           resultSummary,
           error,
-          executionTime: duration
+          executionTime: duration,
+          role,
+          toolBudget: this.runtimeState.toolBudget,
+          reasoningMode,
+          providerUsage: this.runtimeState.providerUsage,
+          toolMetrics: this.runtimeState.toolMetrics,
+          evidenceCount,
+          verificationStatus,
+          toolCallsUsed,
+          reviewArtifactPath,
+          fixSessionId,
+          fixSessionPath
         }
       );
 
@@ -188,7 +256,18 @@ class AgentSDK extends EventEmitter {
           executionTime: duration,
           taskAction: activeTask?.metadata?.action,
           resultSummary,
-          error
+          error,
+          role,
+          toolBudget: this.runtimeState.toolBudget,
+          reasoningMode,
+          providerUsage: this.runtimeState.providerUsage,
+          toolMetrics: this.runtimeState.toolMetrics,
+          evidenceCount,
+          verificationStatus,
+          toolCallsUsed,
+          reviewArtifactPath,
+          fixSessionId,
+          fixSessionPath
         });
       }
     } else if (!identifier) {
@@ -252,7 +331,18 @@ class AgentSDK extends EventEmitter {
       successRate,
       averageExecutionTime,
       heartbeatsSent,
-      sessionStartedAt: this.sessionStartedAt
+      sessionStartedAt: this.sessionStartedAt,
+      role: this.runtimeState.role,
+      reasoningMode: this.runtimeState.reasoningMode || 'standard',
+      toolBudget: this.runtimeState.toolBudget,
+      evidenceCount: this.runtimeState.evidenceCount,
+      verificationStatus: this.runtimeState.verificationStatus,
+      toolCallsUsed: this.runtimeState.toolCallsUsed,
+      providerUsage: this.runtimeState.providerUsage,
+      toolMetrics: this.runtimeState.toolMetrics,
+      reviewArtifactPath: this.runtimeState.reviewArtifactPath || null,
+      fixSessionId: this.runtimeState.fixSessionId || null,
+      fixSessionPath: this.runtimeState.fixSessionPath || null
     };
   }
 }
