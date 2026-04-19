@@ -18,8 +18,13 @@
 
 const fs = require('fs');
 const fsp = fs.promises;
+const os = require('os');
 const path = require('path');
-const { execSync } = require('child_process');
+const crypto = require('crypto');
+const { execSync, spawnSync } = require('child_process');
+const GitWorktreeManager = require('./git-worktree-manager');
+const BrowserMCPClient = require('./browser-mcp-client');
+const { postPRAnnotations } = require('./github-integration');
 
 class ToolBridge {
   constructor(options = {}) {
@@ -32,6 +37,7 @@ class ToolBridge {
       maxFileSize: options.maxFileSize || 1024 * 1024, // 1MB default
       backupDir: options.backupDir || path.join(process.cwd(), '.tool-bridge-backups'),
       commandAllowlist: options.commandAllowlist || [],
+      testCommandAllowlist: options.testCommandAllowlist || ['npm', 'pnpm', 'yarn', 'npx', 'node', 'jest', 'vitest', 'mocha'],
       ...options
     };
 
@@ -46,7 +52,13 @@ class ToolBridge {
       backupsCreated: 0,
       rollbacksPerformed: 0,
       validationsPassed: 0,
-      validationsFailed: 0
+      validationsFailed: 0,
+      worktreesCreated: 0,
+      worktreesRemoved: 0,
+      worktreePromotions: 0,
+      historyReads: 0,
+      browserCalls: 0,
+      githubReviewsPosted: 0
     };
 
     // Change tracking
@@ -57,6 +69,12 @@ class ToolBridge {
     if (this.options.enableBackups) {
       fsp.mkdir(this.options.backupDir, { recursive: true }).catch(() => { });
     }
+    this.worktreeManager = options.worktreeManager || new GitWorktreeManager({
+      repoPath: this.options.workingDirectory,
+      workspaceDir: options.workspaceDir || '.codetitan/worktrees',
+      logger: console
+    });
+    this.browserClient = options.browserClient || null;
 
     console.log('[ToolBridge] Initialized');
     console.log(`[ToolBridge] Working directory: ${this.options.workingDirectory}`);
@@ -112,6 +130,70 @@ class ToolBridge {
     }
 
     return trimmed;
+  }
+
+  _validateExecutable(command, allowlist = [], label = 'command') {
+    const executable = String(command || '').trim();
+
+    if (!executable) {
+      throw new Error(`${label} is required`);
+    }
+
+    if (/[\\/]/.test(executable)) {
+      throw new Error(`${label} must be a bare executable name`);
+    }
+
+    if (!allowlist.includes(executable)) {
+      throw new Error(`${label} not allowed by allowlist`);
+    }
+
+    return executable;
+  }
+
+  _resolveCwd(targetPath = '.') {
+    return this._validatePath(targetPath || '.');
+  }
+
+  _spawn(command, args = [], options = {}) {
+    const executable = this._validateExecutable(command, options.allowlist || [], options.label || 'command');
+    const cwd = this._resolveCwd(options.cwd || '.');
+    const timeout = options.timeout || 30000;
+    const maxBuffer = options.maxBuffer || 1024 * 1024;
+
+    const result = spawnSync(executable, args, {
+      cwd,
+      encoding: 'utf8',
+      timeout,
+      maxBuffer,
+      shell: false
+    });
+
+    this.metrics.commandsExecuted++;
+
+    if (result.error) {
+      this.metrics.errors++;
+      return {
+        success: false,
+        command: executable,
+        args,
+        cwd,
+        error: result.error.message,
+        exitCode: result.status ?? 1,
+        stdout: result.stdout || '',
+        stderr: result.stderr || ''
+      };
+    }
+
+    const exitCode = typeof result.status === 'number' ? result.status : 0;
+    return {
+      success: exitCode === 0,
+      command: executable,
+      args,
+      cwd,
+      exitCode,
+      stdout: result.stdout || '',
+      stderr: result.stderr || ''
+    };
   }
 
   /**
@@ -438,6 +520,678 @@ class ToolBridge {
     };
 
     return analysis;
+  }
+
+  async searchCode(query, options = {}) {
+    if (!this.options.enableFileOperations) {
+      throw new Error('File operations are disabled');
+    }
+
+    const normalizedQuery = String(query || '').trim();
+    if (!normalizedQuery) {
+      return {
+        success: false,
+        query,
+        error: 'Search query is required'
+      };
+    }
+
+    const basePath = options.path || '.';
+    const caseSensitive = options.caseSensitive === true;
+    const maxResults = Math.max(1, Math.min(Number(options.maxResults) || 20, 200));
+    const extensions = Array.isArray(options.extensions) && options.extensions.length > 0
+      ? options.extensions
+        .map(value => String(value || '').trim())
+        .filter(Boolean)
+      : null;
+    const extension = options.extension || null;
+    const allowedExtensions = extensions && extensions.length > 0
+      ? extensions
+      : (extension ? [extension] : null);
+    const includeHidden = options.includeHidden === true;
+    const maxFiles = Math.max(1, Math.min(Number(options.maxFiles) || 200, 1000));
+    const matches = [];
+    let filesScanned = 0;
+
+    try {
+      const root = this._validatePath(basePath);
+      const candidateFiles = [];
+
+      const walk = async (absoluteDir, relativeDir) => {
+        if (candidateFiles.length >= maxFiles || matches.length >= maxResults) {
+          return;
+        }
+
+        const entries = await fsp.readdir(absoluteDir, { withFileTypes: true });
+        for (const entry of entries) {
+          if (!includeHidden && entry.name.startsWith('.')) {
+            continue;
+          }
+
+          const relativePath = relativeDir === '.'
+            ? entry.name
+            : path.join(relativeDir, entry.name);
+          const absolutePath = path.join(absoluteDir, entry.name);
+
+          if (entry.isDirectory()) {
+            if (entry.name === 'node_modules' || entry.name === '.git') {
+              continue;
+            }
+
+            await walk(absolutePath, relativePath);
+            if (candidateFiles.length >= maxFiles || matches.length >= maxResults) {
+              return;
+            }
+            continue;
+          }
+
+          if (!entry.isFile()) {
+            continue;
+          }
+
+          if (allowedExtensions && !allowedExtensions.some(value => entry.name.endsWith(value))) {
+            continue;
+          }
+
+          candidateFiles.push({ absolutePath, relativePath });
+          if (candidateFiles.length >= maxFiles) {
+            return;
+          }
+        }
+      };
+
+      await walk(root, basePath === '.' ? '.' : basePath);
+
+      const searchNeedle = caseSensitive ? normalizedQuery : normalizedQuery.toLowerCase();
+      for (const file of candidateFiles) {
+        if (matches.length >= maxResults) {
+          break;
+        }
+
+        const stats = await fsp.stat(file.absolutePath).catch(() => null);
+        if (!stats || !stats.isFile() || stats.size > this.options.maxFileSize) {
+          continue;
+        }
+
+        const content = await fsp.readFile(file.absolutePath, 'utf8').catch(() => null);
+        if (typeof content !== 'string') {
+          continue;
+        }
+
+        filesScanned++;
+        const lines = content.split('\n');
+        for (let index = 0; index < lines.length; index += 1) {
+          const line = lines[index];
+          const haystack = caseSensitive ? line : line.toLowerCase();
+          const column = haystack.indexOf(searchNeedle);
+          if (column === -1) {
+            continue;
+          }
+
+          matches.push({
+            file: file.relativePath,
+            line: index + 1,
+            column: column + 1,
+            preview: line.trim().slice(0, 240)
+          });
+
+          if (matches.length >= maxResults) {
+            break;
+          }
+        }
+      }
+
+      return {
+        success: true,
+        query: normalizedQuery,
+        basePath,
+        matches,
+        filesScanned,
+        truncated: matches.length >= maxResults
+      };
+    } catch (error) {
+      this.metrics.errors++;
+      console.error('[ToolBridge] Search error:', error.message);
+      return {
+        success: false,
+        query: normalizedQuery,
+        basePath,
+        error: error.message
+      };
+    }
+  }
+
+  async runTests(input = {}) {
+    try {
+      const command = input.command || 'npm';
+      const args = Array.isArray(input.args) ? input.args : [];
+      const result = this._spawn(command, args, {
+        allowlist: this.options.testCommandAllowlist,
+        label: 'test command',
+        cwd: input.cwd || '.',
+        timeout: input.timeoutMs || input.timeout || 60000,
+        maxBuffer: input.maxBuffer || 1024 * 1024
+      });
+
+      return {
+        ...result,
+        passed: result.success
+      };
+    } catch (error) {
+      this.metrics.errors++;
+      return {
+        success: false,
+        command: input.command || 'npm',
+        args: Array.isArray(input.args) ? input.args : [],
+        cwd: input.cwd || '.',
+        error: error.message,
+        exitCode: 1,
+        stdout: '',
+        stderr: ''
+      };
+    }
+  }
+
+  async gitStatus(input = {}) {
+    try {
+      const result = this._spawn('git', ['status', '--short', '--branch', '--porcelain=v1'], {
+        allowlist: ['git'],
+        label: 'git command',
+        cwd: input.cwd || '.',
+        timeout: input.timeoutMs || input.timeout || 30000
+      });
+
+      if (!result.success) {
+        this.metrics.errors++;
+        return result;
+      }
+
+      const lines = result.stdout.split('\n').filter(Boolean);
+      let branch = null;
+      const files = [];
+
+      lines.forEach(line => {
+        if (line.startsWith('## ')) {
+          branch = line.slice(3).trim();
+          return;
+        }
+
+        const rawStatus = line.slice(0, 2);
+        const filePath = line.slice(3).trim();
+        files.push({
+          rawStatus,
+          indexStatus: rawStatus[0] || ' ',
+          worktreeStatus: rawStatus[1] || ' ',
+          path: filePath
+        });
+      });
+
+      return {
+        ...result,
+        branch,
+        files,
+        clean: files.length === 0
+      };
+    } catch (error) {
+      this.metrics.errors++;
+      return {
+        success: false,
+        error: error.message,
+        exitCode: 1,
+        stdout: '',
+        stderr: ''
+      };
+    }
+  }
+
+  async gitDiff(input = {}) {
+    try {
+      const args = ['diff', '--no-ext-diff', `--unified=${Math.max(0, Number(input.unified) || 3)}`];
+
+      if (input.cached) {
+        args.push('--cached');
+      }
+
+      if (input.base && input.head) {
+        args.push(input.base, input.head);
+      } else if (input.base) {
+        args.push(input.base);
+      } else if (input.head) {
+        args.push('HEAD', input.head);
+      }
+
+      const pathspecs = [];
+      if (typeof input.file === 'string' && input.file.trim()) {
+        pathspecs.push(input.file);
+      }
+      if (Array.isArray(input.paths)) {
+        pathspecs.push(...input.paths.filter(Boolean));
+      }
+      if (pathspecs.length > 0) {
+        args.push('--', ...pathspecs);
+      }
+
+      const result = this._spawn('git', args, {
+        allowlist: ['git'],
+        label: 'git command',
+        cwd: input.cwd || '.',
+        timeout: input.timeoutMs || input.timeout || 30000,
+        maxBuffer: input.maxBuffer || 2 * 1024 * 1024
+      });
+
+      if (!result.success) {
+        this.metrics.errors++;
+        return result;
+      }
+
+      const diff = result.stdout || '';
+      return {
+        ...result,
+        diff,
+        isEmpty: diff.trim().length === 0,
+        lines: diff ? diff.split('\n').length : 0,
+        filesChanged: (diff.match(/^diff --git /gm) || []).length
+      };
+    } catch (error) {
+      this.metrics.errors++;
+      return {
+        success: false,
+        error: error.message,
+        exitCode: 1,
+        stdout: '',
+        stderr: ''
+      };
+    }
+  }
+
+  historyRoot() {
+    return path.join(os.homedir(), '.codetitan', 'history');
+  }
+
+  projectHash(projectPath) {
+    const normalized = path.resolve(projectPath).toLowerCase().replace(/\\/g, '/');
+    return crypto.createHash('sha1').update(normalized).digest('hex').slice(0, 12);
+  }
+
+  resolveHistoryProjectPath(projectPath = '.') {
+    if (typeof projectPath === 'string' && path.isAbsolute(projectPath)) {
+      const relativeToRoot = path.relative(path.resolve(this.options.workingDirectory), path.resolve(projectPath));
+      if (relativeToRoot.startsWith('..') || path.isAbsolute(relativeToRoot)) {
+        throw new Error(`projectPath escapes working directory: ${projectPath}`);
+      }
+      return path.resolve(projectPath);
+    }
+
+    return this._validatePath(projectPath || '.');
+  }
+
+  getHistoryProjectDir(projectPath) {
+    return path.join(this.historyRoot(), this.projectHash(projectPath));
+  }
+
+  readHistoryRunFromFile(filePath) {
+    const raw = fs.readFileSync(filePath, 'utf8');
+    this.metrics.historyReads++;
+    this.metrics.bytesRead += raw.length;
+    return JSON.parse(raw);
+  }
+
+  loadHistoryRuns(projectPath, limit = 10) {
+    const dir = this.getHistoryProjectDir(projectPath);
+    if (!fs.existsSync(dir)) {
+      return [];
+    }
+
+    return fs.readdirSync(dir)
+      .filter(file => file.endsWith('.json') && file !== 'meta.json')
+      .sort()
+      .reverse()
+      .slice(0, Math.max(1, Number(limit) || 10))
+      .map(file => this.readHistoryRunFromFile(path.join(dir, file)));
+  }
+
+  loadHistoryRun(projectPath, runId) {
+    const dir = this.getHistoryProjectDir(projectPath);
+    const runPath = path.join(dir, `${runId}.json`);
+    if (!fs.existsSync(runPath)) {
+      return null;
+    }
+    return this.readHistoryRunFromFile(runPath);
+  }
+
+  buildFindingSignature(finding = {}) {
+    return `${finding.category}:${finding.file_path}:${finding.line_number}`;
+  }
+
+  diffHistoryRuns(runA, runB) {
+    const findingsA = Array.isArray(runA?.report?.findings) ? runA.report.findings : [];
+    const findingsB = Array.isArray(runB?.report?.findings) ? runB.report.findings : [];
+    const mapA = new Map(findingsA.map(finding => [this.buildFindingSignature(finding), finding]));
+    const mapB = new Map(findingsB.map(finding => [this.buildFindingSignature(finding), finding]));
+
+    const added = [];
+    const fixed = [];
+    const unchanged = [];
+
+    mapB.forEach((finding, signature) => {
+      if (mapA.has(signature)) {
+        unchanged.push(finding);
+      } else {
+        added.push(finding);
+      }
+    });
+
+    mapA.forEach((finding, signature) => {
+      if (!mapB.has(signature)) {
+        fixed.push(finding);
+      }
+    });
+
+    return { added, fixed, unchanged };
+  }
+
+  async fetchHistory(input = {}) {
+    try {
+      const projectPath = this.resolveHistoryProjectPath(input.projectPath || '.');
+      const historyDir = this.getHistoryProjectDir(projectPath);
+      const limit = Math.max(1, Math.min(Number(input.limit) || 10, 100));
+      const runFiles = fs.existsSync(historyDir)
+        ? fs.readdirSync(historyDir).filter(file => file.endsWith('.json') && file !== 'meta.json').sort().reverse()
+        : [];
+
+      if (input.runId) {
+        const run = this.loadHistoryRun(projectPath, input.runId);
+        if (!run) {
+          throw new Error(`Run not found: ${input.runId}`);
+        }
+
+        return {
+          success: true,
+          projectPath,
+          projectHash: this.projectHash(projectPath),
+          runCount: runFiles.length,
+          run,
+          runs: [
+            {
+              runId: run.runId,
+              timestamp: run.timestamp,
+              total: run.total,
+              severity: run.severity
+            }
+          ]
+        };
+      }
+
+      const runs = this.loadHistoryRuns(projectPath, limit);
+      return {
+        success: true,
+        projectPath,
+        projectHash: this.projectHash(projectPath),
+        runCount: runFiles.length,
+        runs: runs.map(run => ({
+          runId: run.runId,
+          timestamp: run.timestamp,
+          total: run.total,
+          severity: run.severity
+        }))
+      };
+    } catch (error) {
+      this.metrics.errors++;
+      return {
+        success: false,
+        error: error.message
+      };
+    }
+  }
+
+  async compareRuns(input = {}) {
+    try {
+      if (!input.runA || !input.runB) {
+        throw new Error('compareRuns requires runA and runB');
+      }
+
+      const projectPath = this.resolveHistoryProjectPath(input.projectPath || '.');
+      const runA = this.loadHistoryRun(projectPath, input.runA);
+      const runB = this.loadHistoryRun(projectPath, input.runB);
+
+      if (!runA) {
+        throw new Error(`Run not found: ${input.runA}`);
+      }
+      if (!runB) {
+        throw new Error(`Run not found: ${input.runB}`);
+      }
+
+      const diff = this.diffHistoryRuns(runA, runB);
+      return {
+        success: true,
+        projectPath,
+        baseline: {
+          runId: runA.runId,
+          timestamp: runA.timestamp,
+          total: runA.total,
+          severity: runA.severity
+        },
+        current: {
+          runId: runB.runId,
+          timestamp: runB.timestamp,
+          total: runB.total,
+          severity: runB.severity
+        },
+        added: diff.added,
+        fixed: diff.fixed,
+        unchanged: diff.unchanged
+      };
+    } catch (error) {
+      this.metrics.errors++;
+      return {
+        success: false,
+        error: error.message
+      };
+    }
+  }
+
+  async getBrowserClient() {
+    if (!this.browserClient) {
+      this.browserClient = new BrowserMCPClient({
+        verbose: false
+      });
+    }
+
+    await this.browserClient.start();
+    return this.browserClient;
+  }
+
+  normalizeBrowserContent(content) {
+    if (!Array.isArray(content)) {
+      return {
+        items: [],
+        text: '',
+        bytesTouched: 0
+      };
+    }
+
+    const items = content.map(item => {
+      if (typeof item === 'string') {
+        return { type: 'text', text: item };
+      }
+      return item || {};
+    });
+    const text = items
+      .map(item => item.text || item.content || '')
+      .filter(Boolean)
+      .join('\n');
+
+    return {
+      items,
+      text,
+      bytesTouched: Buffer.byteLength(text, 'utf8')
+    };
+  }
+
+  async browseWeb(input = {}) {
+    const url = String(input.url || '').trim();
+    const action = input.action || 'read';
+
+    if (!url) {
+      return {
+        success: false,
+        error: 'browseWeb requires a url'
+      };
+    }
+
+    try {
+      const client = await this.getBrowserClient();
+      let content;
+
+      if (action === 'screenshot') {
+        content = await client.screenshot(url);
+      } else if (action === 'click') {
+        content = await client.click(url, input.selector);
+      } else if (action === 'type') {
+        content = await client.type(url, input.selector, input.text || '');
+      } else {
+        content = await client.read(url);
+      }
+
+      const normalized = this.normalizeBrowserContent(content);
+      this.metrics.browserCalls += 1;
+      this.metrics.bytesRead += normalized.bytesTouched;
+
+      return {
+        success: true,
+        url,
+        action,
+        selector: input.selector || null,
+        itemCount: normalized.items.length,
+        text: normalized.text,
+        content: normalized.items,
+        bytesTouched: normalized.bytesTouched
+      };
+    } catch (error) {
+      this.metrics.errors += 1;
+      return {
+        success: false,
+        url,
+        action,
+        error: error.message
+      };
+    }
+  }
+
+  async postGitHubReview(input = {}) {
+    const token = input.token || process.env.GITHUB_TOKEN;
+    const findings = Array.isArray(input.findings) ? input.findings : [];
+
+    if (!token) {
+      return {
+        success: false,
+        error: 'GitHub token is required'
+      };
+    }
+
+    if (findings.length === 0) {
+      return {
+        success: false,
+        error: 'At least one finding is required'
+      };
+    }
+
+    try {
+      const response = await postPRAnnotations(findings, {
+        owner: input.owner,
+        repo: input.repo,
+        prNumber: input.prNumber,
+        commitSha: input.commitSha,
+        token
+      });
+
+      this.metrics.githubReviewsPosted += 1;
+      return {
+        success: true,
+        owner: input.owner,
+        repo: input.repo,
+        prNumber: input.prNumber,
+        commitSha: input.commitSha,
+        reviewId: response?.id || null,
+        commentCount: Array.isArray(response?.comments) ? response.comments.length : findings.length,
+        response
+      };
+    } catch (error) {
+      this.metrics.errors += 1;
+      return {
+        success: false,
+        owner: input.owner,
+        repo: input.repo,
+        prNumber: input.prNumber,
+        error: error.message
+      };
+    }
+  }
+
+  async createWorktree(input = {}) {
+    try {
+      const handle = this.worktreeManager.createWorktree({
+        name: input.name || 'agent-worktree',
+        baseDir: input.baseDir || '.codetitan/worktrees',
+        ref: input.ref,
+        fallbackToCopy: input.fallbackToCopy
+      });
+
+      this.metrics.worktreesCreated++;
+      return {
+        success: true,
+        ...handle
+      };
+    } catch (error) {
+      this.metrics.errors++;
+      return {
+        success: false,
+        error: error.message
+      };
+    }
+  }
+
+  async removeWorktree(input = {}) {
+    try {
+      const result = this.worktreeManager.removeWorktree(input.path || input.handleId || input.handle);
+      this.metrics.worktreesRemoved++;
+      return {
+        success: true,
+        ...result
+      };
+    } catch (error) {
+      this.metrics.errors++;
+      return {
+        success: false,
+        error: error.message
+      };
+    }
+  }
+
+  async promoteWorktree(input = {}) {
+    try {
+      const files = Array.isArray(input.files) ? input.files.filter(Boolean) : [];
+      if (files.length === 0) {
+        throw new Error('Promotion requires one or more files');
+      }
+
+      const result = this.worktreeManager.promoteFiles(
+        input.path || input.handleId || input.handle,
+        files
+      );
+
+      this.metrics.worktreePromotions++;
+      return {
+        success: true,
+        ...result
+      };
+    } catch (error) {
+      this.metrics.errors++;
+      return {
+        success: false,
+        error: error.message
+      };
+    }
   }
 
   /**
