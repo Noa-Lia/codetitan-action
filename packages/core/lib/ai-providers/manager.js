@@ -361,6 +361,148 @@ class AIProviderManager {
       errors: []
     };
   }
+
+  normalizeReasoningMode(reasoningMode) {
+    return reasoningMode === 'deep' ? 'deep' : 'standard';
+  }
+
+  getBudgetPolicy(roleProfile = {}, reasoningMode = 'standard', overrides = {}) {
+    const normalizedMode = this.normalizeReasoningMode(reasoningMode);
+    const baseToolBudget = { ...(roleProfile.toolBudget || {}) };
+    const basePromptBudget = { ...(roleProfile.promptBudget || {}) };
+
+    if (normalizedMode === 'deep') {
+      if (typeof baseToolBudget.maxCalls === 'number') {
+        baseToolBudget.maxCalls += 2;
+      }
+
+      if (typeof basePromptBudget.tokenCap === 'number') {
+        basePromptBudget.tokenCap *= 2;
+      }
+
+      if (typeof basePromptBudget.usdCap === 'number') {
+        basePromptBudget.usdCap = Number((basePromptBudget.usdCap * 2).toFixed(2));
+      }
+    }
+
+    return {
+      reasoningMode: normalizedMode,
+      toolBudget: {
+        ...baseToolBudget,
+        ...(overrides.toolBudget || {})
+      },
+      promptBudget: {
+        ...basePromptBudget,
+        ...(overrides.promptBudget || {})
+      }
+    };
+  }
+
+  mapActionToDomain(action = 'review') {
+    switch (String(action || '').toLowerCase()) {
+      case 'security-review':
+        return 'security-god';
+      case 'optimize':
+      case 'performance-review':
+        return 'performance-god';
+      case 'test':
+      case 'validate':
+        return 'test-god';
+      case 'fix':
+      case 'refactor':
+        return 'refactoring-god';
+      case 'review':
+      case 'compare':
+      case 'replay':
+      case 'analyze':
+      default:
+        return 'documentation-god';
+    }
+  }
+
+  buildAdvisorPrompt(payload = {}) {
+    return JSON.stringify({
+      action: payload.action || 'review',
+      summary: payload.summary || '',
+      evidenceSummary: payload.evidenceSummary || '',
+      evidenceCount: Array.isArray(payload.evidence) ? payload.evidence.length : 0,
+      toolTraceCount: Array.isArray(payload.toolTrace) ? payload.toolTrace.length : 0
+    });
+  }
+
+  async validateAdvisorDecision(payload = {}) {
+    const requested = payload.enabled === true;
+    const reasoningMode = this.normalizeReasoningMode(payload.reasoningMode);
+
+    if (!requested) {
+      return {
+        requested: false,
+        performed: false,
+        verdict: 'skipped',
+        provider: null,
+        model: null,
+        retries: 0,
+        tokensUsed: { input: 0, output: 0, cached: 0 },
+        costUSD: 0
+      };
+    }
+
+    const content = this.buildAdvisorPrompt(payload);
+    const domain = this.mapActionToDomain(payload.action);
+    let retries = 0;
+    const provider = payload.preferredProvider
+      ? await this.getProvider(payload.preferredProvider)
+      : await this.selectProvider(domain, content, { budget: payload.budgetUsd });
+    const selected = provider || this.providers.get('heuristic');
+
+    if (!selected) {
+      return {
+        requested: true,
+        performed: false,
+        verdict: 'unavailable',
+        provider: null,
+        model: null,
+        retries: 0,
+        tokensUsed: { input: 0, output: 0, cached: 0 },
+        costUSD: 0
+      };
+    }
+
+    try {
+      const result = await selected.analyze(domain, payload.filePath || 'runtime-advisor.json', content, payload.projectRoot || process.cwd(), {
+        budget: payload.budgetUsd,
+        reasoningMode
+      });
+      const issues = Array.isArray(result.issues) ? result.issues : [];
+      const verdict = issues.length > 0 ? 'questioned' : 'confirmed';
+
+      return {
+        requested: true,
+        performed: true,
+        verdict,
+        provider: result.metadata?.selectedProvider || result.metadata?.provider || selected.name,
+        model: result.metadata?.model || selected.model,
+        retries,
+        tokensUsed: result.metadata?.tokensUsed || { input: 0, output: 0, cached: 0 },
+        costUSD: result.metadata?.costUSD || 0,
+        confidence: result.metadata?.confidence ?? null,
+        issues
+      };
+    } catch (error) {
+      retries += 1;
+      return {
+        requested: true,
+        performed: false,
+        verdict: 'failed',
+        provider: selected.name,
+        model: selected.model,
+        retries,
+        tokensUsed: { input: 0, output: 0, cached: 0 },
+        costUSD: 0,
+        error: error.message
+      };
+    }
+  }
 }
 
 module.exports = AIProviderManager;
