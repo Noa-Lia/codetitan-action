@@ -292,7 +292,7 @@ if (allowed.includes(new URL(url).hostname)) fetch(url);`,
                 description: 'Hardcoded password',
             },
             {
-                code: `const AWS_SECRET = "AKIAIOSFODNN7EXAMPLE";`,
+                code: `const AWS_SECRET = "AWS_ACCESS_KEY_PLACEHOLDER";`,
                 description: 'Hardcoded AWS key',
             },
         ],
