@@ -12,6 +12,23 @@
 
 const { createClient } = require('@supabase/supabase-js');
 
+function normalizeFindingIdentityPath(value) {
+    return String(value || '').replace(/\\/g, '/');
+}
+
+/**
+ * Detect charset/alphabet strings that look like secret patterns but aren't.
+ * e.g. "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
+ */
+function looksLikeCharsetString(val) {
+    if (!val || val.length < 20) return false;
+    // Must contain uppercase run, lowercase run, AND digit run — hallmark of a charset constant
+    return /ABCDEFGHIJKLMNOPQRSTUVWXYZ/.test(val) &&
+           /abcdefghijklmnopqrstuvwxyz/.test(val) &&
+           /0123456789/.test(val) &&
+           /^[A-Za-z0-9+/=_\-\s'"]*$/.test(val);
+}
+
 /**
  * Feature weights learned from historical data
  */
@@ -142,7 +159,10 @@ class MLConfidenceScorer {
         score = this.applyContextAdjustments(score, context);
 
         // Apply false positive penalty
-        score = this.applyFalsePositivePenalty(score, finding);
+        score = this.applyFalsePositivePenalty(score, {
+            ...finding,
+            learned_signals: context.learnedProfileSignals || {}
+        });
 
         // Apply category-specific factors
         score = this.applyCategoryFactor(score, finding.category);
@@ -174,10 +194,64 @@ class MLConfidenceScorer {
     }
 
     /**
+     * Score and rerank a list of findings using project-specific context.
+     */
+    async scoreFindings(findings = [], context = {}) {
+        const scoredFindings = [];
+
+        for (const finding of findings) {
+            const identity = `${finding.category || 'UNKNOWN'}:${normalizeFindingIdentityPath(finding.file_path || finding.file || '')}:${finding.line_number || finding.line || 0}`;
+            const learnedSignals = context.findingContexts?.[identity] || {};
+            const scoreContext = {
+                ...context,
+                learnedProfileSignals: learnedSignals,
+                isSecurity: ['CRITICAL', 'HIGH'].includes(String(finding.severity || '').toUpperCase()),
+                isPerformance: /PERF|PERFORMANCE|SYNC_IO/i.test(String(finding.category || '')),
+                isStyle: /STYLE|DOC/i.test(String(finding.category || ''))
+            };
+            const result = await this.calculateConfidence(finding, scoreContext);
+
+            scoredFindings.push({
+                ...finding,
+                confidence: result.confidence,
+                confidence_score: result.score,
+                confidence_level: result.level,
+                confidence_action: result.action,
+                confidence_explanation: result.explanation,
+                learned_signals: learnedSignals
+            });
+        }
+
+        const severityOrder = {
+            CRITICAL: 4,
+            HIGH: 3,
+            MEDIUM: 2,
+            LOW: 1
+        };
+
+        scoredFindings.sort((left, right) => {
+            const confidenceDelta = Number(right.confidence || 0) - Number(left.confidence || 0);
+            if (confidenceDelta !== 0) {
+                return confidenceDelta;
+            }
+            return (severityOrder[String(right.severity || '').toUpperCase()] || 0) -
+                (severityOrder[String(left.severity || '').toUpperCase()] || 0);
+        });
+
+        return {
+            findings: scoredFindings,
+            averageConfidence: scoredFindings.length > 0
+                ? Number((scoredFindings.reduce((sum, finding) => sum + Number(finding.confidence || 0), 0) / scoredFindings.length).toFixed(2))
+                : 0
+        };
+    }
+
+    /**
      * Extract ML features from finding and context
      */
     async extractFeatures(finding, context) {
         const features = {};
+        const learnedSignals = context.learnedProfileSignals || {};
 
         // Pattern match quality (0-1)
         features.patternMatch = this.assessPatternMatch(finding);
@@ -186,13 +260,21 @@ class MLConfidenceScorer {
         features.codeComplexity = 1 - (Math.min(context.complexity || 5, 10) / 10);
 
         // Context similarity to successful fixes (0-1)
-        features.contextSimilarity = await this.calculateContextSimilarity(finding, context);
+        features.contextSimilarity = learnedSignals.contextSimilarity !== undefined
+            ? learnedSignals.contextSimilarity
+            : await this.calculateContextSimilarity(finding, context);
 
-        // Historical accept rate for this category (0-1)
-        features.categoryAcceptRate = await this.getCategoryAcceptRate(finding.category);
+        // Historical accept rate for this category.
+        // When no Supabase data, use category-based priors instead of flat 0.5
+        // so security-critical categories start high and style/docs start low.
+        features.categoryAcceptRate = learnedSignals.categoryAcceptRate !== undefined
+            ? learnedSignals.categoryAcceptRate
+            : (await this.getCategoryAcceptRate(finding.category)) ?? this.getCategoryPrior(finding.category);
 
-        // Project-specific accept rate (0-1)
-        features.projectAcceptRate = await this.getProjectAcceptRate(context.projectId);
+        // Project-specific accept rate — prior is severity-based when no history
+        features.projectAcceptRate = learnedSignals.projectAcceptRate !== undefined
+            ? learnedSignals.projectAcceptRate
+            : (await this.getProjectAcceptRate(context.projectId)) ?? this.getSeverityPrior(finding.severity);
 
         // User accept rate (0-1)
         features.userAcceptRate = await this.getUserAcceptRate(context.userId);
@@ -204,6 +286,77 @@ class MLConfidenceScorer {
         features.testCoverage = context.hasTests ? 0.8 : 0.5;
 
         return features;
+    }
+
+    /**
+     * Category-based confidence priors — used when no Supabase history exists.
+     * High-signal security categories get high prior; style/quality get low prior.
+     */
+    getCategoryPrior(category) {
+        if (!category) return 0.5;
+        const c = String(category).toUpperCase();
+
+        // Very high confidence: taint-tracked or exact-match security issues
+        if (
+            c.startsWith('TAINT_') ||
+            c === 'SQL_INJECTION' || c === 'COMMAND_EXEC' || c === 'COMMAND_INJECTION' ||
+            c === 'EVAL_USAGE' || c === 'PROTOTYPE_POLLUTION' || c === 'PROTOTYPE_POLLUTION_MERGE' ||
+            c === 'JWT_NONE_ALGORITHM' || c === 'INSECURE_DESERIALIZATION' ||
+            c === 'TIMING_ATTACK' || c === 'SESSION_FIXATION' || c === 'CSRF_PROTECTION_MISSING'
+        ) {
+            return 0.85;
+        }
+
+        // High confidence: well-known security patterns
+        if (
+            c === 'XSS' || c === 'DANGEROUSLY_SET_INNER_HTML' || c === 'OPEN_REDIRECT' ||
+            c === 'PATH_TRAVERSAL' || c === 'SSRF' || c === 'XXE' || c === 'POTENTIAL_XXE' ||
+            c === 'REGEX_INJECTION' || c === 'WEAK_HASH' || c === 'WEAK_CIPHER_DES' ||
+            c === 'JWT_WEAK_ALGORITHM' || c === 'CORS_ALL_METHODS' || c === 'CORS_ALL_HEADERS' ||
+            c === 'HARDCODED_SECRET' || c === 'CI_SECRET_IN_PLAINTEXT'
+        ) {
+            return 0.75;
+        }
+
+        // Medium-high: secrets that may have FPs (charset strings, placeholders)
+        if (
+            c.includes('SECRET') || c.includes('PASSWORD') || c.includes('KEY') ||
+            c.includes('TOKEN') || c.includes('CREDENTIAL') || c.includes('API_KEY')
+        ) {
+            return 0.65;
+        }
+
+        // Medium: performance, quality
+        if (
+            c === 'SYNC_IO' || c === 'AWAIT_IN_LOOP' || c === 'ASYNC_TIMEOUT' ||
+            c === 'NESTED_LOOPS'
+        ) {
+            return 0.60;
+        }
+
+        // Low: style / docs / structure rules — high FP potential
+        if (
+            c === 'LONG_FUNCTION' || c === 'FILE_TOO_LONG' || c === 'LONG_LINE' ||
+            c === 'MISSING_HEADER' || c === 'POOR_DOCUMENTATION' || c === 'MISSING_TESTS' ||
+            c === 'TODO_TESTS' || c === 'FOCUSED_TEST'
+        ) {
+            return 0.30;
+        }
+
+        return 0.5;
+    }
+
+    /**
+     * Severity-based prior for projectAcceptRate when no project history exists.
+     */
+    getSeverityPrior(severity) {
+        switch (String(severity || '').toUpperCase()) {
+            case 'CRITICAL': return 0.90;
+            case 'HIGH':     return 0.75;
+            case 'MEDIUM':   return 0.55;
+            case 'LOW':      return 0.35;
+            default:         return 0.50;
+        }
     }
 
     /**
@@ -239,6 +392,12 @@ class MLConfidenceScorer {
 
         // Higher confidence if fix is suggested
         if (finding.fix) score += 0.1;
+
+        // Penalty: charset strings ("0123456789ABCabc...") are almost never real secrets
+        const snippet = String(finding.snippet || finding.message || '');
+        if (looksLikeCharsetString(snippet)) {
+            score *= 0.2;
+        }
 
         return Math.min(1, score);
     }
@@ -282,10 +441,11 @@ class MLConfidenceScorer {
     }
 
     /**
-     * Get historical accept rate for category
+     * Get historical accept rate for category.
+     * Returns null when there is insufficient data so callers can fall back to priors.
      */
     async getCategoryAcceptRate(category) {
-        if (!this.supabase) return 0.5;
+        if (!this.supabase) return null;
 
         const cached = this.categoryFactors.get(`rate:${category}`);
         if (cached !== undefined) return cached;
@@ -297,22 +457,23 @@ class MLConfidenceScorer {
                 .eq('category', category)
                 .limit(100);
 
-            if (!data || data.length < 5) return 0.5;
+            if (!data || data.length < 5) return null;
 
             const rate = data.filter(d => d.was_accepted).length / data.length;
             this.categoryFactors.set(`rate:${category}`, rate);
 
             return rate;
         } catch {
-            return 0.5;
+            return null;
         }
     }
 
     /**
-     * Get project-specific accept rate
+     * Get project-specific accept rate.
+     * Returns null when there is insufficient data so callers can fall back to priors.
      */
     async getProjectAcceptRate(projectId) {
-        if (!this.supabase || !projectId) return 0.5;
+        if (!this.supabase || !projectId) return null;
 
         try {
             const { data } = await this.supabase
@@ -321,11 +482,11 @@ class MLConfidenceScorer {
                 .eq('project_id', projectId)
                 .limit(50);
 
-            if (!data || data.length < 5) return 0.5;
+            if (!data || data.length < 5) return null;
 
             return data.filter(d => d.was_accepted).length / data.length;
         } catch {
-            return 0.5;
+            return null;
         }
     }
 
@@ -397,7 +558,8 @@ class MLConfidenceScorer {
      */
     applyFalsePositivePenalty(score, finding) {
         const key = `${finding.category}:${finding.ruleId || 'unknown'}`;
-        const penalty = this.falsePositiveCache.get(key) || 0;
+        const learnedPenalty = Number(finding.learned_signals?.falsePositivePenalty || 0);
+        const penalty = Math.max(this.falsePositiveCache.get(key) || 0, learnedPenalty);
 
         return score * (1 - penalty);
     }
@@ -423,6 +585,10 @@ class MLConfidenceScorer {
      */
     async applyProjectLearning(score, finding, context) {
         if (!context.projectId) return score;
+
+        if (context.learnedProfileSignals?.profileFactor) {
+            return score * context.learnedProfileSignals.profileFactor;
+        }
 
         // Check for project-specific weight overrides
         const projectWeights = this.projectWeights.get(context.projectId);
