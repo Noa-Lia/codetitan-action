@@ -90,7 +90,14 @@ function checkSecretPatterns(value) {
 /**
  * Analyze code using enhanced AST
  */
+const ENHANCED_INFRA_FILE_REGEX = /(?:fixers[\\/](?:command-exec-fixer|xss-fixer|fix-verifier)|tool-bridge|test-executor|benchmark-runner|supply-chain-analyzer)\.[jt]s$/i;
+
 function analyzeEnhanced(code, filePath, projectRoot = '.') {
+    // Skip engine infrastructure files — they intentionally call exec/spawn as part of their function
+    if (ENHANCED_INFRA_FILE_REGEX.test(filePath.replace(/\\/g, '/'))) {
+        return { issues: [], parseError: false, linesAnalyzed: code.split('\n').length };
+    }
+
     const ast = parseCode(code, filePath);
     const findings = [];
     const lines = code.split('\n');
