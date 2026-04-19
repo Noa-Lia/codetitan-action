@@ -16,6 +16,7 @@ const path = require('path');
 const fs = require('fs');
 const AgentExecutionEngine = require('./agent-execution-engine');
 const AgentSDK = require('./agent-sdk');
+const { resolveRoleProfile } = require('./agent-runtime/role-profiles');
 
 class AgentSpawner extends EventEmitter {
   constructor(messageBus, registry, options = {}) {
@@ -86,6 +87,7 @@ class AgentSpawner extends EventEmitter {
           tier: agent.tier,
           domain: agent.domain,
           file: path.join(agentsDir, agentFile),
+          role: resolveRoleProfile({ role: agent.role || agent.name }, { action: 'analyze' }).name,
           capabilities: agent.capabilities,
           specializations: agent.specializations
         });
@@ -126,6 +128,12 @@ class AgentSpawner extends EventEmitter {
       instance.sdk = new AgentSDK({
         agentId: instance.registryId,
         agentName: template.name,
+        role: instance.role,
+        toolBudget: {
+          limit: instance.runtimePolicy.toolBudget.maxCalls,
+          used: 0,
+          remaining: instance.runtimePolicy.toolBudget.maxCalls
+        },
         registryManager: this.registry,
         messageBus: this.messageBus,
         logger: console,
@@ -176,6 +184,7 @@ class AgentSpawner extends EventEmitter {
       tier: template.tier,
       domain: template.domain,
       file: template.file,
+      role: template.role,
       capabilities: template.capabilities,
       specializations: template.specializations,
       registryId: null, // Will be set if registered in registry
@@ -194,6 +203,7 @@ class AgentSpawner extends EventEmitter {
         memory: 0,
         threads: 0
       },
+      runtimePolicy: resolveRoleProfile(template, { action: 'analyze', metadata: { role: template.role } }),
       performance: {
         averageResponseTime: 0,
         totalResponseTime: 0,
@@ -229,7 +239,11 @@ class AgentSpawner extends EventEmitter {
 
       // Send response if needed
       if (message.type === 'request' && this.messageBus) {
-        await this.messageBus.respond(message, instance.id, response);
+        if (typeof this.messageBus.respondToDelegatedTask === 'function') {
+          await this.messageBus.respondToDelegatedTask(message, instance.id, response);
+        } else {
+          await this.messageBus.respond(message, instance.id, response);
+        }
       }
 
       // Update performance metrics
@@ -249,10 +263,15 @@ class AgentSpawner extends EventEmitter {
 
       // Send error response
       if (message.type === 'request' && this.messageBus) {
-        await this.messageBus.respond(message, instance.id, {
-          error: error.message,
-          success: false
-        });
+        const failureResponse = this.createDelegationFailureResponse(instance, message, error);
+        if (typeof this.messageBus.respondToDelegatedTask === 'function') {
+          await this.messageBus.respondToDelegatedTask(message, instance.id, failureResponse);
+        } else {
+          await this.messageBus.respond(message, instance.id, {
+            error: error.message,
+            success: false
+          });
+        }
       }
 
       // Check if we need to recover
@@ -266,15 +285,27 @@ class AgentSpawner extends EventEmitter {
    * Process a task for an agent using REAL execution
    */
   async processAgentTask(instance, message) {
-    const taskId = message?.message_id || `${instance.id}-${Date.now()}`;
-    const action = message?.content?.action || message?.type || 'unknown';
+    const delegatedTaskRequest = message?.content?.delegation?.taskRequest || null;
+    const taskId = delegatedTaskRequest?.taskId || message?.content?.task_id || message?.message_id || `${instance.id}-${Date.now()}`;
+    const action = delegatedTaskRequest?.action || message?.content?.action || message?.type || 'unknown';
+    const effectiveRole =
+      delegatedTaskRequest?.requestedRole ||
+      message?.content?.metadata?.role ||
+      instance.role;
 
     // Mark agent as busy
     instance.status = 'busy';
     instance.state.currentTask = taskId;
 
     const lease = instance.sdk
-      ? instance.sdk.leaseTask(taskId, { action, metadata: message?.content?.metadata })
+      ? instance.sdk.leaseTask(taskId, {
+        action,
+        metadata: {
+          ...(message?.content?.metadata || {}),
+          role: effectiveRole
+        },
+        delegation: delegatedTaskRequest
+      })
       : null;
     const leasedAt = lease?.startedAt || Date.now();
 
@@ -285,7 +316,10 @@ class AgentSpawner extends EventEmitter {
         {
           action: message?.content?.action,
           content: message?.content?.task || message?.content,
-          metadata: message?.content?.metadata
+          metadata: {
+            ...(message?.content?.metadata || {}),
+            role: effectiveRole
+          }
         }
       );
 
@@ -296,13 +330,30 @@ class AgentSpawner extends EventEmitter {
 
       if (instance.sdk) {
         const duration = Date.now() - leasedAt;
-        const quality = typeof executionResult?.quality === 'number' ? executionResult.quality : 1;
+        const success = executionResult?.success !== false;
+        const quality = typeof executionResult?.quality === 'number'
+          ? executionResult.quality
+          : (success ? 1 : 0);
+        const runtimeState = executionResult?.result?.runtime_state || {};
         instance.sdk.completeTask({
           taskId,
-          success: true,
+          success,
           executionTime: duration,
-          resultSummary: executionResult?.message || null,
+          resultSummary: executionResult?.result?.message || executionResult?.message || null,
           qualityScore: quality,
+          error: success ? null : (executionResult?.error || executionResult?.result?.error || executionResult?.result?.message || null),
+          role: runtimeState.role || instance.role,
+          reasoningMode: runtimeState.reasoningMode || 'standard',
+          toolBudget: runtimeState.toolBudget || {
+            limit: instance.runtimePolicy.toolBudget.maxCalls,
+            used: runtimeState.toolCallsUsed || 0,
+            remaining: instance.runtimePolicy.toolBudget.maxCalls
+          },
+          providerUsage: runtimeState.providerUsage || null,
+          toolMetrics: runtimeState.toolMetrics || null,
+          evidenceCount: runtimeState.evidenceCount || 0,
+          verificationStatus: runtimeState.verificationStatus || (success ? 'verified' : 'failed'),
+          toolCallsUsed: runtimeState.toolCallsUsed || 0,
           statusOnComplete: 'idle'
         });
       }
@@ -329,6 +380,52 @@ class AgentSpawner extends EventEmitter {
 
       throw error;
     }
+  }
+
+  createDelegationFailureResponse(instance, message, error) {
+    const taskId = message?.content?.task_id || message?.message_id || `${instance.id}-${Date.now()}`;
+    const action = message?.content?.action || message?.type || 'task';
+    const budgetLimit = instance.runtimePolicy?.toolBudget?.maxCalls || 0;
+
+    return {
+      success: false,
+      error: error.message,
+      quality: 0,
+      result: {
+        type: action,
+        status: 'failed',
+        success: false,
+        summary: error.message,
+        message: error.message,
+        quality: 0,
+        evidence: [],
+        evidenceSummary: 'No evidence recorded.',
+        toolTrace: [],
+        artifacts: [],
+        runtime_state: {
+          role: instance.role,
+          reasoningMode: 'standard',
+          toolBudget: {
+            limit: budgetLimit,
+            used: 0,
+            remaining: budgetLimit
+          },
+          providerUsage: {
+            selectedProvider: null,
+            selectedModel: null,
+            totalCostUsd: 0,
+            retries: 0,
+            tokensUsed: { input: 0, output: 0, cached: 0 }
+          },
+          toolMetrics: {},
+          evidenceCount: 0,
+          verificationStatus: 'failed',
+          toolCallsUsed: 0
+        },
+        error: error.message,
+        taskId
+      }
+    };
   }
 
   /**
@@ -628,4 +725,3 @@ if (require.main === module) {
 
   test().catch(console.error);
 }
-
