@@ -21,6 +21,54 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 
+const DELEGATION_CONTRACT = 'codetitan.agent-runtime.delegation';
+const DELEGATION_VERSION = '1.0';
+const DELEGATION_SECTION_KEYS = {
+  taskRequest: 'task_request',
+  evidencePackage: 'evidence_package',
+  resultSummary: 'result_summary',
+  followUpRequest: 'follow_up_request'
+};
+
+function ensureArray(value) {
+  if (!value) {
+    return [];
+  }
+
+  return Array.isArray(value) ? value.filter(Boolean) : [value].filter(Boolean);
+}
+
+function cloneObject(value, fallback = {}) {
+  if (!value || typeof value !== 'object') {
+    return { ...fallback };
+  }
+
+  return { ...value };
+}
+
+function resolveReviewArtifactPath(payload = {}, runtimeState = {}) {
+  return payload?.review_artifact?.path ||
+    runtimeState?.reviewArtifact?.path ||
+    runtimeState?.review_artifact_path ||
+    null;
+}
+
+function resolveFixSession(payload = {}, runtimeState = {}) {
+  const fixSession = payload?.fix_session || runtimeState?.fixSession || {};
+
+  const id = fixSession?.id || runtimeState?.fix_session_id || null;
+  const sessionPath = fixSession?.path || runtimeState?.fix_session_path || null;
+
+  if (!id && !sessionPath) {
+    return null;
+  }
+
+  return {
+    id,
+    path: sessionPath
+  };
+}
+
 class AgentMessageBus extends EventEmitter {
   constructor(options = {}) {
     super();
@@ -156,8 +204,10 @@ class AgentMessageBus extends EventEmitter {
    * Create a message object
    */
   createMessage(from, to, type, content, metadata = {}) {
+    const messageId = this.generateMessageId();
     const message = {
-      message_id: this.generateMessageId(),
+      message_id: messageId,
+      id: messageId,
       timestamp: new Date().toISOString(),
       from,
       to,
@@ -375,6 +425,232 @@ class AgentMessageBus extends EventEmitter {
     this.emit('broadcast', message);
   }
 
+  createTaskRequestContract({
+    from = null,
+    to = null,
+    taskId = null,
+    action = 'execute_task',
+    task = {},
+    metadata = {},
+    summary = null,
+    requestedRole = null,
+    priority = 'medium'
+  } = {}) {
+    const target = task?.file || task?.path || task?.directory || task?.basePath || null;
+
+    return {
+      kind: DELEGATION_SECTION_KEYS.taskRequest,
+      taskId,
+      action,
+      summary: summary || task?.description || metadata?.description || `Delegated ${action}`,
+      requestedRole: requestedRole || metadata?.role || null,
+      requestedBy: from,
+      assignedTo: to,
+      priority,
+      target,
+      requestedAt: new Date().toISOString()
+    };
+  }
+
+  createEvidencePackage({
+    taskId = null,
+    result = {}
+  } = {}) {
+    const payload = result?.result || result || {};
+    const runtimeState = cloneObject(payload.runtime_state);
+    const reviewArtifactPath = resolveReviewArtifactPath(payload, runtimeState);
+    const fixSession = resolveFixSession(payload, runtimeState);
+    const evidence = Array.isArray(payload.evidence) ? payload.evidence : [];
+    const toolTrace = Array.isArray(payload.toolTrace) ? payload.toolTrace : [];
+    const artifacts = Array.isArray(payload.artifacts) ? payload.artifacts : [];
+
+    return {
+      kind: DELEGATION_SECTION_KEYS.evidencePackage,
+      taskId,
+      evidenceCount: evidence.length,
+      evidenceSummary: payload.evidenceSummary || 'No evidence recorded.',
+      evidence,
+      toolTrace,
+      artifacts,
+      runtimeState,
+      providerUsage: runtimeState?.providerUsage || null,
+      reviewArtifact: reviewArtifactPath ? { path: reviewArtifactPath } : null,
+      fixSession
+    };
+  }
+
+  createResultSummaryContract({
+    taskId = null,
+    result = {},
+    completedBy = null
+  } = {}) {
+    const payload = result?.result || result || {};
+    const runtimeState = cloneObject(payload.runtime_state);
+    const reviewArtifactPath = resolveReviewArtifactPath(payload, runtimeState);
+    const fixSession = resolveFixSession(payload, runtimeState);
+    const success = result?.success !== false && payload?.success !== false;
+    const status = payload.status || (success ? 'completed' : 'failed');
+    const summary = payload.summary || payload.message || result?.message || result?.error || 'Delegated task completed';
+
+    return {
+      kind: DELEGATION_SECTION_KEYS.resultSummary,
+      taskId,
+      success,
+      status,
+      summary,
+      message: payload.message || result?.message || summary,
+      quality: typeof result?.quality === 'number'
+        ? result.quality
+        : (typeof payload?.quality === 'number' ? payload.quality : (success ? 1 : 0)),
+      completedBy,
+      reasoningMode: runtimeState.reasoningMode || 'standard',
+      providerUsage: runtimeState.providerUsage || null,
+      verificationStatus: runtimeState.verificationStatus || (success ? 'verified' : 'failed'),
+      reviewArtifactPath,
+      fixSessionId: fixSession?.id || null,
+      fixSessionPath: fixSession?.path || null
+    };
+  }
+
+  createFollowUpRequestContract({
+    taskId = null,
+    reason = 'additional_context_required',
+    requestedInputs = [],
+    action = 'provide_context',
+    required = true,
+    summary = null
+  } = {}) {
+    return {
+      kind: DELEGATION_SECTION_KEYS.followUpRequest,
+      taskId,
+      action,
+      reason,
+      required,
+      requestedInputs: ensureArray(requestedInputs),
+      summary: summary || 'Provide additional context so the delegated task can continue.'
+    };
+  }
+
+  createDelegationEnvelope({
+    taskRequest = null,
+    evidencePackage = null,
+    resultSummary = null,
+    followUpRequest = null
+  } = {}) {
+    const envelope = {
+      contract: DELEGATION_CONTRACT,
+      version: DELEGATION_VERSION
+    };
+    const sections = [];
+
+    if (taskRequest) {
+      envelope.taskRequest = taskRequest;
+      sections.push(DELEGATION_SECTION_KEYS.taskRequest);
+    }
+
+    if (evidencePackage) {
+      envelope.evidencePackage = evidencePackage;
+      sections.push(DELEGATION_SECTION_KEYS.evidencePackage);
+    }
+
+    if (resultSummary) {
+      envelope.resultSummary = resultSummary;
+      sections.push(DELEGATION_SECTION_KEYS.resultSummary);
+    }
+
+    if (followUpRequest) {
+      envelope.followUpRequest = followUpRequest;
+      sections.push(DELEGATION_SECTION_KEYS.followUpRequest);
+    }
+
+    envelope.sections = sections;
+    return envelope;
+  }
+
+  createDelegationMetadata(envelope = {}, metadata = {}) {
+    const taskId =
+      envelope?.taskRequest?.taskId ||
+      envelope?.resultSummary?.taskId ||
+      envelope?.evidencePackage?.taskId ||
+      envelope?.followUpRequest?.taskId ||
+      null;
+
+    return {
+      ...metadata,
+      delegation_contract: DELEGATION_CONTRACT,
+      delegation_version: DELEGATION_VERSION,
+      delegation_sections: Array.isArray(envelope.sections) ? envelope.sections : [],
+      delegated_task_id: taskId,
+      delegation_status: envelope?.resultSummary?.status || null,
+      follow_up_required: Boolean(envelope?.followUpRequest),
+      review_artifact_path:
+        envelope?.resultSummary?.reviewArtifactPath ||
+        envelope?.evidencePackage?.reviewArtifact?.path ||
+        null,
+      fix_session_id:
+        envelope?.resultSummary?.fixSessionId ||
+        envelope?.evidencePackage?.fixSession?.id ||
+        null,
+      fix_session_path:
+        envelope?.resultSummary?.fixSessionPath ||
+        envelope?.evidencePackage?.fixSession?.path ||
+        null
+    };
+  }
+
+  getDelegationEnvelope(messageOrContent) {
+    const content = messageOrContent?.content && typeof messageOrContent.content === 'object'
+      ? messageOrContent.content
+      : messageOrContent;
+    const delegation = content?.delegation;
+
+    if (!delegation || delegation.contract !== DELEGATION_CONTRACT) {
+      return null;
+    }
+
+    return delegation;
+  }
+
+  buildFollowUpRequest(originalMessage, result) {
+    const delegation = this.getDelegationEnvelope(originalMessage);
+    const taskId = delegation?.taskRequest?.taskId || originalMessage?.content?.task_id || originalMessage?.message_id || null;
+    const content = originalMessage?.content || {};
+    const target = content?.task?.file || content?.task?.path || content?.task?.directory || content?.task?.basePath || content?.file || content?.path || null;
+
+    if (target) {
+      return null;
+    }
+
+    const failureMessage =
+      result?.error ||
+      result?.result?.error ||
+      result?.result?.message ||
+      result?.message ||
+      '';
+    const normalizedFailure = failureMessage.toLowerCase();
+
+    if (!normalizedFailure) {
+      return null;
+    }
+
+    const needsContext =
+      normalizedFailure.includes('target') ||
+      normalizedFailure.includes('file') ||
+      normalizedFailure.includes('directory') ||
+      normalizedFailure.includes('evidence');
+
+    if (!needsContext) {
+      return null;
+    }
+
+    return this.createFollowUpRequestContract({
+      taskId,
+      reason: 'additional_context_required',
+      requestedInputs: ['file', 'directory', 'errors'],
+      summary: 'Provide a concrete file or directory target so the delegated task can gather evidence.'
+    });
+  }
+
   /**
    * Send request and wait for response
    */
@@ -415,6 +691,66 @@ class AgentMessageBus extends EventEmitter {
     return responsePromise;
   }
 
+  async delegateTask(from, to, payload = {}, metadata = {}, timeout = 30000) {
+    const taskId = payload.taskId || payload.task_id || this.generateMessageId();
+    const action = payload.action || 'execute_task';
+    const task = payload.task || payload.content || {};
+    const taskMetadata = cloneObject(payload.metadata);
+    const taskRequest = this.createTaskRequestContract({
+      from,
+      to,
+      taskId,
+      action,
+      task,
+      metadata: taskMetadata,
+      summary: payload.summary,
+      requestedRole: payload.requestedRole,
+      priority: metadata.priority || payload.priority || taskMetadata.priority || 'medium'
+    });
+    const delegation = this.createDelegationEnvelope({ taskRequest });
+
+    return this.request(
+      from,
+      to,
+      {
+        action,
+        task_id: taskId,
+        task,
+        metadata: taskMetadata,
+        delegation
+      },
+      this.createDelegationMetadata(delegation, metadata),
+      timeout
+    );
+  }
+
+  async sendFollowUpRequest(from, to, payload = {}, metadata = {}, timeout = 30000) {
+    const taskId = payload.taskId || payload.task_id || null;
+    const followUpRequest = this.createFollowUpRequestContract({
+      taskId,
+      reason: payload.reason,
+      requestedInputs: payload.requestedInputs,
+      action: payload.action,
+      required: payload.required,
+      summary: payload.summary
+    });
+    const delegation = this.createDelegationEnvelope({ followUpRequest });
+
+    return this.request(
+      from,
+      to,
+      {
+        action: payload.action || 'provide_context',
+        task_id: taskId,
+        task: payload.task || {},
+        metadata: cloneObject(payload.metadata),
+        delegation
+      },
+      this.createDelegationMetadata(delegation, metadata),
+      timeout
+    );
+  }
+
   /**
    * Send response to a request
    */
@@ -422,8 +758,47 @@ class AgentMessageBus extends EventEmitter {
     return this.send(from, originalMessage.from, 'response', content, {
       ...metadata,
       correlation_id: originalMessage.metadata.correlation_id,
-      parent_message_id: originalMessage.message_id
+      parent_message_id: originalMessage.message_id,
+      inReplyTo: originalMessage.message_id || originalMessage.id || null
     });
+  }
+
+  async respondToDelegatedTask(originalMessage, from, result = {}, metadata = {}) {
+    const originalDelegation = this.getDelegationEnvelope(originalMessage);
+    const taskId = originalDelegation?.taskRequest?.taskId || originalMessage?.content?.task_id || originalMessage?.message_id || null;
+    const explicitFollowUp = Object.prototype.hasOwnProperty.call(metadata, 'followUpRequest')
+      ? metadata.followUpRequest
+      : undefined;
+    const followUpRequest = explicitFollowUp === undefined
+      ? this.buildFollowUpRequest(originalMessage, result)
+      : explicitFollowUp;
+    const delegation = this.createDelegationEnvelope({
+      resultSummary: this.createResultSummaryContract({
+        taskId,
+        result,
+        completedBy: from
+      }),
+      evidencePackage: this.createEvidencePackage({
+        taskId,
+        result
+      }),
+      followUpRequest: followUpRequest || null
+    });
+    const responseContent = {
+      ...(result && typeof result === 'object' ? result : { value: result }),
+      delegation
+    };
+    const {
+      followUpRequest: _ignoredFollowUpRequest,
+      ...responseMetadata
+    } = metadata || {};
+
+    return this.respond(
+      originalMessage,
+      from,
+      responseContent,
+      this.createDelegationMetadata(delegation, responseMetadata)
+    );
   }
 
   /**
@@ -495,8 +870,9 @@ class AgentMessageBus extends EventEmitter {
       this.agentCallbacks.set(agentId, new Map());
     }
 
+    this.agentIntegrations.set(agentId, { sdk: options.sdk || null });
+
     if (options.sdk) {
-      this.agentIntegrations.set(agentId, { sdk: options.sdk });
       this.updateAgentSdkReport(agentId, options.sdk.report());
     }
 
