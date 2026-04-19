@@ -1,7 +1,7 @@
 {
   "name": "@noalia/codetitan-core",
-  "version": "1.0.1",
-  "description": "CodeTitan core verification engine for AI-generated JavaScript and TypeScript changes",
+  "version": "1.0.2",
+  "description": "Core JS/TS verification engine that powers the CodeTitan CLI and GitHub Action",
   "main": "index.js",
   "types": "index.d.ts",
   "scripts": {
@@ -19,11 +19,11 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/Noa-Lia/codetitan-action.git"
+    "url": "https://github.com/Noa-Lia/codetitan.dev.git"
   },
   "homepage": "https://codetitan.dev",
   "bugs": {
-    "url": "https://github.com/Noa-Lia/codetitan-action/issues"
+    "url": "https://github.com/Noa-Lia/codetitan.dev/issues"
   },
   "dependencies": {
     "@babel/parser": "^7.28.5",
@@ -40,10 +40,15 @@
   "files": [
     "index.js",
     "index.d.ts",
-    "src",
-    "lib",
-    "README.md"
+    "lib/**/*.js",
+    "README.md",
+    "!lib/**/__tests__/**",
+    "!lib/**/.codetitan/**",
+    "!lib/**/.codetitan-benchmark/**"
   ],
+  "publishConfig": {
+    "access": "public"
+  },
   "engines": {
     "node": ">=18.0.0"
   }
