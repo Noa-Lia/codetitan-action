@@ -1309,7 +1309,7 @@ async function shareReport(report, apiKey, apiBase) {
         }
     });
 }
-// Low-signal categories that fire on nearly every repo — suppress from "top pattern"
+// Low-signal categories that fire on nearly every repo — exclude from "top pattern" signal
 const NOISY_CATEGORIES = new Set(['MISSING_TESTS', 'LONG_LINE', 'FILE_TOO_LONG', 'MISSING_DOCS']);
 function buildRepoSignalsSection(report) {
     const profile = report.learnedProfile;
@@ -1317,11 +1317,11 @@ function buildRepoSignalsSection(report) {
         return [];
     }
     const lines = ['', '## Repo Signals', ''];
-    // Personalization score (merged from former "## Repo Learning" section)
+    // Profile maturity (merged from former "## Repo Learning" section)
     if (profile.personalizationScore !== undefined) {
         lines.push(`- Profile maturity: ${profile.personalizationScore}/100 (${profile.runCount} scan${profile.runCount === 1 ? '' : 's'})`);
     }
-    // Top hot directory — leaf name only avoids GitHub's doubled-path checkout layout
+    // Top hot directory — leaf name only avoids GitHub's doubled checkout path layout
     const hotDirs = profile.hotDirectories || {};
     const topDir = Object.entries(hotDirs)
         .sort((a, b) => b[1].count - a[1].count)
@@ -1331,7 +1331,7 @@ function buildRepoSignalsSection(report) {
         const leafDir = absPath.replace(/\\/g, '/').split('/').filter(Boolean).pop() || absPath;
         lines.push(`- Hottest directory: \`${leafDir}/\` (${stats.count} finding${stats.count === 1 ? '' : 's'} seen here)`);
     }
-    // Top meaningful category — skip structural noise
+    // Top meaningful category — skip structural noise that fires on every repo
     const catStats = profile.categoryStats || {};
     const topCat = Object.entries(catStats)
         .filter(([cat]) => !NOISY_CATEGORIES.has(cat.toUpperCase()))
@@ -1348,7 +1348,7 @@ function buildRepoSignalsSection(report) {
         lines.push(`- Learned ${suppressionCount} suppression rule${suppressionCount === 1 ? '' : 's'} from your dismissals`);
     }
     // AI code density — wired when report.aiAttribution is populated (Phase 4 Tier 2 / §4.7)
-    // Contract: expect aiAttribution.coverage (number, 0–100) and aiAttribution.aiHigherFindingRate (number, delta %)
+    // Contract: expect aiAttribution.coverage (number 0–100) and aiAttribution.aiHigherFindingRate (delta %)
     const aiAttrib = report.aiAttribution;
     if (aiAttrib && typeof aiAttrib.coverage === 'number' && aiAttrib.coverage > 0) {
         const densityPct = aiAttrib.coverage;
