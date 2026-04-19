@@ -1,8 +1,9 @@
 /**
- * GeminiProvider - Google Gemini 2.5 Pro / 3.1 Pro integration
+ * GeminiProvider - Google Gemini 3.x / 2.5 Pro integration
  * Best for: Performance optimization, large codebase analysis, multi-modal understanding
- * Gemini 2.5 Pro: 2M token context window, stable, cost-effective
- * Gemini 3.1 Pro: 2M token context, preview, advanced reasoning
+ * Gemini 3.1 Pro: 2M token context, latest, highest reasoning
+ * Gemini 3 Pro: 2M token context, stable GA release
+ * Gemini 2.5 Pro: 2M token context window, cost-effective fallback
  *
  * @module ai-providers/gemini
  */
@@ -11,19 +12,33 @@ const AIProvider = require('./base');
 
 class GeminiProvider extends AIProvider {
   constructor(config = {}) {
-    // Model selection: Default to stable Gemini 2.5 Pro
-    const defaultModel = config.model || 'gemini-2.5-pro';
+    // Model selection: Default to Gemini 3.1 Pro (latest)
+    const defaultModel = config.model || 'gemini-3.1-pro';
 
-    // Model-specific pricing (as of March 2026)
+    // Model-specific pricing (as of April 2026)
     const modelPricing = {
-      // Gemini 3.1 Pro Preview (latest, Feb 2026)
+      // Gemini 3.1 Pro (latest GA)
+      'gemini-3.1-pro': {
+        input: 0.0000025,    // $2.50 per M tokens
+        output: 0.000015,    // $15.00 per M tokens
+        cached: 0.00000063,
+        contextWindow: 2000000
+      },
+      // Gemini 3 Pro (stable)
+      'gemini-3-pro': {
+        input: 0.000002,     // $2.00 per M tokens
+        output: 0.000012,    // $12.00 per M tokens
+        cached: 0.0000005,
+        contextWindow: 2000000
+      },
+      // Gemini 3.1 Pro Preview (legacy preview alias)
       'gemini-3.1-pro-preview': {
         input: 0.000002,     // $2.00 per M tokens
         output: 0.000012,    // $12.00 per M tokens
         cached: 0.0000005,
         contextWindow: 2000000
       },
-      // Gemini 2.5 Pro (Stable, default)
+      // Gemini 2.5 Pro (cost-effective)
       'gemini-2.5-pro': {
         input: 0.00000125,   // $1.25 per M tokens
         output: 0.00001,     // $10.00 per M tokens
@@ -53,7 +68,7 @@ class GeminiProvider extends AIProvider {
       }
     };
 
-    const pricing = modelPricing[defaultModel] || modelPricing['gemini-2.5-pro'];
+    const pricing = modelPricing[defaultModel] || modelPricing['gemini-3.1-pro'];
 
     super({
       name: 'gemini',
@@ -243,7 +258,7 @@ class GeminiProvider extends AIProvider {
     const geminiEnhancements = `
 
 IMPORTANT INSTRUCTIONS:
-- You are Gemini 2.5 Pro, optimized for fast, cost-effective code analysis
+- You are Gemini 3.1 Pro, optimized for advanced reasoning and code analysis
 - Analyze code efficiently, focusing on high-impact findings
 - Provide actionable suggestions with specific line numbers
 - Only report genuine issues, avoid false positives
