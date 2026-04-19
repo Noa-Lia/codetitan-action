@@ -21,6 +21,7 @@ class InsightSync {
   constructor(options = {}) {
     this.mode = options.mode || process.env.CODETITAN_SYNC_MODE || 'sqlite-only';
     this.sqlitePath = options.sqlitePath || path.join(process.cwd(), 'data', 'collective-insight.db');
+    this.runtimeInsightPath = options.runtimeInsightPath || path.join(path.dirname(this.sqlitePath), 'agent-runtime-insights.json');
 
     // Credentials
     this.supabaseUrl = options.supabaseUrl || process.env.SUPABASE_URL;
@@ -41,6 +42,7 @@ class InsightSync {
     this.stats = {
       sqliteWrites: 0,
       supabaseWrites: 0,
+      runtimeInsightWrites: 0,
       failovers: 0,
       conflicts: 0,
       errors: []
@@ -404,6 +406,173 @@ class InsightSync {
     };
 
     return { summary, topCategories, qualityTrend };
+  }
+
+  sanitizeProviderUsage(providerUsage = {}) {
+    const tokensUsed = providerUsage.tokensUsed || providerUsage.tokens_used || {};
+    return {
+      selectedProvider: providerUsage.selectedProvider || providerUsage.selected_provider || null,
+      selectedModel: providerUsage.selectedModel || providerUsage.selected_model || null,
+      totalCostUsd: providerUsage.totalCostUsd || providerUsage.total_cost_usd || 0,
+      retries: providerUsage.retries || 0,
+      tokensUsed: {
+        input: tokensUsed.input || 0,
+        output: tokensUsed.output || 0,
+        cached: tokensUsed.cached || 0
+      }
+    };
+  }
+
+  extractConventionCandidates(record = {}) {
+    const sources = Array.isArray(record.evidence)
+      ? record.evidence.map(item => item?.source).filter(Boolean)
+      : [];
+    const directoryCounts = {};
+
+    sources.forEach(source => {
+      if (typeof source !== 'string' || /^[a-z]+:\/\//i.test(source)) {
+        return;
+      }
+
+      const normalized = source.replace(/\\/g, '/');
+      const directory = normalized.includes('/') ? normalized.split('/').slice(0, -1).join('/') : '.';
+      directoryCounts[directory] = (directoryCounts[directory] || 0) + 1;
+    });
+
+    return Object.entries(directoryCounts)
+      .sort((left, right) => right[1] - left[1])
+      .slice(0, 5)
+      .map(([directory, count]) => ({ directory, count }));
+  }
+
+  extractFalsePositiveSignatures(record = {}, metadata = {}) {
+    const dismissedActions = Array.isArray(metadata.dismissedActions) ? metadata.dismissedActions : [];
+    return dismissedActions.slice(0, 20).map(action => ({
+      action: action.action || action.type || 'dismissed',
+      target: action.target || action.file || null,
+      reason: action.reason || null
+    }));
+  }
+
+  extractRiskClues(record = {}) {
+    const toolTrace = Array.isArray(record.toolTrace) ? record.toolTrace : [];
+    return toolTrace
+      .filter(entry => entry && (entry.success === false || entry.riskLevel === 'high'))
+      .slice(0, 10)
+      .map(entry => ({
+        tool: entry.tool,
+        riskLevel: entry.riskLevel || 'unknown',
+        mutating: entry.mutating === true,
+        success: entry.success === true,
+        summary: entry.summary || null
+      }));
+  }
+
+  sanitizeRuntimeRecord(record = {}, metadata = {}) {
+    const runtimeState = record.runtime_state || record.runtimeState || {};
+    const evidence = Array.isArray(record.evidence) ? record.evidence : [];
+    const toolTrace = Array.isArray(record.toolTrace) ? record.toolTrace : [];
+    const reviewArtifact = record.review_artifact || record.reviewArtifact || runtimeState.reviewArtifact || null;
+    const fixSession = record.fix_session || record.fixSession || runtimeState.fixSession || null;
+    const promoted = record.promoted === true || record.repository_modified === true;
+    const acceptedActions = [];
+    const dismissedActions = [];
+
+    if (promoted || record.status === 'applied_in_workspace' || record.status === 'validated_in_workspace') {
+      acceptedActions.push({
+        action: metadata.action || record.type || 'runtime',
+        status: record.status || null,
+        target: record.file || record.target || metadata.targetPath || null
+      });
+    } else if (record.success === false || record.status === 'planned' || record.status === 'insufficient_evidence') {
+      dismissedActions.push({
+        action: metadata.action || record.type || 'runtime',
+        status: record.status || null,
+        target: record.file || record.target || metadata.targetPath || null,
+        reason: record.error || record.summary || null
+      });
+    }
+
+    return {
+      timestamp: new Date().toISOString(),
+      projectPath: metadata.projectPath || process.cwd(),
+      action: metadata.action || record.type || null,
+      agent: metadata.agent || null,
+      target: metadata.targetPath || record.target || record.file || null,
+      reasoningMode: runtimeState.reasoningMode || metadata.reasoningMode || 'standard',
+      verificationStatus: runtimeState.verificationStatus || null,
+      evidenceSummary: record.evidenceSummary || 'No evidence recorded.',
+      evidenceCount: evidence.length,
+      evidence: evidence.slice(0, 25).map(item => ({
+        kind: item.kind || 'observation',
+        source: item.source || null,
+        summary: item.summary || null
+      })),
+      toolTrace: toolTrace.slice(0, 25).map(entry => ({
+        tool: entry.tool || null,
+        success: entry.success === true,
+        riskLevel: entry.riskLevel || null,
+        mutating: entry.mutating === true,
+        durationMs: entry.durationMs || 0,
+        summary: entry.summary || null,
+        error: entry.error || null
+      })),
+      providerUsage: this.sanitizeProviderUsage(runtimeState.providerUsage || {}),
+      acceptedActions,
+      dismissedActions: [
+        ...dismissedActions,
+        ...this.extractFalsePositiveSignatures(record, metadata)
+      ],
+      verificationOutcome: {
+        status: runtimeState.verificationStatus || null,
+        promoted,
+        repositoryModified: record.repository_modified === true
+      },
+      conventions: this.extractConventionCandidates(record),
+      falsePositiveSignatures: this.extractFalsePositiveSignatures(record, metadata),
+      riskClues: this.extractRiskClues(record),
+      reviewArtifactPath: reviewArtifact?.path || runtimeState.reviewArtifact?.path || runtimeState.review_artifact_path || null,
+      fixSession: {
+        id: fixSession?.id || runtimeState.fixSession?.id || runtimeState.fix_session_id || null,
+        path: fixSession?.path || runtimeState.fixSession?.path || runtimeState.fix_session_path || null
+      }
+    };
+  }
+
+  async readRuntimeInsightStore() {
+    try {
+      const raw = await fs.promises.readFile(this.runtimeInsightPath, 'utf8');
+      const parsed = JSON.parse(raw);
+      if (parsed && Array.isArray(parsed.entries)) {
+        return parsed;
+      }
+    } catch (_) {
+      // Ignore missing files and malformed content; callers overwrite with fresh state.
+    }
+
+    return {
+      version: 1,
+      entries: []
+    };
+  }
+
+  async ingestAgentRuntime(record = {}, metadata = {}) {
+    const sanitized = this.sanitizeRuntimeRecord(record, metadata);
+    const store = await this.readRuntimeInsightStore();
+    const entryLimit = Math.max(1, Math.min(Number(metadata.limit) || 200, 1000));
+
+    store.entries.unshift(sanitized);
+    store.entries = store.entries.slice(0, entryLimit);
+
+    await fs.promises.mkdir(path.dirname(this.runtimeInsightPath), { recursive: true });
+    await fs.promises.writeFile(`${this.runtimeInsightPath}`, `${JSON.stringify(store, null, 2)}\n`, 'utf8');
+    this.stats.runtimeInsightWrites += 1;
+
+    return {
+      path: this.runtimeInsightPath,
+      entry: sanitized,
+      count: store.entries.length
+    };
   }
 
   /**
