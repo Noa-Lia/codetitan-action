@@ -12,11 +12,12 @@ const fs = require('fs');
 const fsp = fs.promises;
 const path = require('path');
 
-const REGISTRY_PATH = path.join(__dirname, '..', 'agents', 'agent-registry.json');
+const REGISTRY_PATH = path.join(__dirname, '..', 'data', 'agent-registry.json');
 const DEFAULT_OPTIONS = {
   watch: true,
   debounceMs: 300,
-  suppressMs: 500
+  suppressMs: 500,
+  executionHistoryLimit: 20
 };
 
 class AgentRegistryManager {
@@ -24,6 +25,7 @@ class AgentRegistryManager {
     this.options = { ...DEFAULT_OPTIONS, ...options };
     this.registryPath = this.options.registryPath || REGISTRY_PATH;
     this.registry = this.createEmptyRegistry();
+    this.ensureRegistryDirectory();
     this.loadRegistryFromDisk();
     this.rebuildDerivedIndexes();
 
@@ -31,10 +33,173 @@ class AgentRegistryManager {
     this._watchFileHandler = null;
     this._reloadTimer = null;
     this._lastWriteTime = 0;
+    this._pendingSave = Promise.resolve();
 
     if (this.options.watch) {
       this.setupWatchers();
     }
+  }
+
+  static getDefaultRegistryPath() {
+    return REGISTRY_PATH;
+  }
+
+  formatCliArg(value) {
+    return /\s/.test(value) ? `"${value}"` : value;
+  }
+
+  getAgentDisplayIdentifier(agent) {
+    return agent?.name || agent?.id || 'unknown';
+  }
+
+  getLatestReviewArtifactPath(agent) {
+    const history = Array.isArray(agent?.execution_history) ? agent.execution_history : [];
+    const latest = history[0] || null;
+    return (
+      latest?.review_artifact_path ||
+      agent?.last_execution?.review_artifact_path ||
+      agent?.runtime_state?.review_artifact_path ||
+      null
+    );
+  }
+
+  getLatestFixSession(agent) {
+    const history = Array.isArray(agent?.execution_history) ? agent.execution_history : [];
+    const latest = history[0] || null;
+    const id =
+      latest?.fix_session_id ||
+      agent?.last_execution?.fix_session_id ||
+      agent?.runtime_state?.fix_session_id ||
+      null;
+    const sessionPath =
+      latest?.fix_session_path ||
+      agent?.last_execution?.fix_session_path ||
+      agent?.runtime_state?.fix_session_path ||
+      null;
+
+    if (!id && !sessionPath) {
+      return null;
+    }
+
+    return { id, path: sessionPath };
+  }
+
+  buildReviewLinkedSessionCommand(agent) {
+    return `codetitan agents show ${this.formatCliArg(this.getAgentDisplayIdentifier(agent))} --review-linked-session`;
+  }
+
+  buildApplyLinkedSessionCommand(agent, reviewArtifactPath) {
+    const baseCommand =
+      `codetitan agents show ${this.formatCliArg(this.getAgentDisplayIdentifier(agent))} ` +
+      '--apply-linked-session --promote --diff-reviewed --validate-command "<cmd>"';
+
+    if (reviewArtifactPath) {
+      return `${baseCommand} --review-artifact ${this.formatCliArg(reviewArtifactPath)}`;
+    }
+
+    return `${baseCommand} --review-output "<file>.md"`;
+  }
+
+  buildLinkedSessionCommands(agent) {
+    if (!this.getLatestFixSession(agent)) {
+      return null;
+    }
+
+    const latestArtifact = this.getLatestReviewArtifactPath(agent);
+    return {
+      review: this.buildReviewLinkedSessionCommand(agent),
+      replay: this.buildApplyLinkedSessionCommand(agent, latestArtifact)
+    };
+  }
+
+  getReplayReadiness(agent) {
+    const normalizedRole = String(agent?.runtime_state?.role || agent?.role || '').toLowerCase();
+    const latestFixSession = this.getLatestFixSession(agent);
+    const latestArtifact = this.getLatestReviewArtifactPath(agent);
+
+    if (normalizedRole !== 'fixer') {
+      return {
+        replayable: false,
+        state: 'not_fixer_role',
+        reason: 'Only fixer agents expose replayable linked fix sessions.',
+        has_fix_session: Boolean(latestFixSession),
+        has_review_artifact: Boolean(latestArtifact)
+      };
+    }
+
+    if (!latestFixSession) {
+      return {
+        replayable: false,
+        state: 'missing_fix_session',
+        reason: 'No linked fix session is recorded for this fixer.',
+        has_fix_session: false,
+        has_review_artifact: Boolean(latestArtifact)
+      };
+    }
+
+    if (!latestArtifact) {
+      return {
+        replayable: true,
+        state: 'needs_review_artifact',
+        reason: 'Replay is available, but a fresh review artifact must be generated before promotion.',
+        has_fix_session: true,
+        has_review_artifact: false
+      };
+    }
+
+    return {
+      replayable: true,
+      state: 'ready',
+      reason: 'Replay is ready with a linked fix session and stored review artifact.',
+      has_fix_session: true,
+      has_review_artifact: true
+    };
+  }
+
+  summarizeReplayReadiness(agents = []) {
+    const summary = {
+      total_matched: agents.length,
+      replayable: 0,
+      blocked: 0,
+      by_state: {
+        ready: 0,
+        needs_review_artifact: 0,
+        missing_fix_session: 0,
+        not_fixer_role: 0
+      }
+    };
+
+    agents.forEach(agent => {
+      const readiness = agent?.replay_readiness || this.getReplayReadiness(agent);
+      const state = readiness?.state || 'not_fixer_role';
+
+      if (readiness?.replayable === true) {
+        summary.replayable += 1;
+      } else {
+        summary.blocked += 1;
+      }
+
+      if (typeof summary.by_state[state] !== 'number') {
+        summary.by_state[state] = 0;
+      }
+      summary.by_state[state] += 1;
+    });
+
+    return summary;
+  }
+
+  refreshDerivedAgentMetadata(agent) {
+    if (!agent) {
+      return null;
+    }
+
+    agent.linked_session_commands = this.buildLinkedSessionCommands(agent);
+    agent.replay_readiness = this.getReplayReadiness(agent);
+    return agent;
+  }
+
+  ensureRegistryDirectory() {
+    fsp.mkdir(path.dirname(this.registryPath), { recursive: true }).catch(() => {});
   }
 
   /**
@@ -48,7 +213,9 @@ class AgentRegistryManager {
         this.rebuildDerivedIndexes();
       })
       .catch(error => {
-        console.warn('[AgentRegistryManager] Failed to load registry (using in-memory default):', error.message);
+        if (error?.code !== 'ENOENT') {
+          console.warn('[AgentRegistryManager] Failed to load registry (using in-memory default):', error.message);
+        }
         this.registry = this.registry || this.createEmptyRegistry();
       });
   }
@@ -58,11 +225,16 @@ class AgentRegistryManager {
    */
   saveRegistry() {
     try {
+      this.rebuildDerivedIndexes();
       const data = JSON.stringify(this.registry, null, 2);
       this._lastWriteTime = Date.now();
-      fsp.writeFile(this.registryPath, data, 'utf8').catch(err => {
-        console.error('Failed to save registry:', err.message);
-      });
+      this._pendingSave = this._pendingSave
+        .catch(() => {})
+        .then(() => fsp.mkdir(path.dirname(this.registryPath), { recursive: true }))
+        .then(() => fsp.writeFile(this.registryPath, data, 'utf8'))
+        .catch(err => {
+          console.error('Failed to save registry:', err.message);
+        });
       return true;
     } catch (error) {
       console.error('Failed to save registry:', error.message);
@@ -91,6 +263,147 @@ class AgentRegistryManager {
     };
   }
 
+  createDefaultRuntimeState(agentSpec = {}) {
+    const budgetLimit = agentSpec.toolBudget?.limit ?? agentSpec.toolBudget?.maxCalls ?? null;
+    const used = agentSpec.toolBudget?.used ?? 0;
+    const remaining = agentSpec.toolBudget?.remaining ?? (budgetLimit === null ? null : Math.max(0, budgetLimit - used));
+    const reviewArtifactPath =
+      agentSpec.reviewArtifactPath ??
+      agentSpec.review_artifact_path ??
+      agentSpec.reviewArtifact?.path ??
+      null;
+    const fixSessionId =
+      agentSpec.fixSessionId ??
+      agentSpec.fix_session_id ??
+      agentSpec.fixSession?.id ??
+      null;
+    const fixSessionPath =
+      agentSpec.fixSessionPath ??
+      agentSpec.fix_session_path ??
+      agentSpec.fixSession?.path ??
+      null;
+    const providerUsage = agentSpec.providerUsage || agentSpec.provider_usage || {};
+    const providerTokens = providerUsage.tokensUsed || providerUsage.tokens_used || {};
+    const toolMetrics = agentSpec.toolMetrics || agentSpec.tool_metrics || {};
+
+    return {
+      role: agentSpec.role || null,
+      reasoning_mode: agentSpec.reasoningMode || agentSpec.reasoning_mode || 'standard',
+      tool_budget: {
+        limit: budgetLimit,
+        used,
+        remaining
+      },
+      evidence_count: agentSpec.evidenceCount ?? 0,
+      verification_status: agentSpec.verificationStatus || 'not_started',
+      tool_calls_used: agentSpec.toolCallsUsed ?? used,
+      review_artifact_path: reviewArtifactPath,
+      fix_session_id: fixSessionId,
+      fix_session_path: fixSessionPath,
+      provider_usage: {
+        selected_provider: providerUsage.selectedProvider || providerUsage.selected_provider || null,
+        selected_model: providerUsage.selectedModel || providerUsage.selected_model || null,
+        total_cost_usd: providerUsage.totalCostUsd || providerUsage.total_cost_usd || 0,
+        retries: providerUsage.retries || 0,
+        tokens_used: {
+          input: providerTokens.input || 0,
+          output: providerTokens.output || 0,
+          cached: providerTokens.cached || 0
+        }
+      },
+      tool_metrics: toolMetrics
+    };
+  }
+
+  ensureRuntimeState(agent) {
+    if (!agent) {
+      return null;
+    }
+
+    this.ensureExecutionHistory(agent);
+
+    if (!agent.runtime_state) {
+      agent.runtime_state = this.createDefaultRuntimeState(agent);
+    } else {
+      const defaultState = this.createDefaultRuntimeState(agent);
+      agent.runtime_state = {
+        ...defaultState,
+        ...agent.runtime_state,
+        tool_budget: {
+          ...defaultState.tool_budget,
+          ...(agent.runtime_state.tool_budget || {})
+        }
+      };
+    }
+
+    this.refreshDerivedAgentMetadata(agent);
+    return agent.runtime_state;
+  }
+
+  ensureExecutionHistory(agent) {
+    if (!agent) {
+      return [];
+    }
+
+    if (!Array.isArray(agent.execution_history)) {
+      agent.execution_history = [];
+    }
+
+    return agent.execution_history;
+  }
+
+  normalizeRuntimeState(runtimeState = {}) {
+    const existingBudget = runtimeState.toolBudget || runtimeState.tool_budget || {};
+    const budgetLimit = existingBudget.limit ?? existingBudget.maxCalls ?? null;
+    const used = existingBudget.used ?? runtimeState.toolCallsUsed ?? runtimeState.tool_calls_used ?? 0;
+    const remaining = existingBudget.remaining ?? (budgetLimit === null ? null : Math.max(0, budgetLimit - used));
+    const reviewArtifactPath =
+      runtimeState.reviewArtifactPath ??
+      runtimeState.review_artifact_path ??
+      runtimeState.reviewArtifact?.path ??
+      null;
+    const fixSessionId =
+      runtimeState.fixSessionId ??
+      runtimeState.fix_session_id ??
+      runtimeState.fixSession?.id ??
+      null;
+    const fixSessionPath =
+      runtimeState.fixSessionPath ??
+      runtimeState.fix_session_path ??
+      runtimeState.fixSession?.path ??
+      null;
+    const providerUsage = runtimeState.providerUsage || runtimeState.provider_usage || {};
+    const providerTokens = providerUsage.tokensUsed || providerUsage.tokens_used || {};
+
+    return {
+      role: runtimeState.role ?? null,
+      reasoning_mode: runtimeState.reasoningMode ?? runtimeState.reasoning_mode ?? 'standard',
+      tool_budget: {
+        limit: budgetLimit,
+        used,
+        remaining
+      },
+      evidence_count: runtimeState.evidenceCount ?? runtimeState.evidence_count ?? 0,
+      verification_status: runtimeState.verificationStatus ?? runtimeState.verification_status ?? 'not_started',
+      tool_calls_used: runtimeState.toolCallsUsed ?? runtimeState.tool_calls_used ?? used,
+      review_artifact_path: reviewArtifactPath,
+      fix_session_id: fixSessionId,
+      fix_session_path: fixSessionPath,
+      provider_usage: {
+        selected_provider: providerUsage.selectedProvider || providerUsage.selected_provider || null,
+        selected_model: providerUsage.selectedModel || providerUsage.selected_model || null,
+        total_cost_usd: providerUsage.totalCostUsd || providerUsage.total_cost_usd || 0,
+        retries: providerUsage.retries || 0,
+        tokens_used: {
+          input: providerTokens.input || 0,
+          output: providerTokens.output || 0,
+          cached: providerTokens.cached || 0
+        }
+      },
+      tool_metrics: runtimeState.toolMetrics ?? runtimeState.tool_metrics ?? {}
+    };
+  }
+
   /**
    * Rebuild derived indexes (domains, tiers, capability maps)
    */
@@ -107,6 +420,7 @@ class AgentRegistryManager {
     const specializationsIndex = {};
 
     agents.forEach(agent => {
+      this.ensureRuntimeState(agent);
       const domainName = agent.domain || 'unknown';
       if (!domains.has(domainName)) {
         const previous = existingDomainInfo.get(domainName) || {};
@@ -159,6 +473,8 @@ class AgentRegistryManager {
           specializationsIndex[specialization].push(agent.name);
         }
       });
+
+      this.refreshDerivedAgentMetadata(agent);
     });
 
     this.registry.agents = agents;
@@ -166,6 +482,7 @@ class AgentRegistryManager {
     this.registry.domains = Array.from(domains.values());
     this.registry.capabilities_index = capabilitiesIndex;
     this.registry.specializations_index = specializationsIndex;
+    this.registry.readiness_summary = this.summarizeReplayReadiness(agents);
     this.updateTierCounts();
   }
 
@@ -195,6 +512,8 @@ class AgentRegistryManager {
         memory: '0MB',
         active_threads: 0
       },
+      execution_history: [],
+      runtime_state: this.createDefaultRuntimeState(agentSpec),
       created_at: new Date().toISOString(),
       last_active: null
     };
@@ -379,6 +698,7 @@ class AgentRegistryManager {
     if (!agent) {
       return false;
     }
+    this.ensureRuntimeState(agent);
     if (status) {
       agent.status = status;
     }
@@ -391,14 +711,50 @@ class AgentRegistryManager {
   /**
    * Update last_active timestamp without changing current task.
    */
-  touchAgent(agentIdentifier, status) {
+  touchAgent(agentIdentifier, status, runtimeState = null) {
     const agent = this.resolveAgent(agentIdentifier);
     if (!agent) {
       return false;
     }
+    this.ensureRuntimeState(agent);
     if (status) {
       agent.status = status;
     }
+    if (runtimeState) {
+      agent.runtime_state = {
+        ...agent.runtime_state,
+        ...this.normalizeRuntimeState(runtimeState),
+        tool_budget: {
+          ...agent.runtime_state.tool_budget,
+          ...this.normalizeRuntimeState(runtimeState).tool_budget
+        }
+      };
+    }
+    agent.last_active = new Date().toISOString();
+    this.registry.last_updated = agent.last_active;
+    this.saveRegistry();
+    return true;
+  }
+
+  updateAgentRuntimeState(agentIdentifier, runtimeState = {}) {
+    const agent = this.resolveAgent(agentIdentifier);
+    if (!agent) {
+      return false;
+    }
+
+    const currentRuntimeState = this.ensureRuntimeState(agent);
+    const normalizedState = this.normalizeRuntimeState(runtimeState);
+
+    agent.runtime_state = {
+      ...currentRuntimeState,
+      ...normalizedState,
+      tool_budget: {
+        ...currentRuntimeState.tool_budget,
+        ...normalizedState.tool_budget
+      }
+    };
+    this.refreshDerivedAgentMetadata(agent);
+
     agent.last_active = new Date().toISOString();
     this.registry.last_updated = agent.last_active;
     this.saveRegistry();
@@ -413,6 +769,7 @@ class AgentRegistryManager {
     if (!agent) {
       return false;
     }
+    this.ensureRuntimeState(agent);
     agent.current_task = taskId;
     agent.status = 'busy';
     agent.last_active = new Date().toISOString();
@@ -427,6 +784,7 @@ class AgentRegistryManager {
   completeTask(agentIdentifier, taskId, success, completionTime, qualityScore, telemetry = {}) {
     const agent = this.resolveAgent(agentIdentifier);
     if (agent && (!agent.current_task || agent.current_task === taskId)) {
+      this.ensureRuntimeState(agent);
       agent.current_task = null;
       agent.status = 'idle';
       agent.last_active = new Date().toISOString();
@@ -452,8 +810,48 @@ class AgentRegistryManager {
         action: telemetry.action ?? null,
         result_summary: telemetry.resultSummary ?? null,
         error: success ? null : telemetry.error ?? null,
-        execution_time_ms: telemetry.executionTime ?? null
+        execution_time_ms: telemetry.executionTime ?? null,
+        reasoning_mode: telemetry.reasoningMode ?? telemetry.reasoning_mode ?? 'standard',
+        provider_usage: telemetry.providerUsage ?? telemetry.provider_usage ?? {
+          selected_provider: null,
+          selected_model: null,
+          total_cost_usd: 0,
+          retries: 0,
+          tokens_used: { input: 0, output: 0, cached: 0 }
+        },
+        tool_metrics: telemetry.toolMetrics ?? telemetry.tool_metrics ?? {},
+        review_artifact_path: telemetry.reviewArtifactPath ?? null,
+        fix_session_id: telemetry.fixSessionId ?? null,
+        fix_session_path: telemetry.fixSessionPath ?? null
       };
+      const normalizedState = this.normalizeRuntimeState(telemetry);
+      agent.runtime_state = {
+        ...agent.runtime_state,
+        ...normalizedState,
+        tool_budget: {
+          ...agent.runtime_state.tool_budget,
+          ...normalizedState.tool_budget
+        }
+      };
+      this.appendExecutionHistory(agent, {
+        timestamp: agent.last_active,
+        success,
+        action: telemetry.action ?? null,
+        resultSummary: telemetry.resultSummary ?? null,
+        error: success ? null : telemetry.error ?? null,
+        executionTime: telemetry.executionTime ?? null,
+        role: telemetry.role ?? null,
+        reasoningMode: telemetry.reasoningMode ?? telemetry.reasoning_mode ?? 'standard',
+        providerUsage: telemetry.providerUsage ?? telemetry.provider_usage ?? {},
+        toolMetrics: telemetry.toolMetrics ?? telemetry.tool_metrics ?? {},
+        verificationStatus: telemetry.verificationStatus ?? 'not_started',
+        toolCallsUsed: telemetry.toolCallsUsed ?? 0,
+        evidenceCount: telemetry.evidenceCount ?? 0,
+        reviewArtifactPath: telemetry.reviewArtifactPath ?? null,
+        fixSessionId: telemetry.fixSessionId ?? null,
+        fixSessionPath: telemetry.fixSessionPath ?? null
+      });
+      this.refreshDerivedAgentMetadata(agent);
 
       this.registry.last_updated = agent.last_active;
       this.saveRegistry();
@@ -499,12 +897,95 @@ class AgentRegistryManager {
     });
   }
 
-  recordExecution(agentIdentifier, { success, executionTime = null, taskAction = null, resultSummary = null, error = null } = {}) {
+  appendExecutionHistory(agent, telemetry = {}) {
+    if (!agent) {
+      return null;
+    }
+
+    const history = this.ensureExecutionHistory(agent);
+    const entry = {
+      timestamp: telemetry.timestamp || new Date().toISOString(),
+      success: telemetry.success === true,
+      action: telemetry.action ?? null,
+      result_summary: telemetry.resultSummary ?? telemetry.result_summary ?? null,
+      error: telemetry.error ?? null,
+      execution_time_ms: telemetry.executionTime ?? telemetry.execution_time_ms ?? null,
+      role: telemetry.role ?? null,
+      reasoning_mode: telemetry.reasoningMode ?? telemetry.reasoning_mode ?? 'standard',
+      provider_usage: telemetry.providerUsage ?? telemetry.provider_usage ?? {
+        selected_provider: null,
+        selected_model: null,
+        total_cost_usd: 0,
+        retries: 0,
+        tokens_used: { input: 0, output: 0, cached: 0 }
+      },
+      tool_metrics: telemetry.toolMetrics ?? telemetry.tool_metrics ?? {},
+      verification_status: telemetry.verificationStatus ?? telemetry.verification_status ?? 'not_started',
+      tool_calls_used: telemetry.toolCallsUsed ?? telemetry.tool_calls_used ?? 0,
+      evidence_count: telemetry.evidenceCount ?? telemetry.evidence_count ?? 0,
+      review_artifact_path: telemetry.reviewArtifactPath ?? telemetry.review_artifact_path ?? null,
+      fix_session_id: telemetry.fixSessionId ?? telemetry.fix_session_id ?? null,
+      fix_session_path: telemetry.fixSessionPath ?? telemetry.fix_session_path ?? null
+    };
+
+    history.unshift(entry);
+    if (history.length > this.options.executionHistoryLimit) {
+      history.length = this.options.executionHistoryLimit;
+    }
+
+    return entry;
+  }
+
+  getAgentExecutionHistory(agentIdentifier, limit = this.options.executionHistoryLimit) {
+    const agent = this.resolveAgent(agentIdentifier);
+    if (!agent) {
+      return [];
+    }
+
+    return this.ensureExecutionHistory(agent).slice(0, Math.max(0, limit));
+  }
+
+  getAgentSnapshot(agentIdentifier) {
+    const agent = this.resolveAgent(agentIdentifier);
+    if (!agent) {
+      return null;
+    }
+
+    this.refreshDerivedAgentMetadata(agent);
+    return JSON.parse(JSON.stringify(agent));
+  }
+
+  getRegistrySnapshot() {
+    this.rebuildDerivedIndexes();
+    const snapshot = JSON.parse(JSON.stringify(this.registry));
+    snapshot.readiness_summary = this.summarizeReplayReadiness(snapshot.agents || []);
+    return snapshot;
+  }
+
+  recordExecution(agentIdentifier, {
+    success,
+    executionTime = null,
+    taskAction = null,
+    resultSummary = null,
+    error = null,
+    role = null,
+    toolBudget = null,
+    reasoningMode = 'standard',
+    providerUsage = null,
+    toolMetrics = null,
+    evidenceCount = 0,
+    verificationStatus = 'not_started',
+    toolCallsUsed = 0,
+    reviewArtifactPath = null,
+    fixSessionId = null,
+    fixSessionPath = null
+  } = {}) {
     const agent = this.resolveAgent(agentIdentifier);
     if (!agent) {
       return;
     }
 
+    this.ensureRuntimeState(agent);
     agent.performance_metrics = agent.performance_metrics || {};
     const metrics = agent.performance_metrics;
     metrics.tasks_completed = metrics.tasks_completed || 0;
@@ -531,8 +1012,60 @@ class AgentRegistryManager {
       action: taskAction,
       result_summary: resultSummary,
       error: success ? null : error,
-      execution_time_ms: executionTime
+      execution_time_ms: executionTime,
+      reasoning_mode: reasoningMode,
+      provider_usage: providerUsage || {
+        selected_provider: null,
+        selected_model: null,
+        total_cost_usd: 0,
+        retries: 0,
+        tokens_used: { input: 0, output: 0, cached: 0 }
+      },
+      tool_metrics: toolMetrics || {},
+      review_artifact_path: reviewArtifactPath,
+      fix_session_id: fixSessionId,
+      fix_session_path: fixSessionPath
     };
+    const normalizedState = this.normalizeRuntimeState({
+      role,
+      toolBudget,
+      reasoningMode,
+      providerUsage,
+      toolMetrics,
+      evidenceCount,
+      verificationStatus,
+      toolCallsUsed,
+      reviewArtifactPath,
+      fixSessionId,
+      fixSessionPath
+    });
+    agent.runtime_state = {
+      ...agent.runtime_state,
+      ...normalizedState,
+      tool_budget: {
+        ...agent.runtime_state.tool_budget,
+        ...normalizedState.tool_budget
+      }
+    };
+    this.appendExecutionHistory(agent, {
+      timestamp: agent.last_active,
+      success,
+      action: taskAction,
+      resultSummary,
+      error: success ? null : error,
+      executionTime,
+      role,
+      reasoningMode,
+      providerUsage,
+      toolMetrics,
+      verificationStatus,
+      toolCallsUsed,
+      evidenceCount,
+      reviewArtifactPath,
+      fixSessionId,
+      fixSessionPath
+    });
+    this.refreshDerivedAgentMetadata(agent);
 
     this.registry.last_updated = agent.last_active;
     this.saveRegistry();
@@ -668,13 +1201,18 @@ class AgentRegistryManager {
   /**
    * Dispose watchers and timers.
    */
-  close() {
+  async flush() {
+    await this._pendingSave.catch(() => {});
+  }
+
+  async close() {
     if (this._reloadTimer) {
       clearTimeout(this._reloadTimer);
       this._reloadTimer = null;
     }
 
     this.teardownWatchers();
+    await this.flush();
   }
 
   /**
@@ -763,6 +1301,7 @@ class AgentRegistryManager {
 }
 
 module.exports = AgentRegistryManager;
+module.exports.DEFAULT_REGISTRY_PATH = REGISTRY_PATH;
 
 // Example usage
 if (require.main === module) {
