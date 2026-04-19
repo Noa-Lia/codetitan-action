@@ -2,6 +2,8 @@
 
 const path = require('path');
 const crypto = require('crypto');
+const { AIAttribution, buildEmptyCommitAttribution, buildEmptyFindingAttribution } = require('./ai-attribution');
+const PRRiskScorer = require('./pr-risk-scorer');
 
 /**
  * FeedbackLoop — production learning engine.
@@ -22,6 +24,8 @@ class FeedbackLoop {
       ruleThreshold: config.ruleThreshold || 3,   // incidents before suggesting a rule
       ...config
     };
+    this.attributionProvider = config.attributionProvider || null;
+    this.prRiskScorer = config.prRiskScorer || null;
 
     this._db = null;         // SQLite instance (lazy)
     this._supabase = null;   // Supabase client (lazy)
@@ -75,6 +79,7 @@ class FeedbackLoop {
         id TEXT PRIMARY KEY,
         fix_id TEXT NOT NULL,
         finding_id TEXT,
+        project_id TEXT,
         category TEXT,
         success INTEGER NOT NULL,
         confidence_score REAL,
@@ -86,6 +91,7 @@ class FeedbackLoop {
 
       CREATE TABLE IF NOT EXISTS production_incidents (
         id TEXT PRIMARY KEY,
+        project_id TEXT,
         file_path TEXT,
         line_number INTEGER,
         error_message TEXT,
@@ -100,6 +106,7 @@ class FeedbackLoop {
       CREATE TABLE IF NOT EXISTS generated_rules (
         id TEXT PRIMARY KEY,
         rule_id TEXT UNIQUE NOT NULL,
+        project_id TEXT,
         pattern TEXT NOT NULL,
         description TEXT,
         severity TEXT DEFAULT 'HIGH',
@@ -153,6 +160,7 @@ class FeedbackLoop {
       id,
       fix_id: fixId,
       finding_id: outcome.findingId || null,
+      project_id: outcome.projectId || null,
       category: outcome.category || null,
       success: outcome.success ? 1 : 0,
       confidence_score: outcome.confidenceScore || null,
@@ -170,9 +178,9 @@ class FeedbackLoop {
       await this._supabase.from('fix_outcomes').insert({ ...row, success: outcome.success });
     } else if (this._db) {
       await this._db.run(
-        `INSERT INTO fix_outcomes (id,fix_id,finding_id,category,success,confidence_score,incident_id,error_message,project_root,created_at)
-         VALUES (?,?,?,?,?,?,?,?,?,?)`,
-        [row.id, row.fix_id, row.finding_id, row.category, row.success,
+        `INSERT INTO fix_outcomes (id,fix_id,finding_id,project_id,category,success,confidence_score,incident_id,error_message,project_root,created_at)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
+        [row.id, row.fix_id, row.finding_id, row.project_id, row.category, row.success,
          row.confidence_score, row.incident_id, row.error_message, row.project_root, row.created_at]
       );
     }
@@ -236,6 +244,7 @@ class FeedbackLoop {
 
     const rule = {
       ruleId,
+      projectId: incident.project_id || incident.projectId || null,
       pattern,
       description: `Auto-detected: ${pattern.errorType} in ${pattern.filePattern}`,
       severity: incident.severity || 'HIGH',
@@ -264,9 +273,9 @@ class FeedbackLoop {
     const since = new Date(Date.now() - sinceMs).toISOString();
 
     const [outcomes, incidents, rules] = await Promise.all([
-      this._getOutcomes(since),
-      this._getIncidents(since),
-      this._getProposedRules()
+      this._getOutcomes(since, projectId),
+      this._getIncidents(since, projectId),
+      this._getProposedRules(projectId)
     ]);
 
     const total = outcomes.length;
@@ -285,6 +294,65 @@ class FeedbackLoop {
       .slice(0, 5)
       .map(([category, count]) => ({ category, count }));
 
+    const attributionProvider = this.attributionProvider || new AIAttribution({
+      projectRoot: this.config.projectRoot
+    });
+
+    let commitAttribution = buildEmptyCommitAttribution(timeRange, null);
+    let latestRun = null;
+    let findingAttribution = buildEmptyFindingAttribution(null, 0, null);
+    let toolQualityScores = [];
+    let teamRecommendations = [];
+    let prRiskScore = {
+      score: 0,
+      level: 'low',
+      reason: 'No attributed findings available.',
+      components: {
+        severity: 0,
+        aiQuality: 0,
+        attributionCoverage: 0
+      },
+      byTool: []
+    };
+
+    try {
+      commitAttribution = attributionProvider.collectCommitAttribution({ timeRange });
+      latestRun = attributionProvider.loadLatestHistoryRun();
+      const latestFindings = Array.isArray(latestRun?.report?.findings) ? latestRun.report.findings : [];
+      findingAttribution = attributionProvider.attributeFindings(latestFindings, {
+        runId: latestRun?.runId || null
+      });
+      toolQualityScores = attributionProvider.computeToolQuality(commitAttribution, findingAttribution);
+      teamRecommendations = attributionProvider.buildTeamRecommendations(commitAttribution, toolQualityScores);
+      prRiskScore = (this.prRiskScorer || new PRRiskScorer()).score({
+        latestFindings,
+        findingAttribution,
+        toolQualityScores
+      });
+    } catch (error) {
+      const reason = error && error.message ? error.message : 'AI attribution unavailable.';
+      commitAttribution = buildEmptyCommitAttribution(timeRange, reason);
+      findingAttribution = buildEmptyFindingAttribution(null, 0, reason);
+      toolQualityScores = [];
+      teamRecommendations = [
+        {
+          type: 'attribution_unavailable',
+          message: reason
+        }
+      ];
+      prRiskScore = {
+        score: 0,
+        level: 'low',
+        reason,
+        components: {
+          severity: 0,
+          aiQuality: 0,
+          attributionCoverage: 0
+        },
+        byTool: []
+      };
+    }
+
     return {
       fixSuccessRate,
       totalFixes: total,
@@ -293,7 +361,12 @@ class FeedbackLoop {
       rulesFromIncidents: rules,
       incidentCount: incidents.length,
       recommendedPriorities: topFailingCategories.map(c => c.category),
-      timeRange
+      timeRange,
+      aiAttribution: commitAttribution,
+      findingAttribution,
+      toolQualityScores,
+      teamRecommendations,
+      prRiskScore
     };
   }
 
@@ -317,6 +390,7 @@ class FeedbackLoop {
   _normalizeIncident(incident, id) {
     return {
       id,
+      project_id: incident.projectId || incident.project_id || null,
       file_path: incident.file || incident.filePath || null,
       line_number: incident.line || incident.lineNumber || null,
       error_message: incident.error || incident.message || '',
@@ -339,9 +413,9 @@ class FeedbackLoop {
     } else if (this._db) {
       await this._db.run(
         `INSERT INTO production_incidents
-         (id,file_path,line_number,error_message,stack_trace,severity,source,correlated_finding_id,project_root,created_at)
-         VALUES (?,?,?,?,?,?,?,?,?,?)`,
-        [normalized.id, normalized.file_path, normalized.line_number,
+         (id,project_id,file_path,line_number,error_message,stack_trace,severity,source,correlated_finding_id,project_root,created_at)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
+        [normalized.id, normalized.project_id, normalized.file_path, normalized.line_number,
          normalized.error_message, normalized.stack_trace, normalized.severity,
          normalized.source, normalized.correlated_finding_id,
          normalized.project_root, normalized.created_at]
@@ -361,8 +435,14 @@ class FeedbackLoop {
       for (const f of files) {
         if (!f.endsWith('.json')) continue;
         try {
-          const data = JSON.parse(await fs.readFile(require('path').join(cacheDir, f), 'utf-8'));
-          const issues = data.issues || data.findings || [];
+          const cacheFilePath = require('path').join(cacheDir, f);
+          const raw = await fs.readFile(cacheFilePath, 'utf-8');
+          const parsed = JSON.parse(raw);
+          if (!parsed || typeof parsed !== 'object') continue;
+
+          const issues = Array.isArray(parsed.issues)
+            ? parsed.issues
+            : (Array.isArray(parsed.findings) ? parsed.findings : []);
           for (const issue of issues) {
             if (issue.file_path === incident.file_path) {
               const lineDiff = Math.abs((issue.line_number || 0) - (incident.line_number || 0));
@@ -432,7 +512,7 @@ class FeedbackLoop {
   async _persistRuleProposal(rule) {
     if (this._store) {
       const existing = this._store.rules.findIndex(r => r.rule_id === rule.ruleId);
-      const row = { rule_id: rule.ruleId, pattern: rule.pattern, description: rule.description,
+      const row = { rule_id: rule.ruleId, project_id: rule.projectId || null, pattern: rule.pattern, description: rule.description,
                     severity: rule.severity, incident_count: rule.incidentCount,
                     confidence: rule.confidence, approved: false };
       if (existing >= 0) this._store.rules[existing] = row;
@@ -443,6 +523,7 @@ class FeedbackLoop {
       await this._supabase.from('generated_rules').upsert({
         id: crypto.randomUUID(),
         rule_id: rule.ruleId,
+        project_id: rule.projectId || null,
         pattern: rule.pattern,
         description: rule.description,
         severity: rule.severity,
@@ -455,56 +536,71 @@ class FeedbackLoop {
     } else if (this._db) {
       await this._db.run(
         `INSERT OR REPLACE INTO generated_rules
-         (id,rule_id,pattern,description,severity,incident_count,confidence,approved,project_root,created_at)
-         VALUES (?,?,?,?,?,?,?,?,?,?)`,
+         (id,rule_id,project_id,pattern,description,severity,incident_count,confidence,approved,project_root,created_at)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
         [crypto.randomUUID(), rule.ruleId,
-         JSON.stringify(rule.pattern), rule.description, rule.severity,
+         rule.projectId || null, JSON.stringify(rule.pattern), rule.description, rule.severity,
          rule.incidentCount, rule.confidence, 0, this.config.projectRoot,
          new Date().toISOString()]
       );
     }
   }
 
-  async _getOutcomes(since) {
+  async _getOutcomes(since, projectId = null) {
     if (this._store) {
-      return this._store.outcomes.filter(o => o.created_at >= since);
+      return this._store.outcomes.filter(o => o.created_at >= since && (!projectId || o.project_id === projectId));
     }
     if (this._supabase) {
-      const { data } = await this._supabase
+      let query = this._supabase
         .from('fix_outcomes').select('*').gte('created_at', since);
+      if (projectId) query = query.eq('project_id', projectId);
+      const { data } = await query;
       return data || [];
     }
     if (this._db) {
+      if (projectId) {
+        return this._db.all(`SELECT * FROM fix_outcomes WHERE created_at >= ? AND project_id = ?`, [since, projectId]);
+      }
       return this._db.all(`SELECT * FROM fix_outcomes WHERE created_at >= ?`, [since]);
     }
     return [];
   }
 
-  async _getIncidents(since) {
+  async _getIncidents(since, projectId = null) {
     if (this._store) {
-      return this._store.incidents.filter(i => i.created_at >= since);
+      return this._store.incidents.filter(i => i.created_at >= since && (!projectId || i.project_id === projectId));
     }
     if (this._supabase) {
-      const { data } = await this._supabase
+      let query = this._supabase
         .from('production_incidents').select('*').gte('created_at', since);
+      if (projectId) query = query.eq('project_id', projectId);
+      const { data } = await query;
       return data || [];
     }
     if (this._db) {
+      if (projectId) {
+        return this._db.all(`SELECT * FROM production_incidents WHERE created_at >= ? AND project_id = ?`, [since, projectId]);
+      }
       return this._db.all(`SELECT * FROM production_incidents WHERE created_at >= ?`, [since]);
     }
     return [];
   }
 
-  async _getProposedRules() {
+  async _getProposedRules(projectId = null) {
     if (this._store) {
-      return this._store.rules.filter(r => !r.approved);
+      return this._store.rules.filter(r => !r.approved && (!projectId || r.project_id === projectId));
     }
     if (this._supabase) {
-      const { data } = await this._supabase
+      let query = this._supabase
         .from('generated_rules').select('*').eq('approved', false);
+      if (projectId) query = query.eq('project_id', projectId);
+      const { data } = await query;
       return data || [];
     }
     if (this._db) {
+      if (projectId) {
+        return this._db.all(`SELECT * FROM generated_rules WHERE approved = 0 AND project_id = ?`, [projectId]);
+      }
       return this._db.all(`SELECT * FROM generated_rules WHERE approved = 0`);
     }
     return [];
