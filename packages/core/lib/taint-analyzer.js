@@ -130,7 +130,7 @@ function analyzeTaint(filePath, content) {
       if (!sourcePattern.test(line)) continue;
 
       // const/let/var varName = <source>
-      const assignMatch = line.match(/(?:const|let|var)\s+(\w+)\s*=\s*.+/);
+      const assignMatch = line.match(/(?:const|let|var)\s+(\w+)(?:\s*:\s*[^=;]+)?\s*=\s*.+/);
       if (assignMatch) {
         taintedVars.add(assignMatch[1]);
         taintedLineMap.set(assignMatch[1], idx + 1);
@@ -178,7 +178,7 @@ function analyzeTaint(filePath, content) {
     changed = false;
     lines.forEach((line, idx) => {
       // Simple alias: const x = y
-      const simpleAlias = line.match(/(?:const|let|var)\s+(\w+)\s*=\s*(\w+)\s*[;,\n)]/);
+      const simpleAlias = line.match(/(?:const|let|var)\s+(\w+)(?:\s*:\s*[^=;]+)?\s*=\s*(\w+)\s*[;,\n)]/);
       if (simpleAlias && taintedVars.has(simpleAlias[2]) && !taintedVars.has(simpleAlias[1])) {
         taintedVars.add(simpleAlias[1]);
         taintedLineMap.set(simpleAlias[1], idx + 1);
@@ -186,7 +186,7 @@ function analyzeTaint(filePath, content) {
       }
 
       // Property access: const x = tainted.prop
-      const propAccess = line.match(/(?:const|let|var)\s+(\w+)\s*=\s*(\w+)\.[\w.]+/);
+      const propAccess = line.match(/(?:const|let|var)\s+(\w+)(?:\s*:\s*[^=;]+)?\s*=\s*(\w+)\.[\w.]+/);
       if (propAccess && taintedVars.has(propAccess[2]) && !taintedVars.has(propAccess[1])) {
         taintedVars.add(propAccess[1]);
         taintedLineMap.set(propAccess[1], idx + 1);
@@ -194,7 +194,7 @@ function analyzeTaint(filePath, content) {
       }
 
       // Template literal: const x = `...${tainted}...`
-      const templateLit = line.match(/(?:const|let|var)\s+(\w+)\s*=\s*`[^`]*\$\{(\w+)\}`/);
+      const templateLit = line.match(/(?:const|let|var)\s+(\w+)(?:\s*:\s*[^=;]+)?\s*=\s*`[^`]*\$\{(\w+)\}`/);
       if (templateLit && taintedVars.has(templateLit[2]) && !taintedVars.has(templateLit[1])) {
         taintedVars.add(templateLit[1]);
         taintedLineMap.set(templateLit[1], idx + 1);
@@ -202,7 +202,7 @@ function analyzeTaint(filePath, content) {
       }
 
       // String concat: const x = tainted + "..." or "..." + tainted
-      const concat = line.match(/(?:const|let|var)\s+(\w+)\s*=\s*(?:(\w+)\s*\+|.*\+\s*(\w+))/);
+      const concat = line.match(/(?:const|let|var)\s+(\w+)(?:\s*:\s*[^=;]+)?\s*=\s*(?:(\w+)\s*\+|.*\+\s*(\w+))/);
       if (concat) {
         const lhs = concat[1];
         const rhs1 = concat[2], rhs2 = concat[3];
