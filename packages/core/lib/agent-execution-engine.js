@@ -20,7 +20,44 @@ const path = require('path');
 const ToolBridge = require('./tool-bridge');
 const AgentMessageBus = require('./agent-message-bus');
 const AgentRegistryManager = require('./agent-registry-manager');
+const Guardrails = require('./agent-runtime/guardrails');
+const Planner = require('./agent-runtime/planner');
+const { persistRuntimeInsight } = require('./agent-runtime/runtime-insight-recorder');
+const ToolRouter = require('./agent-runtime/tool-router');
+const { createDefaultToolRegistry } = require('./agent-runtime/tool-registry');
+const { AIProviderManager } = require('./ai-providers');
 const { loadConfig } = require('./config');
+
+function resolveReviewArtifactPath(result, task = {}) {
+  const payload = result?.result || result || {};
+  const runtimeState = payload.runtime_state || {};
+
+  return payload?.review_artifact?.path ||
+    result?.review_artifact?.path ||
+    runtimeState?.reviewArtifact?.path ||
+    runtimeState?.review_artifact_path ||
+    task?.metadata?.reviewArtifactPath ||
+    null;
+}
+
+function resolveFixSessionMetadata(result, task = {}) {
+  const payload = result?.result || result || {};
+  const runtimeState = payload.runtime_state || {};
+  const fixSession = payload?.fix_session || runtimeState?.fixSession || {};
+
+  return {
+    id:
+      fixSession?.id ||
+      runtimeState?.fix_session_id ||
+      task?.metadata?.fixSessionId ||
+      null,
+    path:
+      fixSession?.path ||
+      runtimeState?.fix_session_path ||
+      task?.metadata?.fixSessionPath ||
+      null
+  };
+}
 
 class AgentExecutionEngine {
   constructor(options = {}) {
@@ -28,6 +65,7 @@ class AgentExecutionEngine {
       agentsDir: options.agentsDir || path.join(__dirname, '..', 'agents'),
       enableToolExecution: options.enableToolExecution ?? true,
       maxExecutionTime: options.maxExecutionTime || 300000, // 5 minutes
+      maxRuntimeSteps: options.maxRuntimeSteps || 8,
       ...options
     };
 
@@ -40,13 +78,34 @@ class AgentExecutionEngine {
       enableFileOperations: options.enableFileOperations ?? true,
       enableBashOperations: options.enableBashOperations ?? false
     });
+    this.providerManager = options.providerManager || new AIProviderManager(options.aiConfig || {});
+    this.toolRegistry = options.toolRegistry || createDefaultToolRegistry();
+    this.guardrails = options.guardrails || new Guardrails({
+      workingDirectory: options.workingDirectory || path.join(__dirname, '..'),
+      maxSteps: this.options.maxRuntimeSteps
+    });
+    this.toolRouter = options.toolRouter || new ToolRouter({
+      toolBridge: this.toolBridge
+    });
+    this.runtimePlanner = options.runtimePlanner || new Planner({
+      toolRegistry: this.toolRegistry,
+      toolRouter: this.toolRouter,
+      guardrails: this.guardrails,
+      providerManager: this.providerManager,
+      maxSteps: this.options.maxRuntimeSteps
+    });
 
     this.config = loadConfig();
+    this._ownsMessageBus = !options.messageBus;
+    this._ownsRegistryManager = !options.registryManager;
+    this._shutdown = false;
     this.messageBus = options.messageBus || new AgentMessageBus({
       persistMessages: false,
       metricsEnabled: false
     });
-    this.registryManager = options.registryManager || new AgentRegistryManager();
+    this.registryManager = options.registryManager || new AgentRegistryManager({
+      watch: options.registryWatch ?? false
+    });
 
     // Execution context (tools available to agents) - DEPRECATED, using toolBridge now
     this.toolContext = null;
@@ -199,15 +258,67 @@ class AgentExecutionEngine {
 
       // Execute based on interpretation
       const result = await this.performExecution(skill, interpretation, task);
-
-      // Update metrics
       const executionTime = Date.now() - startTime;
-      this.metrics.tasksSucceeded++;
+
+      if (result && result.success === false) {
+        const runtimeState = result.runtime_state || {};
+        const reviewArtifactPath = resolveReviewArtifactPath(result, task);
+        const fixSession = resolveFixSessionMetadata(result, task);
+        this.metrics.tasksFailed++;
+        this.metrics.totalExecutionTime += executionTime;
+        this.metrics.averageExecutionTime =
+          this.metrics.totalExecutionTime / this.metrics.tasksExecuted;
+
+        this.messageBus.emit('agent:result', {
+          agent: agentName,
+          success: false,
+          task,
+          interpretation,
+          result,
+          error: result.error || result.message,
+          executionTime
+        });
+        this.registryManager.recordExecution(agentName, {
+          success: false,
+          executionTime,
+          taskAction: task.action || interpretation.action,
+          resultSummary: result?.message || null,
+          error: result?.error || result?.message,
+          role: runtimeState.role || null,
+          toolBudget: runtimeState.toolBudget || null,
+          reasoningMode: runtimeState.reasoningMode || 'standard',
+          providerUsage: runtimeState.providerUsage || null,
+          toolMetrics: runtimeState.toolMetrics || null,
+          evidenceCount: runtimeState.evidenceCount || 0,
+          verificationStatus: runtimeState.verificationStatus || 'failed',
+          toolCallsUsed: runtimeState.toolCallsUsed || 0,
+          reviewArtifactPath,
+          fixSessionId: fixSession.id,
+          fixSessionPath: fixSession.path
+        });
+        await this.persistInsight(task, result);
+
+        return {
+          success: false,
+          agent: agentName,
+          result,
+          interpretation,
+          error: result.error || result.message,
+          quality: result.quality || 0,
+          executionTime,
+          timestamp: new Date().toISOString()
+        };
+      }
+
       this.metrics.totalExecutionTime += executionTime;
       this.metrics.averageExecutionTime =
         this.metrics.totalExecutionTime / this.metrics.tasksExecuted;
+      this.metrics.tasksSucceeded++;
 
       console.log(`[ExecutionEngine] Task completed in ${executionTime}ms`);
+      const runtimeState = result.runtime_state || {};
+      const reviewArtifactPath = resolveReviewArtifactPath(result, task);
+      const fixSession = resolveFixSessionMetadata(result, task);
 
       this.messageBus.emit('agent:result', {
         agent: agentName,
@@ -221,15 +332,28 @@ class AgentExecutionEngine {
         success: true,
         executionTime,
         taskAction: task.action || interpretation.action,
-        resultSummary: result?.message || null
+        resultSummary: result?.message || null,
+        role: runtimeState.role || null,
+        toolBudget: runtimeState.toolBudget || null,
+        reasoningMode: runtimeState.reasoningMode || 'standard',
+        providerUsage: runtimeState.providerUsage || null,
+        toolMetrics: runtimeState.toolMetrics || null,
+        evidenceCount: runtimeState.evidenceCount || 0,
+        verificationStatus: runtimeState.verificationStatus || 'verified',
+        toolCallsUsed: runtimeState.toolCallsUsed || 0,
+        reviewArtifactPath,
+        fixSessionId: fixSession.id,
+        fixSessionPath: fixSession.path
       });
+      await this.persistInsight(task, result);
 
       return {
         success: true,
         agent: agentName,
-        result: result,
-        interpretation: interpretation,
-        executionTime: executionTime,
+        result,
+        interpretation,
+        quality: result?.quality || 1,
+        executionTime,
         timestamp: new Date().toISOString()
       };
 
@@ -251,7 +375,26 @@ class AgentExecutionEngine {
         success: false,
         executionTime,
         taskAction: task.action || 'unknown',
-        error: error.message
+        error: error.message,
+        reviewArtifactPath: task?.metadata?.reviewArtifactPath || null,
+        fixSessionId: task?.metadata?.fixSessionId || null,
+        fixSessionPath: task?.metadata?.fixSessionPath || null
+      });
+      await this.persistInsight(task, {
+        success: false,
+        type: task.action || 'unknown',
+        status: 'failed',
+        summary: error.message,
+        message: error.message,
+        error: error.message,
+        evidence: [],
+        toolTrace: [],
+        runtime_state: {
+          reasoningMode: 'standard',
+          verificationStatus: 'failed',
+          providerUsage: null,
+          toolMetrics: {}
+        }
       });
 
       return {
@@ -285,7 +428,11 @@ class AgentExecutionEngine {
       'test': ['testing', 'test_generation'],
       'fix': ['auto_fix', 'error_detection'],
       'design': ['design', 'architecture'],
-      'validate': ['validation', 'checking']
+      'validate': ['validation', 'checking'],
+      'review': ['review', 'analysis', 'quality_analysis'],
+      'security-review': ['security', 'review', 'analysis'],
+      'replay': ['analysis', 'history'],
+      'compare': ['analysis', 'history', 'review']
     };
 
     // Check if agent has capabilities for this action
@@ -305,269 +452,274 @@ class AgentExecutionEngine {
     return interpretation;
   }
 
-  /**
-   * Perform actual execution
-   *
-   * NOTE: This is a SIMPLIFIED version. In a full implementation,
-   * this would:
-   * 1. Use Claude's API to reason about the task
-   * 2. Use tools (Read, Write, Edit, Bash) to do work
-   * 3. Return structured results
-   *
-   * For now, we simulate intelligent execution based on the task
-   */
   async performExecution(skill, interpretation, task) {
-    // Build execution context
-    const context = {
-      agent: skill.name,
-      role: skill.role,
-      capabilities: skill.capabilities,
-      task: task,
-      interpretation: interpretation
-    };
-
-    // Execute based on strategy
-    switch (interpretation.execution_strategy) {
-      case 'analyze':
-        return await this.executeAnalysis(context);
-
-      case 'refactor':
-        return await this.executeRefactoring(context);
-
-      case 'generate':
-        return await this.executeGeneration(context);
-
-      case 'optimize':
-        return await this.executeOptimization(context);
-
-      case 'design':
-        return await this.executeDesign(context);
-
-      case 'fix':
-        return await this.executeFix(context);
-
-      default:
-        return await this.executeGeneric(context);
-    }
+    return this.runtimePlanner.execute({
+      skill,
+      interpretation,
+      task
+    });
   }
 
-  /**
-   * Execute analysis task
-   * NOW WITH REAL FILE OPERATIONS - NO MORE SIMULATION!
-   */
-  async executeAnalysis(context) {
-    const file = context.task.content?.file || 'unknown file';
+  buildRuntimeContext(action, context) {
+    return {
+      skill: {
+        name: context.agent,
+        role: context.role,
+        capabilities: context.capabilities || []
+      },
+      interpretation: {
+        execution_strategy: action,
+        matched_capabilities: context.interpretation?.matched_capabilities || []
+      },
+      task: {
+        action,
+        content: context.task?.content || {},
+        metadata: context.task?.metadata
+      }
+    };
+  }
 
-    // REAL EXECUTION: Use Tool Bridge to read and analyze actual file
-    const analysis = await this.toolBridge.analyzeFile(file);
+  ensureRuntimeAgentRegistration(runtimeContext = {}) {
+    const agentName = runtimeContext?.skill?.name || 'runtime-agent';
 
-    if (!analysis.success) {
-      // File couldn't be read - return error
-      return {
-        type: 'analysis',
-        file: file,
-        error: analysis.error,
+    if (
+      typeof this.registryManager?.resolveAgent !== 'function' ||
+      typeof this.registryManager?.registerAgent !== 'function'
+    ) {
+      return agentName;
+    }
+
+    const existingAgent = this.registryManager.resolveAgent(agentName);
+    if (existingAgent) {
+      return agentName;
+    }
+
+    const normalizedRole = String(
+      runtimeContext?.task?.metadata?.role ||
+      runtimeContext?.skill?.role ||
+      'researcher'
+    ).toLowerCase();
+
+    this.registryManager.registerAgent({
+      name: agentName,
+      tier: normalizedRole === 'orchestrator' ? 4 : 2,
+      domain: 'runtime',
+      capabilities: runtimeContext?.skill?.capabilities || [],
+      role: normalizedRole
+    });
+
+    return agentName;
+  }
+
+  async executeRuntimeAction(action, context) {
+    const startTime = Date.now();
+    const runtimeContext = this.buildRuntimeContext(action, context);
+    const agentName = this.ensureRuntimeAgentRegistration(runtimeContext);
+
+    this.metrics.tasksExecuted++;
+
+    try {
+      const result = await this.runtimePlanner.execute(runtimeContext);
+      const executionTime = Date.now() - startTime;
+      const runtimeState = result?.runtime_state || {};
+      const reviewArtifactPath = resolveReviewArtifactPath(result, runtimeContext.task);
+      const fixSession = resolveFixSessionMetadata(result, runtimeContext.task);
+
+      this.metrics.totalExecutionTime += executionTime;
+      this.metrics.averageExecutionTime =
+        this.metrics.totalExecutionTime / this.metrics.tasksExecuted;
+
+      if (result?.success === false) {
+        this.metrics.tasksFailed++;
+        this.messageBus.emit('agent:result', {
+          agent: agentName,
+          success: false,
+          task: runtimeContext.task,
+          interpretation: runtimeContext.interpretation,
+          result,
+          error: result.error || result.message,
+          executionTime
+        });
+        this.registryManager.recordExecution(agentName, {
+          success: false,
+          executionTime,
+          taskAction: action,
+          resultSummary: result?.message || null,
+          error: result?.error || result?.message,
+          role: runtimeState.role || runtimeContext.task?.metadata?.role || runtimeContext.skill?.role || null,
+          toolBudget: runtimeState.toolBudget || null,
+          reasoningMode: runtimeState.reasoningMode || runtimeContext.task?.metadata?.reasoningMode || 'standard',
+          providerUsage: runtimeState.providerUsage || null,
+          toolMetrics: runtimeState.toolMetrics || null,
+          evidenceCount: runtimeState.evidenceCount || 0,
+          verificationStatus: runtimeState.verificationStatus || 'failed',
+          toolCallsUsed: runtimeState.toolCallsUsed || 0,
+          reviewArtifactPath,
+          fixSessionId: fixSession.id,
+          fixSessionPath: fixSession.path
+        });
+        await this.persistInsight(runtimeContext.task, result);
+        return result;
+      }
+
+      this.metrics.tasksSucceeded++;
+      this.messageBus.emit('agent:result', {
+        agent: agentName,
+        success: true,
+        task: runtimeContext.task,
+        interpretation: runtimeContext.interpretation,
+        result,
+        executionTime
+      });
+      this.registryManager.recordExecution(agentName, {
+        success: true,
+        executionTime,
+        taskAction: action,
+        resultSummary: result?.message || null,
+        role: runtimeState.role || runtimeContext.task?.metadata?.role || runtimeContext.skill?.role || null,
+        toolBudget: runtimeState.toolBudget || null,
+        reasoningMode: runtimeState.reasoningMode || runtimeContext.task?.metadata?.reasoningMode || 'standard',
+        providerUsage: runtimeState.providerUsage || null,
+        toolMetrics: runtimeState.toolMetrics || null,
+        evidenceCount: runtimeState.evidenceCount || 0,
+        verificationStatus: runtimeState.verificationStatus || 'verified',
+        toolCallsUsed: runtimeState.toolCallsUsed || 0,
+        reviewArtifactPath,
+        fixSessionId: fixSession.id,
+        fixSessionPath: fixSession.path
+      });
+      await this.persistInsight(runtimeContext.task, result);
+      return result;
+    } catch (error) {
+      const executionTime = Date.now() - startTime;
+
+      this.metrics.tasksFailed++;
+      this.metrics.totalExecutionTime += executionTime;
+      this.metrics.averageExecutionTime =
+        this.metrics.totalExecutionTime / this.metrics.tasksExecuted;
+
+      this.messageBus.emit('agent:result', {
+        agent: agentName,
         success: false,
-        analyzed_by: context.agent
-      };
+        task: runtimeContext.task,
+        interpretation: runtimeContext.interpretation,
+        error: error.message,
+        executionTime
+      });
+      this.registryManager.recordExecution(agentName, {
+        success: false,
+        executionTime,
+        taskAction: action,
+        error: error.message,
+        role: runtimeContext.task?.metadata?.role || runtimeContext.skill?.role || null,
+        reasoningMode: runtimeContext.task?.metadata?.reasoningMode || 'standard',
+        reviewArtifactPath: runtimeContext.task?.metadata?.reviewArtifactPath || null,
+        fixSessionId: runtimeContext.task?.metadata?.fixSessionId || null,
+        fixSessionPath: runtimeContext.task?.metadata?.fixSessionPath || null
+      });
+      await this.persistInsight(runtimeContext.task, {
+        success: false,
+        type: action,
+        status: 'failed',
+        summary: error.message,
+        message: error.message,
+        error: error.message,
+        evidence: [],
+        toolTrace: [],
+        runtime_state: {
+          role: runtimeContext.task?.metadata?.role || runtimeContext.skill?.role || null,
+          reasoningMode: runtimeContext.task?.metadata?.reasoningMode || 'standard',
+          verificationStatus: 'failed',
+          providerUsage: null,
+          toolMetrics: {}
+        }
+      });
+      throw error;
     }
-
-    // Calculate quality score based on REAL metrics
-    const qualityScore = this.calculateQualityScore(analysis);
-
-    // Generate REAL recommendations based on actual code
-    const recommendations = this.generateRecommendations(analysis);
-
-    return {
-      type: 'analysis',
-      file: file,
-      agent_capability: context.capabilities.join(', '),
-      findings: {
-        quality_score: qualityScore,
-        size: analysis.size,
-        lines: analysis.lines,
-        non_empty_lines: analysis.nonEmptyLines,
-        functions: analysis.functions,
-        classes: analysis.classes,
-        comments: analysis.comments,
-        todos: analysis.todos,
-        complexity: analysis.complexity,
-        issues_found: recommendations.length,
-        recommendations: recommendations
-      },
-      analyzed_by: context.agent,
-      message: `${context.agent} performed REAL analysis using ${context.interpretation.matched_capabilities.join(', ')}`,
-      real_execution: true  // Flag to indicate this is REAL, not simulation
-    };
   }
 
-  /**
-   * Calculate quality score based on real metrics
-   */
+  async persistInsight(task = {}, payload = {}) {
+    if (process.env.NODE_ENV === 'test' && process.env.CODETITAN_PERSIST_RUNTIME_INSIGHTS !== '1') {
+      return;
+    }
+
+    try {
+      await persistRuntimeInsight({
+        result: payload,
+        projectRoot: this.options.workingDirectory || path.join(__dirname, '..'),
+        metadata: {
+          action: task.action || payload.type || 'runtime',
+          targetPath: task?.content?.file || task?.content?.directory || task?.content?.projectPath || '.',
+          reasoningMode: payload?.runtime_state?.reasoningMode || 'standard'
+        }
+      });
+    } catch (error) {
+      console.warn('[ExecutionEngine] Failed to persist runtime insight:', error.message);
+    }
+  }
+
+  async executeAnalysis(context) {
+    return this.executeRuntimeAction('analyze', context);
+  }
+
   calculateQualityScore(analysis) {
-    let score = 1.0;
-
-    // Penalize high complexity
-    if (analysis.complexity.level === 'high') score -= 0.2;
-    else if (analysis.complexity.level === 'medium') score -= 0.1;
-
-    // Penalize low comment ratio
-    const commentRatio = analysis.comments / analysis.lines;
-    if (commentRatio < 0.05) score -= 0.1;
-    else if (commentRatio < 0.10) score -= 0.05;
-
-    // Penalize TODOs
-    if (analysis.todos > 5) score -= 0.1;
-    else if (analysis.todos > 0) score -= 0.05;
-
-    // Bonus for having tests or documentation
-    if (analysis.filePath.includes('test')) score += 0.1;
-    if (analysis.filePath.includes('.md')) score += 0.05;
-
-    return Math.max(0, Math.min(1.0, score));
+    return Planner.calculateQualityScore(analysis);
   }
 
-  /**
-   * Generate recommendations based on real metrics
-   */
   generateRecommendations(analysis) {
-    const recommendations = [];
-
-    if (analysis.complexity.level === 'high') {
-      recommendations.push('High complexity detected - consider refactoring into smaller functions');
-    }
-
-    if (analysis.complexity.conditionals > 10) {
-      recommendations.push(`${analysis.complexity.conditionals} conditionals found - consider using polymorphism or strategy pattern`);
-    }
-
-    if (analysis.complexity.loops > 5) {
-      recommendations.push('Multiple loops detected - consider using functional methods (map, filter, reduce)');
-    }
-
-    if (analysis.comments / analysis.lines < 0.05) {
-      recommendations.push('Low comment ratio - add documentation for complex logic');
-    }
-
-    if (analysis.todos > 0) {
-      recommendations.push(`${analysis.todos} TODO comments found - address pending tasks`);
-    }
-
-    if (analysis.lines > 500) {
-      recommendations.push('File exceeds 500 lines - consider splitting into multiple modules');
-    }
-
-    if (analysis.functions > 20) {
-      recommendations.push('High function count - consider grouping related functions into classes');
-    }
-
-    return recommendations;
+    return Planner.generateRecommendations(analysis);
   }
 
-  /**
-   * Execute refactoring task
-   */
   async executeRefactoring(context) {
-    return {
-      type: 'refactoring',
-      file: context.task.content?.file || 'unknown',
-      refactorings_applied: [
-        'Extract Method',
-        'Rename Variable',
-        'Simplify Conditional'
-      ],
-      changes_count: Math.floor(5 + Math.random() * 15),
-      agent: context.agent,
-      message: 'Code refactored successfully'
-    };
+    return this.executeRuntimeAction('refactor', context);
   }
 
-  /**
-   * Execute generation task
-   */
   async executeGeneration(context) {
-    return {
-      type: 'generation',
-      generated: context.task.content?.type || 'code',
-      lines_generated: Math.floor(50 + Math.random() * 200),
-      files_created: Math.floor(1 + Math.random() * 5),
-      agent: context.agent,
-      message: 'Code generated successfully'
-    };
+    return this.executeRuntimeAction('generate', context);
   }
 
-  /**
-   * Execute optimization task
-   */
   async executeOptimization(context) {
-    return {
-      type: 'optimization',
-      target: context.task.content?.target || 'performance',
-      improvements: {
-        before: '2500ms',
-        after: '350ms',
-        improvement_percent: 86
-      },
-      optimizations_applied: [
-        'Added caching',
-        'Optimized queries',
-        'Reduced N+1 queries'
-      ],
-      agent: context.agent,
-      message: 'Optimization complete'
-    };
+    return this.executeRuntimeAction('optimize', context);
   }
 
-  /**
-   * Execute design task
-   */
   async executeDesign(context) {
-    return {
-      type: 'design',
-      architecture_type: 'microservices',
-      services_identified: Math.floor(3 + Math.random() * 7),
-      patterns_recommended: [
-        'API Gateway',
-        'Circuit Breaker',
-        'Event Sourcing'
-      ],
-      agent: context.agent,
-      message: 'Architecture design complete'
-    };
+    return this.executeRuntimeAction('design', context);
   }
 
-  /**
-   * Execute fix task
-   */
   async executeFix(context) {
-    const errors = context.task.content?.errors || [];
-
-    return {
-      type: 'fix',
-      errors_fixed: errors.length || Math.floor(1 + Math.random() * 10),
-      fixes_applied: errors.map(err => ({
-        error: err,
-        fix: 'Applied automated fix',
-        confidence: 0.90 + Math.random() * 0.09
-      })),
-      agent: context.agent,
-      message: 'Errors fixed successfully'
-    };
+    return this.executeRuntimeAction('fix', context);
   }
 
-  /**
-   * Execute generic task
-   */
   async executeGeneric(context) {
-    return {
-      type: 'generic',
-      action: context.task.action,
-      agent: context.agent,
-      agent_role: context.role,
-      capabilities_available: context.capabilities,
-      task_processed: true,
-      message: `${context.agent} processed task using ${context.capabilities.join(', ')}`
-    };
+    return this.executeRuntimeAction('generic', context);
+  }
+
+  async shutdown() {
+    if (this._shutdown) {
+      return;
+    }
+
+    this._shutdown = true;
+
+    if (this._ownsMessageBus && typeof this.messageBus?.shutdown === 'function') {
+      try {
+        this.messageBus.shutdown();
+      } catch (error) {
+        console.warn('[ExecutionEngine] Failed to shutdown message bus:', error.message);
+      }
+    }
+
+    if (this._ownsRegistryManager && typeof this.registryManager?.close === 'function') {
+      try {
+        this.registryManager.close();
+      } catch (error) {
+        console.warn('[ExecutionEngine] Failed to close registry manager:', error.message);
+      }
+    }
+  }
+
+  async close() {
+    await this.shutdown();
   }
 
   /**
