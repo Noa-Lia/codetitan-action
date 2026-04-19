@@ -16,6 +16,14 @@
 const fs = require('fs').promises;
 const path = require('path');
 
+function shouldUseTls(connectionString) {
+  if (!connectionString) {
+    return false;
+  }
+
+  return !/(?:localhost|127\.0\.0\.1)/i.test(connectionString);
+}
+
 class AIResultsStorage {
   constructor(config = {}) {
     this.config = {
@@ -63,7 +71,7 @@ class AIResultsStorage {
       const { Pool } = require('pg');
       this.db = new Pool({
         connectionString: this.config.postgresUrl,
-        ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false
+        ssl: shouldUseTls(this.config.postgresUrl) ? {} : false
       });
 
       // Test connection
