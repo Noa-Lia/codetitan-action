@@ -10,10 +10,12 @@
  * @module fix-ensemble
  */
 
-const { execSync, spawn } = require('child_process');
+const { execSync, execFileSync, spawn } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const vm = require('vm');
+const GitWorktreeManager = require('./git-worktree-manager');
 
 /**
  * Consensus thresholds
@@ -116,6 +118,11 @@ class MockAIProvider extends AIProviderAdapter {
 class GitHelper {
     constructor(repoPath = '.') {
         this.repoPath = repoPath;
+        this.worktreeManager = new GitWorktreeManager({
+            repoPath,
+            workspaceDir: '.codetitan/worktrees',
+            logger: console
+        });
     }
 
     /**
@@ -169,7 +176,7 @@ class GitHelper {
      */
     createBackup(message = 'CodeTitan fix backup') {
         try {
-            const result = execSync(`git stash push -m "${message}"`, {
+            const result = execFileSync('git', ['stash', 'push', '-m', message], {
                 cwd: this.repoPath,
                 encoding: 'utf8'
             });
@@ -201,14 +208,14 @@ class GitHelper {
         try {
             // Stage files
             for (const file of files) {
-                execSync(`git add "${file}"`, {
+                execFileSync('git', ['add', '--', file], {
                     cwd: this.repoPath,
                     encoding: 'utf8'
                 });
             }
 
             // Commit
-            execSync(`git commit -m "${message}"`, {
+            execFileSync('git', ['commit', '-m', message], {
                 cwd: this.repoPath,
                 encoding: 'utf8'
             });
@@ -257,11 +264,19 @@ class GitHelper {
      * @returns {string} worktreePath
      */
     createWorktree(worktreePath, options = {}) {
-        execSync(`git worktree add --detach "${worktreePath}"`, {
-            cwd: this.repoPath,
-            stdio: 'pipe'
+        if (typeof worktreePath === 'object' && worktreePath !== null) {
+            return this.worktreeManager.createWorktree(worktreePath);
+        }
+
+        const absolutePath = path.resolve(this.repoPath, worktreePath);
+        const relativeBaseDir = path.relative(this.repoPath, path.dirname(absolutePath));
+        return this.worktreeManager.createWorktree({
+            name: path.basename(absolutePath),
+            baseDir: relativeBaseDir,
+            targetPath: absolutePath,
+            ref: options.ref,
+            fallbackToCopy: options.fallbackToCopy
         });
-        return worktreePath;
     }
 
     /**
@@ -270,10 +285,7 @@ class GitHelper {
      */
     removeWorktree(worktreePath) {
         try {
-            execSync(`git worktree remove --force "${worktreePath}"`, {
-                cwd: this.repoPath,
-                stdio: 'pipe'
-            });
+            this.worktreeManager.removeWorktree(worktreePath);
         } catch {
             // Worktree may already be gone
         }
@@ -284,15 +296,19 @@ class GitHelper {
      * @returns {Array<{ path: string, branch: string, head: string }>}
      */
     listWorktrees() {
-        try {
-            const output = execSync('git worktree list --porcelain', {
-                cwd: this.repoPath,
-                encoding: 'utf8'
-            });
-            return this._parseWorktreeList(output);
-        } catch {
-            return [];
-        }
+        return this.worktreeManager.listWorktrees();
+    }
+
+    promoteFiles(worktreePath, files) {
+        return this.worktreeManager.promoteFiles(worktreePath, files);
+    }
+
+    captureDiff(worktreePath, options = {}) {
+        return this.worktreeManager.captureDiff(worktreePath, options);
+    }
+
+    toRepoRelativePath(filePath) {
+        return this.worktreeManager.toRepoRelativePath(filePath);
     }
 
     _parseWorktreeList(output) {
@@ -416,8 +432,8 @@ class DryRunSimulator {
      */
     wouldCompile(code) {
         try {
-            // Try to parse as JavaScript
-            new Function(code);
+            // Parse as JavaScript without executing the code.
+            new vm.Script(code);
             return true;
         } catch {
             return false;
@@ -635,6 +651,25 @@ class FixEnsembleVerifier {
         return 'LOW';
     }
 
+    resolveFixFiles(fix, context = {}) {
+        const candidates = fix.files || [context.filePath];
+        return candidates.filter(Boolean);
+    }
+
+    applyFixReplacement(filePath, fix) {
+        if (!fix.replacement || !fs.existsSync(filePath)) {
+            return false;
+        }
+
+        const content = fs.readFileSync(filePath, 'utf8');
+        const newContent = content.replace(
+            fix.original || fix.snippet,
+            fix.replacement
+        );
+        fs.writeFileSync(filePath, newContent, 'utf8');
+        return true;
+    }
+
     /**
      * Apply a verified fix with rollback protection
      */
@@ -645,23 +680,78 @@ class FixEnsembleVerifier {
 
         const files = fix.files || [context.filePath];
         const riskConfig = RISK_LEVELS[verification.riskLevel];
+        const useDirectMode = context.direct === true || context.mode === 'direct';
+        const shouldPromote = context.promote === true;
+        const keepWorktree = context.keepWorktree ?? !shouldPromote;
 
         // Create backup if required
         let backupCreated = false;
-        if (riskConfig.requiresBackup && this.git.isGitRepo()) {
+        if (useDirectMode && riskConfig.requiresBackup && this.git.isGitRepo()) {
             backupCreated = this.git.createBackup(`Pre-fix backup: ${fix.id}`);
         }
 
+        let worktreeHandle = null;
         try {
+            if (!useDirectMode) {
+                const resolvedFiles = this.resolveFixFiles(fix, context).map(file => this.git.toRepoRelativePath(file));
+                worktreeHandle = this.git.createWorktree({
+                    name: `fix-${fix.id || 'candidate'}`,
+                    baseDir: '.codetitan/worktrees/fixes'
+                });
+
+                for (const relativeFile of resolvedFiles) {
+                    const worktreeFilePath = path.join(worktreeHandle.path, relativeFile);
+                    const applied = this.applyFixReplacement(worktreeFilePath, fix);
+                    if (!applied) {
+                        throw new Error(`Unable to apply fix in isolated worktree: ${relativeFile}`);
+                    }
+                }
+
+                const diffSummary = this.git.captureDiff(worktreeHandle, { files: resolvedFiles });
+
+                if (shouldPromote) {
+                    if (context.validationPassed !== true) {
+                        throw new Error('Promotion requires validationPassed=true');
+                    }
+                    if (context.diffReviewed !== true) {
+                        throw new Error('Promotion requires diffReviewed=true');
+                    }
+
+                    this.git.promoteFiles(worktreeHandle, resolvedFiles);
+
+                    if (this.git.isGitRepo()) {
+                        this.git.createRollbackHook(fix.id, resolvedFiles);
+                    }
+
+                    if (context.autoCommit && this.git.isGitRepo()) {
+                        const message = `fix: ${fix.message || fix.id}\n\nPromoted from isolated worktree with ${Math.round(verification.consensus * 100)}% consensus`;
+                        this.git.commitFix(resolvedFiles, message);
+                    }
+                }
+
+                return {
+                    success: true,
+                    fixId: fix.id,
+                    files: resolvedFiles,
+                    backupCreated: false,
+                    committed: shouldPromote && context.autoCommit || false,
+                    direct: false,
+                    workspaceMode: worktreeHandle.mode,
+                    worktreePath: worktreeHandle.path,
+                    promoted: shouldPromote,
+                    validationRequiredForPromotion: true,
+                    diffSummary: {
+                        filesChanged: diffSummary.filesChanged,
+                        lines: diffSummary.lines
+                    },
+                    cleanupPending: keepWorktree
+                };
+            }
+
             // Apply the fix
             for (const file of files) {
-                if (fix.replacement && fs.existsSync(file)) {
-                    const content = fs.readFileSync(file, 'utf8');
-                    const newContent = content.replace(
-                        fix.original || fix.snippet,
-                        fix.replacement
-                    );
-                    fs.writeFileSync(file, newContent, 'utf8');
+                if (this.applyFixReplacement(file, fix)) {
+                    continue;
                 }
             }
 
@@ -682,6 +772,10 @@ class FixEnsembleVerifier {
                 files,
                 backupCreated,
                 committed: context.autoCommit || false,
+                direct: true,
+                workspaceMode: 'direct',
+                promoted: true,
+                unsafeDirect: true
             };
 
         } catch (error) {
@@ -690,12 +784,30 @@ class FixEnsembleVerifier {
                 this.git.restoreBackup();
             }
 
+            if (worktreeHandle && !context.keepWorktreeOnFailure) {
+                try {
+                    this.git.removeWorktree(worktreeHandle);
+                } catch {
+                    // Ignore cleanup failures on rollback path.
+                }
+            }
+
             return {
                 success: false,
                 fixId: fix.id,
                 error: error.message,
                 rolledBack: backupCreated,
+                direct: useDirectMode,
+                worktreePath: worktreeHandle ? worktreeHandle.path : null
             };
+        } finally {
+            if (worktreeHandle && shouldPromote) {
+                try {
+                    this.git.removeWorktree(worktreeHandle);
+                } catch {
+                    // Ignore cleanup failures after promotion.
+                }
+            }
         }
     }
 
