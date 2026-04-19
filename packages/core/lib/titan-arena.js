@@ -5,9 +5,10 @@ const fs = require('fs').promises;
 const fsSync = require('fs');
 const path = require('path');
 const crypto = require('crypto');
-const { execSync, exec } = require('child_process');
+const { execSync, execFileSync, exec } = require('child_process');
 
 const ArenaJudge = require('./arena-judge');
+const GitWorktreeManager = require('./git-worktree-manager');
 const TestRunnerDetector = require('./test-runner-detector');
 const TestExecutor = require('./test-executor');
 
@@ -41,6 +42,11 @@ class TitanArena extends EventEmitter {
 
     this.judge = new ArenaJudge(this.config.projectRoot, {
       weights: this.config.weights
+    });
+    this.worktreeManager = config.worktreeManager || new GitWorktreeManager({
+      repoPath: this.config.projectRoot,
+      workspaceDir: this.config.arenaDir,
+      logger: console
     });
 
     // Created worktrees to cleanup later
@@ -180,72 +186,21 @@ class TitanArena extends EventEmitter {
    * @returns {Promise<{ path: string, cleanup: Function }>}
    */
   async createWorktree(name) {
-    const ts = Date.now();
-    const slug = name.replace(/[^a-z0-9]/gi, '-').toLowerCase();
-    const worktreePath = path.join(
-      this.config.projectRoot,
-      this.config.arenaDir,
-      `${slug}-${ts}`
-    );
+    const handle = this.worktreeManager.createWorktree({
+      name,
+      baseDir: this.config.arenaDir
+    });
 
-    await fs.mkdir(path.dirname(worktreePath), { recursive: true });
-
-    try {
-      // Create detached worktree at current HEAD
-      execSync(
-        `git worktree add --detach "${worktreePath}"`,
-        { cwd: this.config.projectRoot, stdio: 'pipe' }
-      );
-      this._worktrees.push(worktreePath);
-    } catch (err) {
-      // If worktrees not supported (e.g. shallow clone), fall back to directory copy
-      this._log(`  Worktree creation failed (${err.message}), falling back to directory copy`);
-      await this._copyProjectTo(worktreePath);
-      this._worktrees.push({ path: worktreePath, isCopy: true });
-      return {
-        path: worktreePath,
-        cleanup: () => this._removeDir(worktreePath)
-      };
+    if (handle.mode === 'directory_copy' && handle.fallbackReason) {
+      this._log(`  Worktree creation failed (${handle.fallbackReason}), falling back to directory copy`);
     }
 
+    this._worktrees.push(handle);
     return {
-      path: worktreePath,
-      cleanup: () => this._removeWorktree(worktreePath)
+      path: handle.path,
+      mode: handle.mode,
+      cleanup: () => this.worktreeManager.removeWorktree(handle)
     };
-  }
-
-  async _copyProjectTo(destPath) {
-    // Minimal copy: copy only tracked files to avoid node_modules etc.
-    try {
-      const tracked = execSync('git ls-files', {
-        cwd: this.config.projectRoot,
-        encoding: 'utf-8',
-        stdio: 'pipe'
-      }).trim().split('\n');
-
-      await fs.mkdir(destPath, { recursive: true });
-
-      for (const file of tracked) {
-        const src = path.join(this.config.projectRoot, file);
-        const dst = path.join(destPath, file);
-        await fs.mkdir(path.dirname(dst), { recursive: true });
-        try { await fs.copyFile(src, dst); } catch { /* skip missing */ }
-      }
-    } catch {
-      // Last resort: just create empty dir
-      await fs.mkdir(destPath, { recursive: true });
-    }
-  }
-
-  async _removeWorktree(worktreePath) {
-    try {
-      execSync(
-        `git worktree remove --force "${worktreePath}"`,
-        { cwd: this.config.projectRoot, stdio: 'pipe' }
-      );
-    } catch {
-      await this._removeDir(worktreePath);
-    }
   }
 
   async _removeDir(dirPath) {
@@ -256,11 +211,11 @@ class TitanArena extends EventEmitter {
 
   async _cleanupWorktrees() {
     for (const wt of this._worktrees) {
-      const p = typeof wt === 'string' ? wt : wt.path;
-      if (typeof wt === 'object' && wt.isCopy) {
+      try {
+        this.worktreeManager.removeWorktree(wt);
+      } catch {
+        const p = typeof wt === 'string' ? wt : wt.path;
         await this._removeDir(p);
-      } else {
-        await this._removeWorktree(p);
       }
     }
     this._worktrees = [];
