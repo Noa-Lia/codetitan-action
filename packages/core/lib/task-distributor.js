@@ -87,6 +87,7 @@ class TaskDistributor extends EventEmitter {
       status: 'pending',
       assignedAgent: null,
       result: null,
+      delegation: null,
       error: null,
       retryCount: 0,
       executionTime: null
@@ -188,23 +189,59 @@ class TaskDistributor extends EventEmitter {
       task.startedAt = new Date().toISOString();
       task.status = 'in_progress';
 
-      const response = await this.messageBus.request(
-        'task-distributor',
-        agent.id,
-        {
-          action: 'execute_task',
-          task_id: task.id,
-          task: task.content,
-          metadata: task.metadata
+      const delegationPayload = {
+        taskId: task.id,
+        action: 'execute_task',
+        task: task.content,
+        metadata: {
+          ...task.metadata,
+          priority: task.priority
         },
-        {},
-        this.options.taskTimeout
-      );
+        summary: task.description
+      };
+      const response = typeof this.messageBus.delegateTask === 'function'
+        ? await this.messageBus.delegateTask(
+          'task-distributor',
+          agent.id,
+          delegationPayload,
+          { priority: task.priority },
+          this.options.taskTimeout
+        )
+        : await this.messageBus.request(
+          'task-distributor',
+          agent.id,
+          {
+            action: 'execute_task',
+            task_id: task.id,
+            task: task.content,
+            metadata: task.metadata
+          },
+          {},
+          this.options.taskTimeout
+        );
+
+      const delegation = typeof this.messageBus.getDelegationEnvelope === 'function'
+        ? this.messageBus.getDelegationEnvelope(response)
+        : response?.content?.delegation || null;
+      const resultSummary = delegation?.resultSummary || null;
+      const delegatedSuccess = resultSummary
+        ? resultSummary.success !== false
+        : response?.content?.success !== false;
+
+      if (!delegatedSuccess) {
+        throw new Error(
+          resultSummary?.message ||
+          response?.content?.error ||
+          response?.content?.result?.error ||
+          'Delegated task failed'
+        );
+      }
 
       // Task completed successfully
       task.completedAt = new Date().toISOString();
       task.status = 'completed';
       task.result = response.content;
+      task.delegation = delegation;
       task.executionTime = Date.now() - taskStartTime;
 
       // Update metrics
