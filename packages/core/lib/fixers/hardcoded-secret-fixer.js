@@ -33,7 +33,7 @@ class HardcodedSecretFixer {
           regex: /(const|let|var)\s+(\w*(?:password|secret|key|token|api[_-]?key)\w*)\s*=\s*['"]([^'"]+)['"]/i,
           replacement: (match, keyword, varName, value) => {
             const envVar = toEnvVarName(varName);
-            return `${keyword} ${varName} = process.env.${envVar} || ''; // TODO: Set ${envVar} in .env`;
+            return `${keyword} ${varName} = process.env.${envVar}; // TODO: Set ${envVar} in .env`;
           }
         },
         // password: 'secret123'
