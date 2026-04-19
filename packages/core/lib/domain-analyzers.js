@@ -13,7 +13,7 @@ const { analyzePhpSecurity } = require('./php-security-analyzer');
 const { analyzeCSharpSecurity } = require('./csharp-security-analyzer');
 const { EXTENDED_SECURITY_RULES } = require('./security-rules-extended');
 
-const TEST_FILE_REGEX = /(?:[/\\](?:tests|__tests__|benchmarks?|bench|perf|perfs)(?:[/\\]|$)|(?:^|[/\\])test_[^/\\]+\.[^.]+$|[._-](?:test|spec|tests|bench|benchmark|perf)\.[^.]+$|jest\.setup\.[jt]s$|vitest\.setup\.[jt]s$)/i;
+const TEST_FILE_REGEX = /(?:[/\\](?:tests?|__tests__|__mocks__|benchmarks?|bench|perf|perfs|fixtures?|e2e|integration)(?:[/\\]|$)|(?:^|[/\\])test_[^/\\]+\.[^.]+$|[._-](?:test|spec|tests|bench|benchmark|perf)\.[^.]+$|jest\.setup\.[jt]s$|vitest\.setup\.[jt]s$)/i;
 // Matches benchmark/fixture dirs that should be fully excluded from secrets scanning
 const BENCH_DIR_REGEX = /[/\\](?:benchmarks?|bench)[/\\]/i;
 // Engine infrastructure files and build scripts that intentionally call exec/spawn as part of their function
@@ -686,6 +686,9 @@ function detectSecurityIssues(context) {
       const match = rule.pattern.exec(line);
       if (!match) return;
 
+      // ── Skip minified/dist files — vendored, not user-owned code ───────────
+      if (isMinifiedFile) return;
+
       // ── Per-rule test-file skip ──────────────────────────────────────────
       if (rule.skipTest && isTestFile) return;
 
@@ -1064,6 +1067,8 @@ function detectSecurityIssues(context) {
       if (COMMENT_REGEX.test(normalized)) return;
 
       for (const rule of aiRules) {
+        if (isTestFile) continue; // AI pattern rules fire heavily in test files — almost always FPs
+        if (isMinifiedFile) continue; // dist/bundled files contain vendored code — not user-authored
         const match = rule.pattern.exec(line);
         if (!match) continue;
         if (rule.id === 'AI_CODE_RISK_CONSOLE_SENSITIVE' && !isSensitiveConsoleLog(line)) continue;
