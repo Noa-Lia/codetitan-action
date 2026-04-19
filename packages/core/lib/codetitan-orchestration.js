@@ -11,6 +11,9 @@ const HierarchicalOrchestrator = require('./hierarchical-orchestrator');
 const ResultSynthesisEngine = require('./result-synthesis-engine');
 const AgentLoadBalancer = require('./agent-load-balancer');
 const FPFilter = require('./fp-filter');
+const LearnedProfileManager = require('./learned-profile');
+const { MLConfidenceScorer } = require('./ml-confidence-scorer');
+const PRRiskScorer = require('./pr-risk-scorer');
 // FixerRunner is required lazily inside analyzeCodebase to avoid circular dep issues
 const fs = require('fs').promises;
 const path = require('path');
@@ -42,6 +45,15 @@ class CodeTitanOrchestration {
     this.fpFilter = new FPFilter({
       enabled: this.options.fpFilter !== false,
     });
+    this.learnedProfileManager = options.learnedProfileManager || new LearnedProfileManager({
+      projectRoot: options.projectRoot || process.cwd(),
+      profilePath: options.learnedProfilePath
+    });
+    this.confidenceScorer = options.confidenceScorer || new MLConfidenceScorer({
+      supabaseUrl: options.supabaseUrl || process.env.SUPABASE_URL,
+      supabaseKey: options.supabaseKey || process.env.SUPABASE_SERVICE_KEY
+    });
+    this.prRiskScorer = options.prRiskScorer || new PRRiskScorer();
 
     // Session tracking
     this.sessionId = this.generateSessionId();
@@ -84,6 +96,8 @@ class CodeTitanOrchestration {
 
       // Validate project path
       await this.validateProjectPath(projectPath);
+      const profileProjectRoot = effectiveOptions.profileProjectRoot || projectPath;
+      const learnedProfile = this.learnedProfileManager.loadProfile(profileProjectRoot);
 
       // Step 1: Orchestrate full analysis across all Domain Gods
       if (effectiveOptions.verbose) {
@@ -101,6 +115,7 @@ class CodeTitanOrchestration {
         console.log('\n[LINK] STEP 2: Synthesizing results from all domains...');
       }
       const report = await this.synthesizer.synthesize(rawResults);
+      this.normalizeSynthesisReportPaths(report, projectPath, profileProjectRoot);
 
       // Emit individual findings as they are available after synthesis
       if (report.findings && report.findings.length > 0) {
@@ -119,6 +134,8 @@ class CodeTitanOrchestration {
       }
 
       emit({ type: 'progress', pct: 70, message: 'Filtering false positives...', filesProcessed: 0, totalFiles: 0 });
+
+      let fpFilteredFindings = [];
 
       // Step 3: LLM false-positive filtering on synthesized issues
       if (this.fpFilter.enabled && report.issues && report.issues.length > 0) {
@@ -139,6 +156,8 @@ class CodeTitanOrchestration {
             let fileContent = '';
             try { fileContent = require('fs').readFileSync(fp, 'utf8'); } catch (_) {}
             const filtered = await this.fpFilter.filterFindings(fileIssues, fileContent, fp);
+            const kept = new Set(filtered);
+            fpFilteredFindings.push(...fileIssues.filter(issue => !kept.has(issue)));
             filteredIssues.push(...filtered);
           }
 
@@ -154,6 +173,8 @@ class CodeTitanOrchestration {
 
       emit({ type: 'progress', pct: 85, message: 'Compiling final report...', filesProcessed: 0, totalFiles: 0 });
 
+      const learningEnhancements = await this.applyLearningSignals(report, profileProjectRoot, learnedProfile);
+
       // Step 4: Get load balancer metrics
       const lbMetrics = this.loadBalancer.getMetrics();
 
@@ -162,7 +183,30 @@ class CodeTitanOrchestration {
 
       // Step 6: Compile final report
       this.endTime = Date.now();
-      const finalReport = this.compileReport(report, lbMetrics, orchMetrics);
+      const finalReport = this.compileReport(report, lbMetrics, orchMetrics, learningEnhancements);
+      const updatedProfile = this.learnedProfileManager.updateProfile(learnedProfile, finalReport.findings || [], {
+        prRiskScore: learningEnhancements.prRiskScore,
+        fpFilteredFindings
+      });
+      this.learnedProfileManager.saveProfile(updatedProfile);
+      finalReport.learnedProfile = {
+        ...updatedProfile
+      };
+      finalReport.metrics = {
+        ...(finalReport.metrics || {}),
+        personalizationScore: updatedProfile.personalizationScore,
+        confidenceSummary: learningEnhancements.confidenceSummary,
+        prRiskScore: learningEnhancements.prRiskScore,
+        suppressedByProfile: learningEnhancements.suppressedByProfile || 0
+      };
+      finalReport.prRiskScore = learningEnhancements.prRiskScore;
+      finalReport.suppressedByProfile = learningEnhancements.suppressedByProfile || 0;
+      finalReport.summary = {
+        ...(finalReport.summary || {}),
+        personalizationScore: updatedProfile.personalizationScore,
+        prRiskScore: learningEnhancements.prRiskScore,
+        suppressedByProfile: learningEnhancements.suppressedByProfile || 0
+      };
 
       // Step: Apply adaptive fixes if requested
       if (effectiveOptions.applyFixes && finalReport.topIssues && finalReport.topIssues.length > 0) {
@@ -238,11 +282,140 @@ class CodeTitanOrchestration {
     }
   }
 
+  normalizeFindingForScoring(finding = {}) {
+    return {
+      ...finding,
+      file_path: finding.file_path || finding.file || '',
+      line_number: finding.line_number || finding.line || 1,
+      severity: finding.severity || 'MEDIUM',
+      category: finding.category || 'UNKNOWN',
+      message: finding.message || 'Issue detected'
+    };
+  }
+
+  normalizeFindingPathForProject(rawPath, analysisProjectPath, projectRoot) {
+    const filePath = String(rawPath || '');
+    if (!filePath) {
+      return filePath;
+    }
+
+    const analysisRoot = path.resolve(analysisProjectPath);
+    const stableRoot = path.resolve(projectRoot || analysisProjectPath);
+    const absolutePath = path.isAbsolute(filePath)
+      ? path.resolve(filePath)
+      : path.resolve(analysisRoot, filePath);
+    const normalizedAnalysisRoot = analysisRoot.toLowerCase();
+    const normalizedAbsolutePath = absolutePath.toLowerCase();
+
+    if (
+      normalizedAbsolutePath === normalizedAnalysisRoot ||
+      normalizedAbsolutePath.startsWith(`${normalizedAnalysisRoot}${path.sep}`)
+    ) {
+      const relativePath = path.relative(analysisRoot, absolutePath);
+      return path.resolve(stableRoot, relativePath);
+    }
+
+    return absolutePath;
+  }
+
+  normalizeFindingForProject(finding = {}, analysisProjectPath, projectRoot) {
+    const rawPath = finding.file_path || finding.filePath || finding.file || '';
+    if (!rawPath) {
+      return finding;
+    }
+
+    const normalizedPath = this.normalizeFindingPathForProject(rawPath, analysisProjectPath, projectRoot);
+    return {
+      ...finding,
+      file: normalizedPath,
+      filePath: normalizedPath,
+      file_path: normalizedPath
+    };
+  }
+
+  normalizeSynthesisReportPaths(report, analysisProjectPath, projectRoot) {
+    if (!report || !analysisProjectPath || !projectRoot) {
+      return report;
+    }
+
+    const normalizeCollection = (items) => Array.isArray(items)
+      ? items.map((finding) => this.normalizeFindingForProject(finding, analysisProjectPath, projectRoot))
+      : items;
+
+    report.findings = normalizeCollection(report.findings);
+    report.issues = normalizeCollection(report.issues);
+    report.topIssues = normalizeCollection(report.topIssues);
+
+    if (report.byFile && typeof report.byFile === 'object') {
+      const normalizedByFile = {};
+      for (const [filePath, entries] of Object.entries(report.byFile)) {
+        const normalizedPath = this.normalizeFindingPathForProject(filePath, analysisProjectPath, projectRoot);
+        normalizedByFile[normalizedPath] = normalizeCollection(entries);
+      }
+      report.byFile = normalizedByFile;
+    }
+
+    return report;
+  }
+
+  async applyLearningSignals(report, projectPath, learnedProfile) {
+    const normalizedFindings = Array.isArray(report.findings)
+      ? report.findings.map(finding => this.normalizeFindingForScoring(finding))
+      : [];
+
+    // Apply learned dismissals: suppress findings the user has repeatedly dismissed
+    const suppressionRules = learnedProfile.suppressionRules || {};
+    const SUPPRESS_THRESHOLD = 3;
+    let suppressedByProfile = 0;
+    const canCheckDismissals = typeof this.learnedProfileManager.getDismissalSnippet === 'function'
+      && typeof this.learnedProfileManager.createDismissalKey === 'function'
+      && Object.keys(suppressionRules).length > 0;
+    const unsuppressedFindings = canCheckDismissals
+      ? normalizedFindings.filter(finding => {
+          const snippet = this.learnedProfileManager.getDismissalSnippet(finding);
+          const key = this.learnedProfileManager.createDismissalKey(finding.category, snippet);
+          if ((suppressionRules[key] || 0) >= SUPPRESS_THRESHOLD) {
+            suppressedByProfile++;
+            return false;
+          }
+          return true;
+        })
+      : normalizedFindings;
+
+    const scoringContext = this.learnedProfileManager.buildScoringContext(learnedProfile, unsuppressedFindings);
+    const scored = await this.confidenceScorer.scoreFindings(unsuppressedFindings, scoringContext);
+
+    report.findings = scored.findings;
+    report.topIssues = scored.findings.slice(0, 10);
+    report.suppressedByProfile = suppressedByProfile;
+
+    const prRiskScore = this.prRiskScorer.scoreRepositoryRisk({
+      findings: scored.findings,
+      learnedProfile
+    });
+
+    return {
+      confidenceSummary: {
+        averageConfidence: scored.averageConfidence,
+        reranked: true
+      },
+      prRiskScore,
+      learnedProfile,
+      suppressedByProfile
+    };
+  }
+
   /**
    * Compile final report with all metrics
    */
-  compileReport(synthesisReport, lbMetrics, orchMetrics) {
+  compileReport(synthesisReport, lbMetrics, orchMetrics, enhancements = {}) {
     const duration = this.endTime - this.startTime;
+    const summary = {
+      ...(synthesisReport.summary || {}),
+      totalFindings: synthesisReport.summary?.totalFindings || synthesisReport.summary?.total || synthesisReport.findings?.length || 0,
+      personalizationScore: enhancements.learnedProfile?.personalizationScore || 0,
+      prRiskScore: enhancements.prRiskScore || null
+    };
 
     return {
       sessionId: this.sessionId,
@@ -251,12 +424,20 @@ class CodeTitanOrchestration {
       durationFormatted: this.formatDuration(duration),
 
       // Synthesis results
-      summary: synthesisReport.summary,
+      summary,
       domainSummary: synthesisReport.domainSummary,
       findings: synthesisReport.findings,
       topIssues: synthesisReport.topIssues,
       recommendations: synthesisReport.recommendations,
-      metrics: synthesisReport.metrics,
+      metrics: {
+        ...(synthesisReport.metrics || {}),
+        personalizationScore: enhancements.learnedProfile?.personalizationScore || 0,
+        confidenceSummary: enhancements.confidenceSummary || null,
+        prRiskScore: enhancements.prRiskScore || null,
+        suppressedByProfile: enhancements.suppressedByProfile || 0
+      },
+      learnedProfile: enhancements.learnedProfile || null,
+      prRiskScore: enhancements.prRiskScore || null,
 
       // Performance metrics
       performance: {
