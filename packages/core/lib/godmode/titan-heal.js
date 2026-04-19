@@ -18,7 +18,7 @@
 
 const fs = require('fs');
 const path = require('path');
-const { execSync, spawn } = require('child_process');
+const { execSync, execFileSync, spawn } = require('child_process');
 
 /**
  * Secure command execution - validates commands against allowlist
@@ -26,7 +26,8 @@ const { execSync, spawn } = require('child_process');
 const ALLOWED_COMMANDS = ['npm', 'npx', 'git', 'node', 'jest', 'mocha', 'vitest'];
 
 function safeExec(command, args = [], options = {}) {
-  const cmd = command.split(' ')[0];
+  const baseArgs = String(command).trim().split(/\s+/);
+  const cmd = baseArgs.shift();
   if (!ALLOWED_COMMANDS.includes(cmd)) {
     throw new Error(`Command not allowed: ${cmd}`);
   }
@@ -34,7 +35,7 @@ function safeExec(command, args = [], options = {}) {
   const sanitizedArgs = args.map(arg =>
     String(arg).replace(/[;&|`$(){}\[\]<>\\]/g, '')
   );
-  return execSync([command, ...sanitizedArgs].join(' '), {
+  return execFileSync(cmd, [...baseArgs, ...sanitizedArgs], {
     encoding: 'utf-8',
     stdio: 'pipe',
     timeout: 300000, // 5 min max
