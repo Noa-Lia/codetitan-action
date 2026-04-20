@@ -78,8 +78,6 @@ jobs:
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           fail-on-severity: none
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 ```
 
 ### Why `fetch-depth: 0` is required
@@ -88,9 +86,9 @@ The action computes a PR diff to decide what to analyze; without full history th
 
 `actions/checkout@v4` defaults to `fetch-depth: 1` (shallow clone). Always override it to `fetch-depth: 0`.
 
-### Why you must also pass `GITHUB_TOKEN` as `env`
+### Why `github-token` should always be passed explicitly
 
-Current versions of the action read the token from the `GITHUB_TOKEN` environment variable, not from the `github-token:` input alone. If you pass only the input, the action silently falls back to a local `git diff` for the changed-files list and — worse — skips posting the PR comment. The symptom is a green check with no `<!-- codetitan-phase1-summary -->` comment on your PR. Passing the token in both forms (input + env) works reliably today; future versions will honor the input directly.
+`github-token` is used to read the PR's changed-files list via the GitHub API and to post the PR comment. Without it the action falls back to a local `git diff` that often fails on shallow clones, and the PR comment is skipped. Passing `secrets.GITHUB_TOKEN` as the `github-token:` input is enough — no extra `env:` block required.
 
 ### Permissions
 
