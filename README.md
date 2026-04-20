@@ -47,6 +47,82 @@ jobs:
 
 No `npm install` or build step needed. The engine bootstraps itself.
 
+## Quickstart & Common Pitfalls
+
+The most common first-run failure looks like this:
+
+```
+Error: Unable to enumerate changed files. fatal: Invalid symmetric difference expression <base>...HEAD
+```
+
+Two things cause it. Both are fixable with two lines of YAML.
+
+### Minimum-viable PR-comment workflow (copy this)
+
+```yaml
+name: CodeTitan
+on:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+  pull-requests: write
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: Noa-Lia/codetitan-action@v1
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          fail-on-severity: none
+```
+
+### Why `fetch-depth: 0` is required
+
+The action computes a PR diff to decide what to analyze; without full history the base commit isn't in the clone, so the symmetric-difference expression `<base>...HEAD` cannot be resolved.
+
+`actions/checkout@v4` defaults to `fetch-depth: 1` (shallow clone). Always override it to `fetch-depth: 0`.
+
+### Why `github-token` should always be passed explicitly
+
+`github-token` is used to read the PR's changed-files list via the GitHub API; without it the action falls back to a local git diff that often fails on shallow clones or when the base branch isn't fetched. Even though the action can read `GITHUB_TOKEN` from the environment, passing it explicitly as an input ensures it is always available and that the correct token scope is applied — especially in fork PRs or repos with restrictive default permissions.
+
+### Permissions
+
+```yaml
+permissions:
+  contents: read       # required to clone
+  pull-requests: write # required to post the idempotent PR comment
+```
+
+Add `security-events: write` if you also pass `format: sarif` and want GitHub Code Scanning alerts.
+
+### Common inputs
+
+| Input | Default | Purpose |
+|---|---|---|
+| `github-token` | — | GitHub token for PR comment and changed-files API (pass `secrets.GITHUB_TOKEN`) |
+| `path` | `.` | Repo sub-path to analyze |
+| `level` | `4` | Analysis depth 1–8 (higher = more rules, slower) |
+| `fail-on-severity` | `HIGH` | Fail CI if findings at this severity or above exist (`LOW`, `MEDIUM`, `HIGH`, `CRITICAL`, `none`) |
+| `changed-only` | _(empty)_ | Auto-activates on `pull_request` events; pass `'false'` to force full-tree scan |
+| `risk-threshold` | `80` | Fail CI if the PR risk score (0–100) meets or exceeds this value |
+
+### `changed-only` behavior
+
+When the action runs on a `pull_request` event and `changed-only` is not set (or is empty), it automatically scopes analysis to PR-changed files only. To force a full-tree scan regardless of event type, pass `changed-only: 'false'`.
+
+### Workflow variants
+
+**Full-tree scan** — pass `changed-only: 'false'` to scan the entire repository rather than just the PR diff. Useful on `push` to `main` or `workflow_dispatch` triggers.
+
+**Block merges on CRITICAL only** — pass `fail-on-severity: critical` to let LOW/MEDIUM/HIGH findings through without failing CI, while still blocking on critical issues.
+
+**Manual trigger only** — add `workflow_dispatch:` to `on:` (already in the template above) and omit `pull_request:` if you want on-demand scans without automatic PR gating.
+
 ## Inputs
 
 - `github-token`: GitHub token for PR comments (pass `secrets.GITHUB_TOKEN`)
