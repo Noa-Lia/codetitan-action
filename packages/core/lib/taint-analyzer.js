@@ -35,10 +35,24 @@ const SOURCE_PATTERNS = [
   /c\.(param|query|body)\b/,              // Gin (Go-style)
 ];
 
+// Files that import child_process may run shell commands; otherwise name-collisions
+// (RegExp.prototype.exec, SQLite Database.exec, etc.) dominate and produce FPs.
+const CHILD_PROCESS_IMPORT_REGEX = /require\s*\(\s*['"`](?:node:)?child_process['"`]\s*\)|from\s+['"`](?:node:)?child_process['"`]|import\s+['"`](?:node:)?child_process['"`]/;
+
 // ── Sink patterns ────────────────────────────────────────────────────────────
+// `fileImportGuard` (optional): sink only fires when this regex matches the file.
+// Use to require an import of the dangerous module before treating a name-collision
+// call as the real sink (e.g. exec() without child_process is almost always regex/SQLite).
 const SINKS = [
   { pattern: /\beval\s*\(/, category: 'TAINT_EVAL', message: 'Tainted user input reaches eval().' },
-  { pattern: /\b(exec|execSync|spawnSync|spawn|execFile|execFileSync)\s*\(/, category: 'TAINT_COMMAND_INJECTION', message: 'Tainted user input reaches shell command.' },
+  {
+    // Only fires when the file imports child_process (fileImportGuard). Within such
+    // files, accept both bare `exec(...)` (destructured) and `cp.exec(...)` (member).
+    pattern: /\b(exec|execSync|spawnSync|spawn|execFile|execFileSync)\s*\(/,
+    category: 'TAINT_COMMAND_INJECTION',
+    message: 'Tainted user input reaches shell command.',
+    fileImportGuard: CHILD_PROCESS_IMPORT_REGEX,
+  },
   // SQL: classic drivers + ORMs
   { pattern: /\b(db|pool|client|conn|connection|knex|sequelize|pg|mysql|sqlite)\s*\.\s*(query|execute|run|all|get|raw)\s*\(/, category: 'TAINT_SQL_INJECTION', message: 'Tainted user input may reach a SQL query.' },
   // Prisma raw queries
@@ -289,6 +303,7 @@ function analyzeTaint(filePath, content) {
     if (reportedLines.has(idx)) return;
 
     for (const sink of SINKS) {
+      if (sink.fileImportGuard && !sink.fileImportGuard.test(content)) continue;
       if (!sink.pattern.test(line)) continue;
 
       const foundTaintedVar = [...taintedVars].find(v =>

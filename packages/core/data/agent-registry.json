@@ -1,0 +1,1672 @@
+{
+  "version": "1.0.0",
+  "last_updated": "2026-04-11T13:03:50.922Z",
+  "agent_count": 1,
+  "tiers": {
+    "meta_gods": 0,
+    "domain_gods": 1,
+    "specialists": 0,
+    "workers": 0
+  },
+  "agents": [
+    {
+      "id": "codetitan-cli-fixer-1775159812755-rtln0x",
+      "name": "codetitan-cli-fixer",
+      "tier": 2,
+      "tier_name": "domain_god",
+      "domain": "runtime",
+      "capabilities": [
+        "fix"
+      ],
+      "specializations": [],
+      "status": "active",
+      "current_task": null,
+      "performance_metrics": {
+        "tasks_completed": 20,
+        "success_rate": 0.9523809523809523,
+        "avg_completion_time": "229ms",
+        "quality_score": 1,
+        "tasks_failed": 1,
+        "_total_time": 4818
+      },
+      "resource_usage": {
+        "cpu": "0%",
+        "memory": "0MB",
+        "active_threads": 0
+      },
+      "execution_history": [
+        {
+          "timestamp": "2026-04-11T13:03:50.922Z",
+          "success": true,
+          "action": "fix",
+          "result_summary": "codetitan-cli-fixer applied an explicit fix edit inside an isolated workspace.",
+          "error": null,
+          "execution_time_ms": 191,
+          "role": "fixer",
+          "reasoning_mode": "standard",
+          "provider_usage": {
+            "selectedProvider": null,
+            "selectedModel": null,
+            "totalCostUsd": 0,
+            "retries": 0,
+            "tokensUsed": {
+              "input": 0,
+              "output": 0,
+              "cached": 0
+            },
+            "advisorValidation": {
+              "requested": false,
+              "performed": false,
+              "verdict": "skipped",
+              "provider": null,
+              "model": null
+            },
+            "providers": {}
+          },
+          "tool_metrics": {
+            "analyze_path": {
+              "calls": 1,
+              "failures": 0,
+              "durationMs": 2,
+              "bytesTouched": 72,
+              "tokensTouched": 0
+            },
+            "read_file": {
+              "calls": 1,
+              "failures": 0,
+              "durationMs": 1,
+              "bytesTouched": 72,
+              "tokensTouched": 0
+            },
+            "create_worktree": {
+              "calls": 1,
+              "failures": 0,
+              "durationMs": 146,
+              "bytesTouched": 0,
+              "tokensTouched": 0
+            },
+            "edit_file": {
+              "calls": 1,
+              "failures": 0,
+              "durationMs": 2,
+              "bytesTouched": 95,
+              "tokensTouched": 0
+            },
+            "git_diff": {
+              "calls": 1,
+              "failures": 1,
+              "durationMs": 30,
+              "bytesTouched": 0,
+              "tokensTouched": 0
+            }
+          },
+          "verification_status": "pending",
+          "tool_calls_used": 0,
+          "evidence_count": 4,
+          "review_artifact_path": null,
+          "fix_session_id": null,
+          "fix_session_path": null
+        },
+        {
+          "timestamp": "2026-04-08T04:58:40.134Z",
+          "success": true,
+          "action": "fix",
+          "result_summary": "codetitan-cli-fixer applied an explicit fix edit inside an isolated workspace.",
+          "error": null,
+          "execution_time_ms": 205,
+          "role": "fixer",
+          "reasoning_mode": "standard",
+          "provider_usage": {
+            "selectedProvider": null,
+            "selectedModel": null,
+            "totalCostUsd": 0,
+            "retries": 0,
+            "tokensUsed": {
+              "input": 0,
+              "output": 0,
+              "cached": 0
+            },
+            "advisorValidation": {
+              "requested": false,
+              "performed": false,
+              "verdict": "skipped",
+              "provider": null,
+              "model": null
+            },
+            "providers": {}
+          },
+          "tool_metrics": {
+            "analyze_path": {
+              "calls": 1,
+              "failures": 0,
+              "durationMs": 2,
+              "bytesTouched": 72,
+              "tokensTouched": 0
+            },
+            "read_file": {
+              "calls": 1,
+              "failures": 0,
+              "durationMs": 1,
+              "bytesTouched": 72,
+              "tokensTouched": 0
+            },
+            "create_worktree": {
+              "calls": 1,
+              "failures": 0,
+              "durationMs": 152,
+              "bytesTouched": 0,
+              "tokensTouched": 0
+            },
+            "edit_file": {
+              "calls": 1,
+              "failures": 0,
+              "durationMs": 2,
+              "bytesTouched": 101,
+              "tokensTouched": 0
+            },
+            "git_diff": {
+              "calls": 1,
+              "failures": 1,
+              "durationMs": 39,
+              "bytesTouched": 0,
+              "tokensTouched": 0
+            }
+          },
+          "verification_status": "pending",
+          "tool_calls_used": 0,
+          "evidence_count": 4,
+          "review_artifact_path": null,
+          "fix_session_id": null,
+          "fix_session_path": null
+        },
+        {
+          "timestamp": "2026-04-08T04:54:09.129Z",
+          "success": true,
+          "action": "fix",
+          "result_summary": "codetitan-cli-fixer applied an explicit fix edit inside an isolated workspace.",
+          "error": null,
+          "execution_time_ms": 211,
+          "role": "fixer",
+          "reasoning_mode": "standard",
+          "provider_usage": {
+            "selectedProvider": null,
+            "selectedModel": null,
+            "totalCostUsd": 0,
+            "retries": 0,
+            "tokensUsed": {
+              "input": 0,
+              "output": 0,
+              "cached": 0
+            },
+            "advisorValidation": {
+              "requested": false,
+              "performed": false,
+              "verdict": "skipped",
+              "provider": null,
+              "model": null
+            },
+            "providers": {}
+          },
+          "tool_metrics": {
+            "analyze_path": {
+              "calls": 1,
+              "failures": 0,
+              "durationMs": 1,
+              "bytesTouched": 72,
+              "tokensTouched": 0
+            },
+            "read_file": {
+              "calls": 1,
+              "failures": 0,
+              "durationMs": 0,
+              "bytesTouched": 72,
+              "tokensTouched": 0
+            },
+            "create_worktree": {
+              "calls": 1,
+              "failures": 0,
+              "durationMs": 155,
+              "bytesTouched": 0,
+              "tokensTouched": 0
+            },
+            "edit_file": {
+              "calls": 1,
+              "failures": 0,
+              "durationMs": 2,
+              "bytesTouched": 101,
+              "tokensTouched": 0
+            },
+            "git_diff": {
+              "calls": 1,
+              "failures": 1,
+              "durationMs": 43,
+              "bytesTouched": 0,
+              "tokensTouched": 0
+            }
+          },
+          "verification_status": "pending",
+          "tool_calls_used": 0,
+          "evidence_count": 4,
+          "review_artifact_path": null,
+          "fix_session_id": null,
+          "fix_session_path": null
+        },
+        {
+          "timestamp": "2026-04-08T04:38:39.789Z",
+          "success": true,
+          "action": "fix",
+          "result_summary": "codetitan-cli-fixer applied an explicit fix edit inside an isolated workspace.",
+          "error": null,
+          "execution_time_ms": 160,
+          "role": "fixer",
+          "reasoning_mode": "standard",
+          "provider_usage": {
+            "selectedProvider": null,
+            "selectedModel": null,
+            "totalCostUsd": 0,
+            "retries": 0,
+            "tokensUsed": {
+              "input": 0,
+              "output": 0,
+              "cached": 0
+            },
+            "advisorValidation": {
+              "requested": false,
+              "performed": false,
+              "verdict": "skipped",
+              "provider": null,
+              "model": null
+            },
+            "providers": {}
+          },
+          "tool_metrics": {
+            "analyze_path": {
+              "calls": 1,
+              "failures": 0,
+              "durationMs": 1,
+              "bytesTouched": 72,
+              "tokensTouched": 0
+            },
+            "read_file": {
+              "calls": 1,
+              "failures": 0,
+              "durationMs": 0,
+              "bytesTouched": 72,
+              "tokensTouched": 0
+            },
+            "create_worktree": {
+              "calls": 1,
+              "failures": 0,
+              "durationMs": 119,
+              "bytesTouched": 0,
+              "tokensTouched": 0
+            },
+            "edit_file": {
+              "calls": 1,
+              "failures": 0,
+              "durationMs": 2,
+              "bytesTouched": 101,
+              "tokensTouched": 0
+            },
+            "git_diff": {
+              "calls": 1,
+              "failures": 1,
+              "durationMs": 29,
+              "bytesTouched": 0,
+              "tokensTouched": 0
+            }
+          },
+          "verification_status": "pending",
+          "tool_calls_used": 0,
+          "evidence_count": 4,
+          "review_artifact_path": null,
+          "fix_session_id": null,
+          "fix_session_path": null
+        },
+        {
+          "timestamp": "2026-04-08T04:35:30.134Z",
+          "success": true,
+          "action": "fix",
+          "result_summary": "codetitan-cli-fixer applied an explicit fix edit inside an isolated workspace.",
+          "error": null,
+          "execution_time_ms": 144,
+          "role": "fixer",
+          "reasoning_mode": "standard",
+          "provider_usage": {
+            "selectedProvider": null,
+            "selectedModel": null,
+            "totalCostUsd": 0,
+            "retries": 0,
+            "tokensUsed": {
+              "input": 0,
+              "output": 0,
+              "cached": 0
+            },
+            "advisorValidation": {
+              "requested": false,
+              "performed": false,
+              "verdict": "skipped",
+              "provider": null,
+              "model": null
+            },
+            "providers": {}
+          },
+          "tool_metrics": {
+            "analyze_path": {
+              "calls": 1,
+              "failures": 0,
+              "durationMs": 3,
+              "bytesTouched": 72,
+              "tokensTouched": 0
+            },
+            "read_file": {
+              "calls": 1,
+              "failures": 0,
+              "durationMs": 2,
+              "bytesTouched": 72,
+              "tokensTouched": 0
+            },
+            "create_worktree": {
+              "calls": 1,
+              "failures": 0,
+              "durationMs": 108,
+              "bytesTouched": 0,
+              "tokensTouched": 0
+            },
+            "edit_file": {
+              "calls": 1,
+              "failures": 0,
+              "durationMs": 1,
+              "bytesTouched": 101,
+              "tokensTouched": 0
+            },
+            "git_diff": {
+              "calls": 1,
+              "failures": 1,
+              "durationMs": 22,
+              "bytesTouched": 0,
+              "tokensTouched": 0
+            }
+          },
+          "verification_status": "pending",
+          "tool_calls_used": 0,
+          "evidence_count": 4,
+          "review_artifact_path": null,
+          "fix_session_id": null,
+          "fix_session_path": null
+        },
+        {
+          "timestamp": "2026-04-08T04:32:33.787Z",
+          "success": true,
+          "action": "fix",
+          "result_summary": "codetitan-cli-fixer applied an explicit fix edit inside an isolated workspace.",
+          "error": null,
+          "execution_time_ms": 187,
+          "role": "fixer",
+          "reasoning_mode": "standard",
+          "provider_usage": {
+            "selectedProvider": null,
+            "selectedModel": null,
+            "totalCostUsd": 0,
+            "retries": 0,
+            "tokensUsed": {
+              "input": 0,
+              "output": 0,
+              "cached": 0
+            },
+            "advisorValidation": {
+              "requested": false,
+              "performed": false,
+              "verdict": "skipped",
+              "provider": null,
+              "model": null
+            },
+            "providers": {}
+          },
+          "tool_metrics": {
+            "analyze_path": {
+              "calls": 1,
+              "failures": 0,
+              "durationMs": 3,
+              "bytesTouched": 72,
+              "tokensTouched": 0
+            },
+            "read_file": {
+              "calls": 1,
+              "failures": 0,
+              "durationMs": 1,
+              "bytesTouched": 72,
+              "tokensTouched": 0
+            },
+            "create_worktree": {
+              "calls": 1,
+              "failures": 0,
+              "durationMs": 140,
+              "bytesTouched": 0,
+              "tokensTouched": 0
+            },
+            "edit_file": {
+              "calls": 1,
+              "failures": 0,
+              "durationMs": 2,
+              "bytesTouched": 101,
+              "tokensTouched": 0
+            },
+            "git_diff": {
+              "calls": 1,
+              "failures": 1,
+              "durationMs": 32,
+              "bytesTouched": 0,
+              "tokensTouched": 0
+            }
+          },
+          "verification_status": "pending",
+          "tool_calls_used": 0,
+          "evidence_count": 4,
+          "review_artifact_path": null,
+          "fix_session_id": null,
+          "fix_session_path": null
+        },
+        {
+          "timestamp": "2026-04-08T04:29:06.067Z",
+          "success": true,
+          "action": "fix",
+          "result_summary": "codetitan-cli-fixer applied an explicit fix edit inside an isolated workspace.",
+          "error": null,
+          "execution_time_ms": 172,
+          "role": "fixer",
+          "reasoning_mode": "standard",
+          "provider_usage": {
+            "selectedProvider": null,
+            "selectedModel": null,
+            "totalCostUsd": 0,
+            "retries": 0,
+            "tokensUsed": {
+              "input": 0,
+              "output": 0,
+              "cached": 0
+            },
+            "advisorValidation": {
+              "requested": false,
+              "performed": false,
+              "verdict": "skipped",
+              "provider": null,
+              "model": null
+            },
+            "providers": {}
+          },
+          "tool_metrics": {
+            "analyze_path": {
+              "calls": 1,
+              "failures": 0,
+              "durationMs": 2,
+              "bytesTouched": 72,
+              "tokensTouched": 0
+            },
+            "read_file": {
+              "calls": 1,
+              "failures": 0,
+              "durationMs": 1,
+              "bytesTouched": 72,
+              "tokensTouched": 0
+            },
+            "create_worktree": {
+              "calls": 1,
+              "failures": 0,
+              "durationMs": 131,
+              "bytesTouched": 0,
+              "tokensTouched": 0
+            },
+            "edit_file": {
+              "calls": 1,
+              "failures": 0,
+              "durationMs": 2,
+              "bytesTouched": 101,
+              "tokensTouched": 0
+            },
+            "git_diff": {
+              "calls": 1,
+              "failures": 1,
+              "durationMs": 28,
+              "bytesTouched": 0,
+              "tokensTouched": 0
+            }
+          },
+          "verification_status": "pending",
+          "tool_calls_used": 0,
+          "evidence_count": 4,
+          "review_artifact_path": null,
+          "fix_session_id": null,
+          "fix_session_path": null
+        },
+        {
+          "timestamp": "2026-04-08T04:26:00.781Z",
+          "success": true,
+          "action": "fix",
+          "result_summary": "codetitan-cli-fixer applied an explicit fix edit inside an isolated workspace.",
+          "error": null,
+          "execution_time_ms": 185,
+          "role": "fixer",
+          "reasoning_mode": "standard",
+          "provider_usage": {
+            "selectedProvider": null,
+            "selectedModel": null,
+            "totalCostUsd": 0,
+            "retries": 0,
+            "tokensUsed": {
+              "input": 0,
+              "output": 0,
+              "cached": 0
+            },
+            "advisorValidation": {
+              "requested": false,
+              "performed": false,
+              "verdict": "skipped",
+              "provider": null,
+              "model": null
+            },
+            "providers": {}
+          },
+          "tool_metrics": {
+            "analyze_path": {
+              "calls": 1,
+              "failures": 0,
+              "durationMs": 1,
+              "bytesTouched": 72,
+              "tokensTouched": 0
+            },
+            "read_file": {
+              "calls": 1,
+              "failures": 0,
+              "durationMs": 2,
+              "bytesTouched": 72,
+              "tokensTouched": 0
+            },
+            "create_worktree": {
+              "calls": 1,
+              "failures": 0,
+              "durationMs": 138,
+              "bytesTouched": 0,
+              "tokensTouched": 0
+            },
+            "edit_file": {
+              "calls": 1,
+              "failures": 0,
+              "durationMs": 1,
+              "bytesTouched": 101,
+              "tokensTouched": 0
+            },
+            "git_diff": {
+              "calls": 1,
+              "failures": 1,
+              "durationMs": 33,
+              "bytesTouched": 0,
+              "tokensTouched": 0
+            }
+          },
+          "verification_status": "pending",
+          "tool_calls_used": 0,
+          "evidence_count": 4,
+          "review_artifact_path": null,
+          "fix_session_id": null,
+          "fix_session_path": null
+        },
+        {
+          "timestamp": "2026-04-08T04:21:28.349Z",
+          "success": true,
+          "action": "fix",
+          "result_summary": "codetitan-cli-fixer applied an explicit fix edit inside an isolated workspace.",
+          "error": null,
+          "execution_time_ms": 186,
+          "role": "fixer",
+          "reasoning_mode": "standard",
+          "provider_usage": {
+            "selectedProvider": null,
+            "selectedModel": null,
+            "totalCostUsd": 0,
+            "retries": 0,
+            "tokensUsed": {
+              "input": 0,
+              "output": 0,
+              "cached": 0
+            },
+            "advisorValidation": {
+              "requested": false,
+              "performed": false,
+              "verdict": "skipped",
+              "provider": null,
+              "model": null
+            },
+            "providers": {}
+          },
+          "tool_metrics": {
+            "analyze_path": {
+              "calls": 1,
+              "failures": 0,
+              "durationMs": 2,
+              "bytesTouched": 72,
+              "tokensTouched": 0
+            },
+            "read_file": {
+              "calls": 1,
+              "failures": 0,
+              "durationMs": 2,
+              "bytesTouched": 72,
+              "tokensTouched": 0
+            },
+            "create_worktree": {
+              "calls": 1,
+              "failures": 0,
+              "durationMs": 138,
+              "bytesTouched": 0,
+              "tokensTouched": 0
+            },
+            "edit_file": {
+              "calls": 1,
+              "failures": 0,
+              "durationMs": 2,
+              "bytesTouched": 101,
+              "tokensTouched": 0
+            },
+            "git_diff": {
+              "calls": 1,
+              "failures": 1,
+              "durationMs": 33,
+              "bytesTouched": 0,
+              "tokensTouched": 0
+            }
+          },
+          "verification_status": "pending",
+          "tool_calls_used": 0,
+          "evidence_count": 4,
+          "review_artifact_path": null,
+          "fix_session_id": null,
+          "fix_session_path": null
+        },
+        {
+          "timestamp": "2026-04-08T04:18:31.991Z",
+          "success": true,
+          "action": "fix",
+          "result_summary": "codetitan-cli-fixer applied an explicit fix edit inside an isolated workspace.",
+          "error": null,
+          "execution_time_ms": 172,
+          "role": "fixer",
+          "reasoning_mode": "standard",
+          "provider_usage": {
+            "selectedProvider": null,
+            "selectedModel": null,
+            "totalCostUsd": 0,
+            "retries": 0,
+            "tokensUsed": {
+              "input": 0,
+              "output": 0,
+              "cached": 0
+            },
+            "advisorValidation": {
+              "requested": false,
+              "performed": false,
+              "verdict": "skipped",
+              "provider": null,
+              "model": null
+            },
+            "providers": {}
+          },
+          "tool_metrics": {
+            "analyze_path": {
+              "calls": 1,
+              "failures": 0,
+              "durationMs": 2,
+              "bytesTouched": 72,
+              "tokensTouched": 0
+            },
+            "read_file": {
+              "calls": 1,
+              "failures": 0,
+              "durationMs": 2,
+              "bytesTouched": 72,
+              "tokensTouched": 0
+            },
+            "create_worktree": {
+              "calls": 1,
+              "failures": 0,
+              "durationMs": 127,
+              "bytesTouched": 0,
+              "tokensTouched": 0
+            },
+            "edit_file": {
+              "calls": 1,
+              "failures": 0,
+              "durationMs": 2,
+              "bytesTouched": 101,
+              "tokensTouched": 0
+            },
+            "git_diff": {
+              "calls": 1,
+              "failures": 1,
+              "durationMs": 32,
+              "bytesTouched": 0,
+              "tokensTouched": 0
+            }
+          },
+          "verification_status": "pending",
+          "tool_calls_used": 0,
+          "evidence_count": 4,
+          "review_artifact_path": null,
+          "fix_session_id": null,
+          "fix_session_path": null
+        },
+        {
+          "timestamp": "2026-04-03T05:19:14.796Z",
+          "success": true,
+          "action": "fix",
+          "result_summary": "codetitan-cli-fixer applied an explicit fix edit inside an isolated workspace.",
+          "error": null,
+          "execution_time_ms": 232,
+          "role": "fixer",
+          "reasoning_mode": "standard",
+          "provider_usage": {
+            "selectedProvider": null,
+            "selectedModel": null,
+            "totalCostUsd": 0,
+            "retries": 0,
+            "tokensUsed": {
+              "input": 0,
+              "output": 0,
+              "cached": 0
+            },
+            "advisorValidation": {
+              "requested": false,
+              "performed": false,
+              "verdict": "skipped",
+              "provider": null,
+              "model": null
+            },
+            "providers": {}
+          },
+          "tool_metrics": {
+            "analyze_path": {
+              "calls": 1,
+              "failures": 0,
+              "durationMs": 1,
+              "bytesTouched": 72,
+              "tokensTouched": 0
+            },
+            "read_file": {
+              "calls": 1,
+              "failures": 0,
+              "durationMs": 1,
+              "bytesTouched": 72,
+              "tokensTouched": 0
+            },
+            "create_worktree": {
+              "calls": 1,
+              "failures": 0,
+              "durationMs": 176,
+              "bytesTouched": 0,
+              "tokensTouched": 0
+            },
+            "edit_file": {
+              "calls": 1,
+              "failures": 0,
+              "durationMs": 2,
+              "bytesTouched": 101,
+              "tokensTouched": 0
+            },
+            "git_diff": {
+              "calls": 1,
+              "failures": 1,
+              "durationMs": 42,
+              "bytesTouched": 0,
+              "tokensTouched": 0
+            }
+          },
+          "verification_status": "pending",
+          "tool_calls_used": 0,
+          "evidence_count": 4,
+          "review_artifact_path": null,
+          "fix_session_id": null,
+          "fix_session_path": null
+        },
+        {
+          "timestamp": "2026-04-03T05:11:24.458Z",
+          "success": true,
+          "action": "fix",
+          "result_summary": "codetitan-cli-fixer applied an explicit fix edit inside an isolated workspace.",
+          "error": null,
+          "execution_time_ms": 246,
+          "role": "fixer",
+          "reasoning_mode": "standard",
+          "provider_usage": {
+            "selectedProvider": null,
+            "selectedModel": null,
+            "totalCostUsd": 0,
+            "retries": 0,
+            "tokensUsed": {
+              "input": 0,
+              "output": 0,
+              "cached": 0
+            },
+            "advisorValidation": {
+              "requested": false,
+              "performed": false,
+              "verdict": "skipped",
+              "provider": null,
+              "model": null
+            },
+            "providers": {}
+          },
+          "tool_metrics": {
+            "analyze_path": {
+              "calls": 1,
+              "failures": 0,
+              "durationMs": 2,
+              "bytesTouched": 72,
+              "tokensTouched": 0
+            },
+            "read_file": {
+              "calls": 1,
+              "failures": 0,
+              "durationMs": 0,
+              "bytesTouched": 72,
+              "tokensTouched": 0
+            },
+            "create_worktree": {
+              "calls": 1,
+              "failures": 0,
+              "durationMs": 186,
+              "bytesTouched": 0,
+              "tokensTouched": 0
+            },
+            "edit_file": {
+              "calls": 1,
+              "failures": 0,
+              "durationMs": 2,
+              "bytesTouched": 101,
+              "tokensTouched": 0
+            },
+            "git_diff": {
+              "calls": 1,
+              "failures": 1,
+              "durationMs": 46,
+              "bytesTouched": 0,
+              "tokensTouched": 0
+            }
+          },
+          "verification_status": "pending",
+          "tool_calls_used": 0,
+          "evidence_count": 4,
+          "review_artifact_path": null,
+          "fix_session_id": null,
+          "fix_session_path": null
+        },
+        {
+          "timestamp": "2026-04-03T05:02:21.558Z",
+          "success": true,
+          "action": "fix",
+          "result_summary": "codetitan-cli-fixer applied an explicit fix edit inside an isolated workspace.",
+          "error": null,
+          "execution_time_ms": 251,
+          "role": "fixer",
+          "reasoning_mode": "standard",
+          "provider_usage": {
+            "selectedProvider": null,
+            "selectedModel": null,
+            "totalCostUsd": 0,
+            "retries": 0,
+            "tokensUsed": {
+              "input": 0,
+              "output": 0,
+              "cached": 0
+            },
+            "advisorValidation": {
+              "requested": false,
+              "performed": false,
+              "verdict": "skipped",
+              "provider": null,
+              "model": null
+            },
+            "providers": {}
+          },
+          "tool_metrics": {
+            "analyze_path": {
+              "calls": 1,
+              "failures": 0,
+              "durationMs": 2,
+              "bytesTouched": 72,
+              "tokensTouched": 0
+            },
+            "read_file": {
+              "calls": 1,
+              "failures": 0,
+              "durationMs": 1,
+              "bytesTouched": 72,
+              "tokensTouched": 0
+            },
+            "create_worktree": {
+              "calls": 1,
+              "failures": 0,
+              "durationMs": 189,
+              "bytesTouched": 0,
+              "tokensTouched": 0
+            },
+            "edit_file": {
+              "calls": 1,
+              "failures": 0,
+              "durationMs": 3,
+              "bytesTouched": 101,
+              "tokensTouched": 0
+            },
+            "git_diff": {
+              "calls": 1,
+              "failures": 1,
+              "durationMs": 44,
+              "bytesTouched": 0,
+              "tokensTouched": 0
+            }
+          },
+          "verification_status": "pending",
+          "tool_calls_used": 0,
+          "evidence_count": 4,
+          "review_artifact_path": null,
+          "fix_session_id": null,
+          "fix_session_path": null
+        },
+        {
+          "timestamp": "2026-04-03T04:56:10.882Z",
+          "success": true,
+          "action": "fix",
+          "result_summary": "codetitan-cli-fixer applied an explicit fix edit inside an isolated workspace.",
+          "error": null,
+          "execution_time_ms": 260,
+          "role": "fixer",
+          "reasoning_mode": "standard",
+          "provider_usage": {
+            "selectedProvider": null,
+            "selectedModel": null,
+            "totalCostUsd": 0,
+            "retries": 0,
+            "tokensUsed": {
+              "input": 0,
+              "output": 0,
+              "cached": 0
+            },
+            "advisorValidation": {
+              "requested": false,
+              "performed": false,
+              "verdict": "skipped",
+              "provider": null,
+              "model": null
+            },
+            "providers": {}
+          },
+          "tool_metrics": {
+            "analyze_path": {
+              "calls": 1,
+              "failures": 0,
+              "durationMs": 2,
+              "bytesTouched": 72,
+              "tokensTouched": 0
+            },
+            "read_file": {
+              "calls": 1,
+              "failures": 0,
+              "durationMs": 1,
+              "bytesTouched": 72,
+              "tokensTouched": 0
+            },
+            "create_worktree": {
+              "calls": 1,
+              "failures": 0,
+              "durationMs": 199,
+              "bytesTouched": 0,
+              "tokensTouched": 0
+            },
+            "edit_file": {
+              "calls": 1,
+              "failures": 0,
+              "durationMs": 2,
+              "bytesTouched": 101,
+              "tokensTouched": 0
+            },
+            "git_diff": {
+              "calls": 1,
+              "failures": 1,
+              "durationMs": 46,
+              "bytesTouched": 0,
+              "tokensTouched": 0
+            }
+          },
+          "verification_status": "pending",
+          "tool_calls_used": 0,
+          "evidence_count": 4,
+          "review_artifact_path": null,
+          "fix_session_id": null,
+          "fix_session_path": null
+        },
+        {
+          "timestamp": "2026-04-03T04:50:51.936Z",
+          "success": true,
+          "action": "fix",
+          "result_summary": "codetitan-cli-fixer applied an explicit fix edit inside an isolated workspace.",
+          "error": null,
+          "execution_time_ms": 274,
+          "role": "fixer",
+          "reasoning_mode": "standard",
+          "provider_usage": {
+            "selectedProvider": null,
+            "selectedModel": null,
+            "totalCostUsd": 0,
+            "retries": 0,
+            "tokensUsed": {
+              "input": 0,
+              "output": 0,
+              "cached": 0
+            },
+            "advisorValidation": {
+              "requested": false,
+              "performed": false,
+              "verdict": "skipped",
+              "provider": null,
+              "model": null
+            },
+            "providers": {}
+          },
+          "tool_metrics": {
+            "analyze_path": {
+              "calls": 1,
+              "failures": 0,
+              "durationMs": 1,
+              "bytesTouched": 72,
+              "tokensTouched": 0
+            },
+            "read_file": {
+              "calls": 1,
+              "failures": 0,
+              "durationMs": 1,
+              "bytesTouched": 72,
+              "tokensTouched": 0
+            },
+            "create_worktree": {
+              "calls": 1,
+              "failures": 0,
+              "durationMs": 211,
+              "bytesTouched": 0,
+              "tokensTouched": 0
+            },
+            "edit_file": {
+              "calls": 1,
+              "failures": 0,
+              "durationMs": 2,
+              "bytesTouched": 101,
+              "tokensTouched": 0
+            },
+            "git_diff": {
+              "calls": 1,
+              "failures": 1,
+              "durationMs": 47,
+              "bytesTouched": 0,
+              "tokensTouched": 0
+            }
+          },
+          "verification_status": "pending",
+          "tool_calls_used": 0,
+          "evidence_count": 4,
+          "review_artifact_path": null,
+          "fix_session_id": null,
+          "fix_session_path": null
+        },
+        {
+          "timestamp": "2026-04-03T04:49:41.976Z",
+          "success": true,
+          "action": "fix",
+          "result_summary": "codetitan-cli-fixer applied an explicit fix edit inside an isolated workspace.",
+          "error": null,
+          "execution_time_ms": 270,
+          "role": "fixer",
+          "reasoning_mode": "standard",
+          "provider_usage": {
+            "selectedProvider": null,
+            "selectedModel": null,
+            "totalCostUsd": 0,
+            "retries": 0,
+            "tokensUsed": {
+              "input": 0,
+              "output": 0,
+              "cached": 0
+            },
+            "advisorValidation": {
+              "requested": false,
+              "performed": false,
+              "verdict": "skipped",
+              "provider": null,
+              "model": null
+            },
+            "providers": {}
+          },
+          "tool_metrics": {
+            "analyze_path": {
+              "calls": 1,
+              "failures": 0,
+              "durationMs": 3,
+              "bytesTouched": 72,
+              "tokensTouched": 0
+            },
+            "read_file": {
+              "calls": 1,
+              "failures": 0,
+              "durationMs": 1,
+              "bytesTouched": 72,
+              "tokensTouched": 0
+            },
+            "create_worktree": {
+              "calls": 1,
+              "failures": 0,
+              "durationMs": 196,
+              "bytesTouched": 0,
+              "tokensTouched": 0
+            },
+            "edit_file": {
+              "calls": 1,
+              "failures": 0,
+              "durationMs": 2,
+              "bytesTouched": 101,
+              "tokensTouched": 0
+            },
+            "git_diff": {
+              "calls": 1,
+              "failures": 1,
+              "durationMs": 55,
+              "bytesTouched": 0,
+              "tokensTouched": 0
+            }
+          },
+          "verification_status": "pending",
+          "tool_calls_used": 0,
+          "evidence_count": 4,
+          "review_artifact_path": null,
+          "fix_session_id": null,
+          "fix_session_path": null
+        },
+        {
+          "timestamp": "2026-04-03T04:49:05.744Z",
+          "success": false,
+          "action": "fix",
+          "result_summary": "Promotion requires captured diff evidence from the active worktree",
+          "error": "Promotion requires captured diff evidence from the active worktree",
+          "execution_time_ms": 272,
+          "role": "fixer",
+          "reasoning_mode": "standard",
+          "provider_usage": {
+            "selectedProvider": null,
+            "selectedModel": null,
+            "totalCostUsd": 0,
+            "retries": 0,
+            "tokensUsed": {
+              "input": 0,
+              "output": 0,
+              "cached": 0
+            },
+            "advisorValidation": {
+              "requested": false,
+              "performed": false,
+              "verdict": null,
+              "provider": null,
+              "model": null
+            },
+            "providers": {}
+          },
+          "tool_metrics": {
+            "analyze_path": {
+              "calls": 1,
+              "failures": 0,
+              "durationMs": 2,
+              "bytesTouched": 72,
+              "tokensTouched": 0
+            },
+            "read_file": {
+              "calls": 1,
+              "failures": 0,
+              "durationMs": 1,
+              "bytesTouched": 72,
+              "tokensTouched": 0
+            },
+            "create_worktree": {
+              "calls": 1,
+              "failures": 0,
+              "durationMs": 164,
+              "bytesTouched": 0,
+              "tokensTouched": 0
+            },
+            "edit_file": {
+              "calls": 1,
+              "failures": 0,
+              "durationMs": 2,
+              "bytesTouched": 101,
+              "tokensTouched": 0
+            },
+            "git_diff": {
+              "calls": 1,
+              "failures": 1,
+              "durationMs": 38,
+              "bytesTouched": 0,
+              "tokensTouched": 0
+            },
+            "run_tests": {
+              "calls": 1,
+              "failures": 0,
+              "durationMs": 55,
+              "bytesTouched": 0,
+              "tokensTouched": 0
+            }
+          },
+          "verification_status": "failed",
+          "tool_calls_used": 0,
+          "evidence_count": 5,
+          "review_artifact_path": null,
+          "fix_session_id": null,
+          "fix_session_path": null
+        },
+        {
+          "timestamp": "2026-04-03T04:49:04.062Z",
+          "success": true,
+          "action": "fix",
+          "result_summary": "codetitan-cli-fixer applied an explicit fix edit inside an isolated workspace.",
+          "error": null,
+          "execution_time_ms": 305,
+          "role": "fixer",
+          "reasoning_mode": "standard",
+          "provider_usage": {
+            "selectedProvider": null,
+            "selectedModel": null,
+            "totalCostUsd": 0,
+            "retries": 0,
+            "tokensUsed": {
+              "input": 0,
+              "output": 0,
+              "cached": 0
+            },
+            "advisorValidation": {
+              "requested": false,
+              "performed": false,
+              "verdict": "skipped",
+              "provider": null,
+              "model": null
+            },
+            "providers": {}
+          },
+          "tool_metrics": {
+            "analyze_path": {
+              "calls": 1,
+              "failures": 0,
+              "durationMs": 2,
+              "bytesTouched": 72,
+              "tokensTouched": 0
+            },
+            "read_file": {
+              "calls": 1,
+              "failures": 0,
+              "durationMs": 1,
+              "bytesTouched": 72,
+              "tokensTouched": 0
+            },
+            "create_worktree": {
+              "calls": 1,
+              "failures": 0,
+              "durationMs": 245,
+              "bytesTouched": 0,
+              "tokensTouched": 0
+            },
+            "edit_file": {
+              "calls": 1,
+              "failures": 0,
+              "durationMs": 2,
+              "bytesTouched": 101,
+              "tokensTouched": 0
+            },
+            "git_diff": {
+              "calls": 1,
+              "failures": 1,
+              "durationMs": 42,
+              "bytesTouched": 0,
+              "tokensTouched": 0
+            }
+          },
+          "verification_status": "pending",
+          "tool_calls_used": 0,
+          "evidence_count": 4,
+          "review_artifact_path": null,
+          "fix_session_id": null,
+          "fix_session_path": null
+        },
+        {
+          "timestamp": "2026-04-03T04:47:48.459Z",
+          "success": true,
+          "action": "fix",
+          "result_summary": "codetitan-cli-fixer applied an explicit fix edit inside an isolated workspace.",
+          "error": null,
+          "execution_time_ms": 283,
+          "role": "fixer",
+          "reasoning_mode": "standard",
+          "provider_usage": {
+            "selectedProvider": null,
+            "selectedModel": null,
+            "totalCostUsd": 0,
+            "retries": 0,
+            "tokensUsed": {
+              "input": 0,
+              "output": 0,
+              "cached": 0
+            },
+            "advisorValidation": {
+              "requested": false,
+              "performed": false,
+              "verdict": "skipped",
+              "provider": null,
+              "model": null
+            },
+            "providers": {}
+          },
+          "tool_metrics": {
+            "analyze_path": {
+              "calls": 1,
+              "failures": 0,
+              "durationMs": 2,
+              "bytesTouched": 72,
+              "tokensTouched": 0
+            },
+            "read_file": {
+              "calls": 1,
+              "failures": 0,
+              "durationMs": 1,
+              "bytesTouched": 72,
+              "tokensTouched": 0
+            },
+            "create_worktree": {
+              "calls": 1,
+              "failures": 0,
+              "durationMs": 202,
+              "bytesTouched": 0,
+              "tokensTouched": 0
+            },
+            "edit_file": {
+              "calls": 1,
+              "failures": 0,
+              "durationMs": 2,
+              "bytesTouched": 101,
+              "tokensTouched": 0
+            },
+            "git_diff": {
+              "calls": 1,
+              "failures": 1,
+              "durationMs": 63,
+              "bytesTouched": 0,
+              "tokensTouched": 0
+            }
+          },
+          "verification_status": "pending",
+          "tool_calls_used": 0,
+          "evidence_count": 4,
+          "review_artifact_path": null,
+          "fix_session_id": null,
+          "fix_session_path": null
+        },
+        {
+          "timestamp": "2026-04-02T19:59:18.398Z",
+          "success": true,
+          "action": "fix",
+          "result_summary": "codetitan-cli-fixer promoted a validated fix from an isolated workspace after review.",
+          "error": null,
+          "execution_time_ms": 305,
+          "role": "fixer",
+          "reasoning_mode": "standard",
+          "provider_usage": {
+            "selectedProvider": null,
+            "selectedModel": null,
+            "totalCostUsd": 0,
+            "retries": 0,
+            "tokensUsed": {
+              "input": 0,
+              "output": 0,
+              "cached": 0
+            },
+            "advisorValidation": {
+              "requested": false,
+              "performed": false,
+              "verdict": "skipped",
+              "provider": null,
+              "model": null
+            },
+            "providers": {}
+          },
+          "tool_metrics": {
+            "analyze_path": {
+              "calls": 1,
+              "failures": 0,
+              "durationMs": 2,
+              "bytesTouched": 374,
+              "tokensTouched": 0
+            },
+            "read_file": {
+              "calls": 1,
+              "failures": 0,
+              "durationMs": 0,
+              "bytesTouched": 374,
+              "tokensTouched": 0
+            },
+            "create_worktree": {
+              "calls": 1,
+              "failures": 0,
+              "durationMs": 167,
+              "bytesTouched": 0,
+              "tokensTouched": 0
+            },
+            "edit_file": {
+              "calls": 1,
+              "failures": 0,
+              "durationMs": 1,
+              "bytesTouched": 388,
+              "tokensTouched": 0
+            },
+            "git_diff": {
+              "calls": 1,
+              "failures": 0,
+              "durationMs": 36,
+              "bytesTouched": 380,
+              "tokensTouched": 0
+            },
+            "run_tests": {
+              "calls": 1,
+              "failures": 0,
+              "durationMs": 40,
+              "bytesTouched": 3,
+              "tokensTouched": 0
+            },
+            "promote_worktree": {
+              "calls": 1,
+              "failures": 0,
+              "durationMs": 1,
+              "bytesTouched": 0,
+              "tokensTouched": 0
+            }
+          },
+          "verification_status": "verified",
+          "tool_calls_used": 0,
+          "evidence_count": 7,
+          "review_artifact_path": "C:\\Users\\0noa0\\Desktop\\codetitan.dev\\.codex-run-23864482673\\dogfood-sample\\dogfood-review-4.md",
+          "fix_session_id": "fix-session-20260402195904-dogfood-session-4",
+          "fix_session_path": "C:\\Users\\0noa0\\Desktop\\codetitan.dev\\.codex-run-23864482673\\dogfood-sample\\dogfood-session-4.json"
+        }
+      ],
+      "runtime_state": {
+        "role": "fixer",
+        "reasoning_mode": "standard",
+        "tool_budget": {
+          "limit": 8,
+          "used": 5,
+          "remaining": 3
+        },
+        "evidence_count": 4,
+        "verification_status": "pending",
+        "tool_calls_used": 0,
+        "review_artifact_path": null,
+        "fix_session_id": null,
+        "fix_session_path": null,
+        "provider_usage": {
+          "selected_provider": null,
+          "selected_model": null,
+          "total_cost_usd": 0,
+          "retries": 0,
+          "tokens_used": {
+            "input": 0,
+            "output": 0,
+            "cached": 0
+          }
+        },
+        "tool_metrics": {
+          "analyze_path": {
+            "calls": 1,
+            "failures": 0,
+            "durationMs": 2,
+            "bytesTouched": 72,
+            "tokensTouched": 0
+          },
+          "read_file": {
+            "calls": 1,
+            "failures": 0,
+            "durationMs": 1,
+            "bytesTouched": 72,
+            "tokensTouched": 0
+          },
+          "create_worktree": {
+            "calls": 1,
+            "failures": 0,
+            "durationMs": 146,
+            "bytesTouched": 0,
+            "tokensTouched": 0
+          },
+          "edit_file": {
+            "calls": 1,
+            "failures": 0,
+            "durationMs": 2,
+            "bytesTouched": 95,
+            "tokensTouched": 0
+          },
+          "git_diff": {
+            "calls": 1,
+            "failures": 1,
+            "durationMs": 30,
+            "bytesTouched": 0,
+            "tokensTouched": 0
+          }
+        }
+      },
+      "created_at": "2026-04-02T19:56:52.755Z",
+      "last_active": "2026-04-11T13:03:50.922Z",
+      "linked_session_commands": null,
+      "replay_readiness": {
+        "replayable": false,
+        "state": "missing_fix_session",
+        "reason": "No linked fix session is recorded for this fixer.",
+        "has_fix_session": false,
+        "has_review_artifact": false
+      },
+      "last_execution": {
+        "success": true,
+        "action": "fix",
+        "result_summary": "codetitan-cli-fixer applied an explicit fix edit inside an isolated workspace.",
+        "error": null,
+        "execution_time_ms": 191,
+        "reasoning_mode": "standard",
+        "provider_usage": {
+          "selectedProvider": null,
+          "selectedModel": null,
+          "totalCostUsd": 0,
+          "retries": 0,
+          "tokensUsed": {
+            "input": 0,
+            "output": 0,
+            "cached": 0
+          },
+          "advisorValidation": {
+            "requested": false,
+            "performed": false,
+            "verdict": "skipped",
+            "provider": null,
+            "model": null
+          },
+          "providers": {}
+        },
+        "tool_metrics": {
+          "analyze_path": {
+            "calls": 1,
+            "failures": 0,
+            "durationMs": 2,
+            "bytesTouched": 72,
+            "tokensTouched": 0
+          },
+          "read_file": {
+            "calls": 1,
+            "failures": 0,
+            "durationMs": 1,
+            "bytesTouched": 72,
+            "tokensTouched": 0
+          },
+          "create_worktree": {
+            "calls": 1,
+            "failures": 0,
+            "durationMs": 146,
+            "bytesTouched": 0,
+            "tokensTouched": 0
+          },
+          "edit_file": {
+            "calls": 1,
+            "failures": 0,
+            "durationMs": 2,
+            "bytesTouched": 95,
+            "tokensTouched": 0
+          },
+          "git_diff": {
+            "calls": 1,
+            "failures": 1,
+            "durationMs": 30,
+            "bytesTouched": 0,
+            "tokensTouched": 0
+          }
+        },
+        "review_artifact_path": null,
+        "fix_session_id": null,
+        "fix_session_path": null
+      }
+    }
+  ],
+  "domains": [
+    {
+      "name": "runtime",
+      "description": "",
+      "agent_count": 1,
+      "tier_distribution": {
+        "meta": 0,
+        "domain": 1,
+        "specialist": 0,
+        "worker": 0
+      }
+    }
+  ],
+  "capabilities_index": {
+    "fix": [
+      "codetitan-cli-fixer"
+    ]
+  },
+  "specializations_index": {},
+  "readiness_summary": {
+    "total_matched": 1,
+    "replayable": 0,
+    "blocked": 1,
+    "by_state": {
+      "ready": 0,
+      "needs_review_artifact": 0,
+      "missing_fix_session": 1,
+      "not_fixer_role": 0
+    }
+  }
+}

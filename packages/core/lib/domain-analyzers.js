@@ -1162,6 +1162,10 @@ function detectSecurityIssues(context) {
       // Use this to avoid false positives when a mitigation exists elsewhere in the file.
       if (rule.fileGuard && rule.fileGuard.test(context.content)) return;
 
+      // lineGuard: a regex that, if it matches the current line, suppresses the rule.
+      // Use this for inline mitigations (e.g. a SQL escaper wrapping the interpolation).
+      if (rule.lineGuard && rule.lineGuard.test(line)) return;
+
       const match = rule.pattern.exec(line);
       if (!match) return;
 

@@ -1,0 +1,39 @@
+# Dependencies
+node_modules/
+
+# Coverage reports
+coverage/
+*.lcov
+coverage*.json
+coverage*.txt
+
+# Debug/test output files
+*.txt
+*-output.txt
+*.log
+
+# Temp files
+*.tmp
+*.temp
+*.json_tmp
+
+# Generated reports
+report.html
+test_report*.json
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Build artifacts
+dist/
+build/
+
+# Keep package.json
+!package.json

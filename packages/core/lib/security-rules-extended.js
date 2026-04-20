@@ -186,6 +186,9 @@ const INJECTION_RULES = [
     severity: 'CRITICAL',
     impact: 10,
     pattern: /(?:query|execute|db\.run|db\.get|db\.all)\s*\(\s*(?:`[^`]*\$\{|["'][^"']*["']\s*\+)/,
+    // Suppress when every interpolation is wrapped in a known SQL identifier escaper.
+    // These helpers produce escaped, backtick/double-quote-wrapped identifiers that cannot break out.
+    lineGuard: /\$\{\s*(?:quoteIdentifier|escapeIdentifier|escapeId|quoteId|pgIdent|mysqlIdent|knex\.raw|sql\.identifier)\s*\(/,
     message: 'SQL query built with template literal or string concatenation — SQL injection. Use prepared statements or parameterized queries.',
     skipTest: true,
     skipDoc: true,
@@ -310,6 +313,8 @@ const AUTH_RULES = [
     severity: 'HIGH',
     impact: 8,
     pattern: /(?:oauth|OAuth|passport\.authenticate)\s*\([^)]*(?:github|google|facebook|twitter|microsoft|okta|auth0)[^)]*\)(?![\s\S]{0,300}state)/i,
+    // Supabase/Clerk/NextAuth/Firebase/Auth0 SDKs manage state + PKCE internally — callers are not required to pass state.
+    lineGuard: /(?:supabase[\w.]*\.auth\.signInWithOAuth|clerk\.authenticate|firebase\.auth\(\)\.signInWithPopup|firebase\.auth\(\)\.signInWithRedirect|next-auth|signIn\s*\(\s*['"`](?:github|google|facebook|twitter|microsoft|okta|auth0)['"`]\s*\)|@auth0\/auth0-spa-js|@auth0\/nextjs-auth0)/,
     message: 'OAuth flow initiated without a `state` parameter — CSRF against the OAuth callback allows account takeover. Generate and validate a cryptographically random state value.',
     skipTest: true,
     skipDoc: true,
@@ -373,7 +378,11 @@ const AUTH_RULES = [
     id: 'BEARER_TOKEN_LOGGED',
     severity: 'HIGH',
     impact: 8,
-    pattern: /(?:console|logger|log)\s*\.(?:log|info|debug)\s*\([^)]*(?:authorization|bearer|token|jwt)[^)]*\)/i,
+    // Require a credential-shaped identifier near the log call — either an authorization/bearer/jwt keyword,
+    // OR a variable name that looks like an auth token (accessToken, idToken, refreshToken, sessionToken, apiToken, bearerToken, authToken).
+    pattern: /(?:console|logger|log)\s*\.(?:log|info|debug|warn|error)\s*\([^)]*(?:\bauthorization\b|\bbearer\b|\bjwt\b|\b(?:access|id|refresh|session|api|bearer|auth)Token\b)[^)]*\)/i,
+    // Suppress for LLM token-count telemetry (input/output/prompt/completion/total tokens) and bare sentences about generating/revoking tokens.
+    lineGuard: /\b(?:input|output|prompt|completion|total|remaining|used|consumed|estimated)[_\s-]?Tokens?\b|\b(?:generate|revoke|rotate|create)\s+a?\s*(?:new\s+)?(?:CLI|API|access)?\s*token\b|tokenCount\b/i,
     message: 'Authorization token or Bearer credential logged — tokens in log aggregators can be stolen. Redact credentials before logging.',
     skipTest: true,
     skipDoc: true,
@@ -754,7 +763,9 @@ const CLIENT_RULES = [
     id: 'POSTMESSAGE_NO_ORIGIN_CHECK',
     severity: 'HIGH',
     impact: 8,
-    pattern: /addEventListener\s*\(\s*['"`]message['"`][^)]+\)(?![\s\S]{0,300}(?:event\.origin|origin\s*===|trustedOrigins))/,
+    // Restrict to window-like receivers (window, top, parent, self, frames, contentWindow, or bare addEventListener at module/global scope).
+    // Excludes WebSocket/EventSource/Worker/MessagePort/server receivers — those don't use window.postMessage and enforce origin at the HTTP/handshake layer.
+    pattern: /\b(?:window|top|parent|self|frames|contentWindow)\s*\.\s*addEventListener\s*\(\s*['"`]message['"`][^)]+\)(?![\s\S]{0,300}(?:event\.origin|origin\s*===|trustedOrigins))/,
     message: "postMessage listener without origin validation — any origin can send crafted messages. Always verify event.origin against a trusted allowlist before processing data.",
     skipTest: true,
     skipDoc: true,

@@ -1,6 +1,6 @@
 {
   "name": "@noalia/codetitan-core",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "Core JS/TS verification engine that powers the CodeTitan CLI and GitHub Action",
   "main": "index.js",
   "types": "index.d.ts",

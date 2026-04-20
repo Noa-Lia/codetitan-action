@@ -1,0 +1,14 @@
+coverage/
+data/
+__tests__/
+lib/**/__tests__/
+.codetitan/
+lib/.codetitan/
+lib/fixers/.codetitan/
+lib/godmode/.codetitan-benchmark/
+.tool-bridge-backups/
+*.unicode-backup
+*.backup
+*.log
+*.tgz
+.DS_Store
