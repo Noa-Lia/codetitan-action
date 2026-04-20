@@ -123,6 +123,29 @@ When the action runs on a `pull_request` event and `changed-only` is not set (or
 
 **Manual trigger only** — add `workflow_dispatch:` to `on:` (already in the template above) and omit `pull_request:` if you want on-demand scans without automatic PR gating.
 
+## CLI install (optional)
+
+The engine is also distributed as a standalone CLI for local runs outside CI. The package name is `@noalia/codetitan` — **not** `@noalia/codetitan-cli` — and the binary is `codetitan`.
+
+```bash
+npm install -g @noalia/codetitan
+codetitan --version
+codetitan analyze . --no-ai
+```
+
+Common commands:
+
+| Command | Purpose |
+|---|---|
+| `codetitan analyze <path>` | Analyze a directory (defaults to `.`) |
+| `codetitan analyze . --changed-only` | Diff-aware scope (PR mode) |
+| `codetitan fix <path> --dry-run` | Preview fixes without applying them |
+| `codetitan review` | Summarize the current branch |
+
+See `codetitan --help` for the full command list.
+
+`@noalia/codetitan-core` is an internal engine library consumed by both the CLI and the GitHub Action — you do not need to install it directly.
+
 ## Inputs
 
 - `github-token`: GitHub token for PR comments (pass `secrets.GITHUB_TOKEN`)
