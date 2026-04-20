@@ -48,6 +48,12 @@ function toInputEnvName(name) {
     return `INPUT_${String(name || '')
         .trim()
         .replace(/ /g, '_')
+        .toUpperCase()}`;
+}
+function toInputEnvNameLegacy(name) {
+    return `INPUT_${String(name || '')
+        .trim()
+        .replace(/ /g, '_')
         .replace(/-/g, '_')
         .toUpperCase()}`;
 }
@@ -156,7 +162,9 @@ function sanitizeEnv(env) {
 }
 exports.core = {
     getInput(name) {
-        return process.env[toInputEnvName(name)] || '';
+        return (process.env[toInputEnvName(name)] ||
+            process.env[toInputEnvNameLegacy(name)] ||
+            '');
     },
     info(message) {
         process.stdout.write(`${String(message || '')}\n`);
