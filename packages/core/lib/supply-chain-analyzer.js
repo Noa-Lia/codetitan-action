@@ -78,6 +78,10 @@ function analyzeSupplyChain(filePath, content, opts = {}) {
   // Skip engine infrastructure files that intentionally contain dangerous patterns as targets
   if (SUPPLY_CHAIN_INFRA_FILE_REGEX.test(filePath.replace(/\\/g, '/'))) return [];
 
+  // Skip test files — fixtures legitimately contain char-code arrays, hex blobs,
+  // bidi control chars, and other patterns the supply-chain heuristics hunt for.
+  if (opts.isTestFile) return [];
+
   const findings = [];
   const lines = content.split(/\r?\n/);
 
@@ -113,8 +117,11 @@ function analyzeSupplyChain(filePath, content, opts = {}) {
     }
   }
 
-  // Char code array obfuscation
-  if (CHAR_CODE_ARRAY_PATTERN.test(content)) {
+  // Char code array obfuscation — only flag when fromCharCode actually appears in
+  // the file. Numeric arrays alone aren't suspicious (coordinates, measurements,
+  // palettes, test-expected byte sequences); the obfuscation signal is the
+  // combination of a long numeric literal array AND a decode call.
+  if (CHAR_CODE_ARRAY_PATTERN.test(content) && /\bfromCharCode\s*\(/.test(content)) {
     const charLine = lines.findIndex(l => CHAR_CODE_ARRAY_PATTERN.test(l));
     if (charLine >= 0) {
       findings.push(makeFinding({
@@ -122,7 +129,7 @@ function analyzeSupplyChain(filePath, content, opts = {}) {
         column: 0,
         severity: 'MEDIUM',
         category: 'CHARCODE_OBFUSCATION',
-        message: 'Long array of character codes detected — possible string obfuscation via fromCharCode().',
+        message: 'Long array of character codes paired with fromCharCode() — possible string obfuscation.',
         impact: 7,
         snippet: lines[charLine].slice(0, 120)
       }));

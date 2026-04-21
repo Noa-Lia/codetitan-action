@@ -122,7 +122,7 @@ const INJECTION_RULES = [
     id: 'SSRF_USER_CONTROLLED_URL',
     severity: 'HIGH',
     impact: 9,
-    pattern: /(?:fetch|axios\.(?:get|post|request)|http\.(?:get|request)|https\.(?:get|request)|got|superagent\.get)\s*\(\s*(?:req\.|request\.|params\.|query\.|body\.|input)/,
+    pattern: /(?:fetch|axios\.(?:get|post|request)|http\.(?:get|request)|https\.(?:get|request)|got|superagent\.get)\s*\(\s*(?:req\.|request\.|params\.|query\.|body\.)/,
     message: 'HTTP request made to a URL derived from user input — SSRF risk. Validate the URL against an allowlist before making the request.',
     skipTest: true,
     skipDoc: true,
@@ -149,7 +149,11 @@ const INJECTION_RULES = [
     id: 'PATH_TRAVERSAL_READFILE',
     severity: 'HIGH',
     impact: 9,
-    pattern: /(?:fs\.readFile|fs\.readFileSync|fs\.createReadStream)\s*\([^)]*(?:req\.|request\.|params\.|query\.|body\.|input)/,
+    // Taint source must be a dotted HTTP-request field. The bare `input`
+    // alternate (removed) over-matched CLI-flag identifiers like
+    // `flags.input`, `inputFile`, `options.input`, triggering 71 FPs on
+    // mitre/saf alone (all legitimate oclif flag reads).
+    pattern: /(?:fs\.readFile|fs\.readFileSync|fs\.createReadStream)\s*\([^)]*(?:req\.|request\.|params\.|query\.|body\.)/,
     message: 'File read path derived from user input — path traversal allows access to arbitrary files (e.g., ../../../etc/passwd). Resolve and validate paths inside an allowed directory with path.resolve() + startsWith().',
     skipTest: true,
     skipDoc: true,
@@ -158,7 +162,8 @@ const INJECTION_RULES = [
     id: 'PATH_TRAVERSAL_WRITEFILE',
     severity: 'CRITICAL',
     impact: 10,
-    pattern: /(?:fs\.writeFile|fs\.writeFileSync|fs\.createWriteStream)\s*\([^)]*(?:req\.|request\.|params\.|query\.|body\.|input)/,
+    // Same `input` alternate removal as PATH_TRAVERSAL_READFILE. See that rule for the rationale.
+    pattern: /(?:fs\.writeFile|fs\.writeFileSync|fs\.createWriteStream)\s*\([^)]*(?:req\.|request\.|params\.|query\.|body\.)/,
     message: 'File write path derived from user input — arbitrary file write vulnerability. Validate the resolved path is within an allowed directory.',
     skipTest: true,
     skipDoc: true,
@@ -198,6 +203,14 @@ const INJECTION_RULES = [
     severity: 'HIGH',
     impact: 9,
     pattern: /JSON\.parse\s*\([^)]*\)\s*(?:\.[a-zA-Z]+\s*\(|;?\s*eval\s*\()/,
+    // The pattern fires whenever a `.method(` appears after any `)` that comes
+    // after `JSON.parse(`. On lines like
+    //   JSON.parse(Buffer.from(body, 'base64url').toString('utf8'))
+    // the inner `Buffer.from(...)` closes first and the regex then matches the
+    // `.toString(` — not a real deserialization-into-method chain, just a b64
+    // decode. Likewise `readFileSync(path).toString()` is well-formed file I/O.
+    // Suppress when the line contains these well-known serialization helpers.
+    lineGuard: /(?:Buffer\.from\s*\(|readFileSync\s*\(|fs\.readFileSync\s*\()/,
     message: 'JSON.parse result immediately passed to a method or eval — prototype pollution or deserialization attack possible. Validate the parsed shape before use.',
     skipTest: true,
     skipDoc: true,
@@ -206,7 +219,11 @@ const INJECTION_RULES = [
     id: 'SERVER_SIDE_REDIRECT_INJECTION',
     severity: 'HIGH',
     impact: 8,
-    pattern: /(?:Location|location)\s*:\s*(?:req\.|request\.|params\.|query\.|body\.|input|`[^`]*\$\{)/,
+    // Only match the capitalized HTTP header form ('Location') to avoid firing
+    // on unrelated object property keys like `location: input.location` in
+    // business domain objects. Also drop the bare `|input` alternate which
+    // matched any arg named `input` regardless of whether it was a request source.
+    pattern: /(?:['"`]?Location['"`]?)\s*[:,]\s*(?:req\.|request\.|params\.|query\.|body\.|`[^`]*\$\{)/,
     message: 'Location header built from user input — HTTP response splitting or open redirect. Sanitize and validate redirect targets.',
     skipTest: true,
     skipDoc: true,
@@ -272,15 +289,11 @@ const AUTH_RULES = [
     skipTest: true,
     skipDoc: true,
   },
-  {
-    id: 'HARDCODED_ADMIN_ROLE',
-    severity: 'MEDIUM',
-    impact: 8,
-    pattern: /(?:role|userRole|user\.role)\s*===?\s*['"`]admin['"`]/,
-    message: "Hardcoded role comparison ('admin') without a database or RBAC check — privilege escalation possible if the role field is user-controlled. Use a centralized authorization service.",
-    skipTest: true,
-    skipDoc: true,
-  },
+  // HARDCODED_ADMIN_ROLE removed 2026-04-20: RBAC correctness is string
+  // comparison against role names — the pattern can't distinguish correct
+  // RBAC implementation from privilege-escalation risk. Maintainability of
+  // role strings (central constants module vs inline literals) belongs in a
+  // linter, not a security scanner. See dogfood-self-2026-04-20.md.
   {
     id: 'PASSWORD_IN_URL',
     severity: 'HIGH',
@@ -473,7 +486,7 @@ const CRYPTO_RULES = [
     impact: 8,
     pattern: /Math\.random\s*\(\s*\)(?:[^;]*)(?:token|secret|key|session|nonce|salt|csrf|otp|code|password)/i,
     message: 'Math.random() used in a security-sensitive context — it is not cryptographically secure. Use crypto.randomBytes() or crypto.getRandomValues() instead.',
-    skipTest: false,
+    skipTest: true,
     skipDoc: true,
   },
   {
@@ -491,6 +504,8 @@ const CRYPTO_RULES = [
     impact: 10,
     pattern: /(?:NODE_TLS_REJECT_UNAUTHORIZED\s*=\s*['"`]0['"`]|rejectUnauthorized\s*:\s*false)/,
     message: 'TLS certificate validation disabled — MitM attacks are trivial. Remove this flag in production; if needed for testing, guard it with NODE_ENV checks.',
+    // Test mock servers legitimately disable TLS validation; flagging them as CRITICAL is noise.
+    skipTest: true,
     skipDoc: true,
   },
   {
@@ -515,7 +530,11 @@ const CRYPTO_RULES = [
     id: 'INSUFFICIENT_KEY_DERIVATION_ROUNDS',
     severity: 'MEDIUM',
     impact: 6,
-    pattern: /(?:pbkdf2|pbkdf2Sync)\s*\([^)]+,\s*(?:[0-9]{1,4})\s*,/,
+    // Match the 3rd argument of pbkdf2(password, salt, iterations, keyLen, digest).
+    // Without anchoring per-arg, `[^)]+` would greedily span past the iterations
+    // arg and then match the keyLen (e.g. `, 32,`) as "iterations < 10000",
+    // firing a false positive on any secure `pbkdf2Sync(pw, salt, 100000, 32, 'sha512')`.
+    pattern: /(?:pbkdf2|pbkdf2Sync)\s*\(\s*[^,]+,\s*[^,]+,\s*([0-9]{1,4})\s*,/,
     message: 'PBKDF2 called with fewer than 10,000 iterations — insufficient work factor makes offline brute force feasible. NIST recommends >= 600,000 for SHA-256.',
     skipTest: true,
     skipDoc: true,
@@ -1069,6 +1088,8 @@ const INFRA_RULES = [
     id: 'GITHUB_ACTIONS_UNPINNED_ACTION',
     severity: 'MEDIUM',
     impact: 6,
+    // Only match inside actual workflow YAML files, not JSX/MD snippets that render `uses: ...` as literal text.
+    filePathPattern: /(?:^|[\\/])\.github[\\/]workflows[\\/].+\.ya?ml$/i,
     pattern: /uses\s*:\s*[a-zA-Z0-9_-]+\/[a-zA-Z0-9_-]+@(?:main|master|latest|v\d+\s*$)/m,
     message: 'GitHub Actions step uses a mutable ref (main/master/latest or floating major tag) — a compromised upstream action will run in your pipeline. Pin to a full commit SHA.',
     skipTest: false,
@@ -1078,7 +1099,11 @@ const INFRA_RULES = [
     id: 'ENV_FILE_COMMITTED',
     severity: 'CRITICAL',
     impact: 10,
-    pattern: /^\.env(?:\.local|\.production|\.staging|\.development)?$/m,
+    // Must match an actual committed `.env*` file (the filename), not a `.env`
+    // string literal that happens to appear inside source code (e.g. a
+    // `.gitignore` template that embeds the string `.env` in a scaffolder).
+    filePathPattern: /(?:^|[\\/])\.env(?:\.local|\.production|\.staging|\.development)?$/,
+    pattern: /.+/,
     message: '.env file committed to source control — secrets exposed to anyone with repository access. Add .env* to .gitignore and use a secrets manager.',
     skipTest: false,
     skipDoc: false,

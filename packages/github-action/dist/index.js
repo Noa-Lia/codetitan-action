@@ -48,6 +48,12 @@ function toInputEnvName(name) {
     return `INPUT_${String(name || '')
         .trim()
         .replace(/ /g, '_')
+        .toUpperCase()}`;
+}
+function toInputEnvNameLegacy(name) {
+    return `INPUT_${String(name || '')
+        .trim()
+        .replace(/ /g, '_')
         .replace(/-/g, '_')
         .toUpperCase()}`;
 }
@@ -156,7 +162,9 @@ function sanitizeEnv(env) {
 }
 exports.core = {
     getInput(name) {
-        return process.env[toInputEnvName(name)] || '';
+        return (process.env[toInputEnvName(name)] ||
+            process.env[toInputEnvNameLegacy(name)] ||
+            '');
     },
     info(message) {
         process.stdout.write(`${String(message || '')}\n`);
@@ -674,7 +682,6 @@ function classifyFinding(category) {
         normalized === 'JWT_NONE_ALGORITHM' ||
         normalized === 'JWT_WEAK_ALGORITHM' ||
         normalized === 'WEAK_JWT_SECRET' ||
-        normalized === 'HARDCODED_ADMIN_ROLE' ||
         normalized === 'INSECURE_DIRECT_OBJECT_REF' ||
         normalized === 'MASS_ASSIGNMENT' ||
         normalized === 'TRUST_PROXY_WILDCARD' ||

@@ -180,10 +180,11 @@ function hasLowSecretEntropy(val) {
 }
 
 function looksLikeGeneratedCharset(val) {
-  return /^[A-Za-z0-9+/=_-]+$/.test(val)
-    && /ABCDEFGHIJKLMNOPQRSTUVWXYZ/.test(val)
-    && /abcdefghijklmnopqrstuvwxyz/.test(val)
-    && /0123456789/.test(val);
+  if (!/^[A-Za-z0-9+/=_-]+$/.test(val)) return false;
+  const hasUpperAZ = /ABCDEFGHIJKLMNOPQRSTUVWXYZ/.test(val);
+  const hasLowerAZ = /abcdefghijklmnopqrstuvwxyz/.test(val);
+  const hasDigits09 = /0123456789|1234567890/.test(val);
+  return hasUpperAZ && hasLowerAZ && hasDigits09;
 }
 
 function looksLikeRouteOrRegexPattern(val) {
@@ -400,6 +401,21 @@ function isSafeStaticExecProbe(line) {
   if (DANGEROUS_STATIC_COMMAND_REGEX.test(normalizedCommand)) return false;
 
   return true;
+}
+
+// Matches the specific bundler / CJS-ESM interop idioms that use `eval` only
+// to bypass static analysis by tools like webpack/esbuild. These are:
+//   eval('require.main === module')
+//   eval(`require('../package.json')`)
+//   eval("require('path').join(...)")
+// Always a quoted literal argument containing `require(` or `require.main`,
+// with no interpolation. Everything else still fires EVAL_USAGE.
+function isStaticLiteralEval(line) {
+  const m = /\beval\s*\(\s*(['"`])((?:\\.|(?!\1)[\s\S])*)\1\s*\)/.exec(line);
+  if (!m) return false;
+  const [, quote, body] = m;
+  if (quote === '`' && body.includes('${')) return false;
+  return /\brequire\s*(?:\(|\.main\b)/.test(body);
 }
 
 function isFunctionLikeDefinition(line) {
@@ -671,7 +687,18 @@ function detectSecurityIssues(context) {
   const isExampleConfigFile = EXAMPLE_CONFIG_FILE_REGEX.test(normalizedFilePath);
   const isInfraExecFile = INFRA_EXEC_FILE_REGEX.test(normalizedFilePath);
   const isMinifiedFile = MINIFIED_FILE_REGEX.test(normalizedFilePath);
-  const isRuleMetadataLine = (value) => /\b(?:pattern|message|description|scenario|fix|why|badCode|goodCode|code)\s*:/.test(value);
+  // True for lines that look like rule metadata rather than executable code.
+  // Covers three shapes:
+  //   1. Key-value rule entries: `pattern: /.../`, `message: '...'`, `name: 'eval()'`.
+  //   2. Leading-quoted pattern-list entries: `'eval(',` or `"exec("` — common in
+  //      rule-definition arrays that enumerate dangerous tokens as strings.
+  //   3. Documentation / message strings in positional Rule factory args:
+  //      `'Avoid eval() / Function constructor. It is unsafe and breaks CSP.',`
+  //      These are prose descriptions that mention dangerous APIs, not calls.
+  const isRuleMetadataLine = (value) =>
+    /\b(?:pattern|message|description|scenario|fix|why|badCode|goodCode|code|name|title|label|id)\s*:/.test(value)
+    || /^\s*['"`][\w$]*\s*[\(\[{.]/.test(value)
+    || /^\s*['"`][A-Z][^'"`]{10,}['"`]\s*,\s*$/.test(value);
 
   context.lines.forEach((line, index) => {
     const normalized = line.trim();
@@ -703,6 +730,10 @@ function detectSecurityIssues(context) {
         || isInfraExecFile  // engine infra files intentionally call exec
         || isMinifiedFile   // minified/dist files are not user-owned code
       )) return;
+      // eval('literal') and eval(`literal ${nothing} else`) are bundler/CJS-ESM
+      // workarounds, not dynamic eval. Suppress when the argument is a single
+      // quoted literal with no interpolation.
+      if (rule.id === 'EVAL_USAGE' && isStaticLiteralEval(line)) return;
       const column = match.index;
       const matchLength = match[0].length;
 
@@ -774,9 +805,14 @@ function detectSecurityIssues(context) {
       }));
     }
 
-    // XXE: XML parser without disabling external entities
+    // XXE: XML parser without disabling external entities.
+    //
+    // `fast-xml-parser` (the npm package) does NOT implement entity resolution
+    // at all — it cannot be vulnerable to XXE by construction. If the file
+    // imports it, suppress the XMLParser match regardless of nearby flags.
     const xxeMatch = /new\s+(?:DOMParser|XMLParser|xml2js|libxmljs|sax)\s*\(|parseFromString\s*\(/.exec(line);
-    if (xxeMatch && !COMMENT_REGEX.test(normalized) && !isTestFile) {
+    const importsFastXmlParser = /from\s+['"]fast-xml-parser['"]|require\s*\(\s*['"]fast-xml-parser['"]/.test(context.content);
+    if (xxeMatch && !COMMENT_REGEX.test(normalized) && !isTestFile && !importsFastXmlParser) {
       // Only flag if there's no entity disabling nearby
       const ctxBlock = context.lines.slice(Math.max(0, index - 5), index + 5).join('\n');
       if (!/(noent|allowExternalEntities.*false|resolveExternalEntities.*false|FEATURE_EXTERNAL_GENERAL_ENTITIES)/.test(ctxBlock)) {
@@ -790,25 +826,38 @@ function detectSecurityIssues(context) {
       }
     }
 
-    // Check for weak hash (MD5)
+    // Check for weak hash (MD5) — only flag when the file also mentions an
+    // auth/crypto concern. Syntactically md5 is md5; semantically it's a
+    // security issue only in auth/session/signature flows. Non-crypto uses
+    // (cache keys, dedup tokenization, ETag-like fingerprints) are safe and
+    // common — flagging them makes the rule ~80% FP on dogfood.
     const md5Pattern = /crypto\.createHash\s*\(\s*['"]md5['"]\s*\)/;
     const md5Match = md5Pattern.exec(line);
     if (md5Match) {
-      const column = md5Match.index;
-      const matchLength = md5Match[0].length;
+      // Crypto-context discriminators. Word-boundary match across whole file.
+      // Intentionally excludes "token" alone — too overloaded (lex tokens,
+      // payment tokens, GitHub/API tokens, cancellation tokens). Qualified
+      // auth-token names (authToken, sessionToken, bearer) match instead.
+      const CRYPTO_CONTEXT = /\b(password|session|jwt|hmac|signature|apiKey|apiSecret|hashPassword|signPayload|authToken|sessionToken|sessionKey|bearer)\b/i;
+      const inCryptoContext = CRYPTO_CONTEXT.test(context.content);
 
-      issues.push(formatIssue({
-        line: index + 1,
-        column,
-        endLine: index + 1,
-        endColumn: column + matchLength,
-        severity: 'MEDIUM',
-        category: 'WEAK_HASH',
-        message: 'MD5 is considered insecure for cryptographic purposes.',
-        impact: 6,
-        snippet: normalized,
-        context: getContextLines(context.lines, index, 2)
-      }));
+      if (inCryptoContext) {
+        const column = md5Match.index;
+        const matchLength = md5Match[0].length;
+
+        issues.push(formatIssue({
+          line: index + 1,
+          column,
+          endLine: index + 1,
+          endColumn: column + matchLength,
+          severity: 'MEDIUM',
+          category: 'WEAK_HASH',
+          message: 'MD5 used in a file with auth/crypto terms — MD5 is broken for cryptographic purposes. Use SHA-256 or bcrypt/argon2 for passwords.',
+          impact: 6,
+          snippet: normalized,
+          context: getContextLines(context.lines, index, 2)
+        }));
+      }
     }
   });
 
@@ -1003,7 +1052,11 @@ function detectSecurityIssues(context) {
       {
         id: 'AI_CODE_RISK_EMPTY_CATCH',
         severity: 'MEDIUM',
-        pattern: /catch\s*\([^)]*\)\s*\{\s*\}/,
+        // Match empty catch bodies — but exempt the `catch (_)` / `catch (_err)` convention
+        // (ESLint no-unused-vars leading-underscore = intentional-ignore).
+        // Matches: `catch {}`, `catch (err) {}`, `catch (err, ctx) {}`.
+        // Skips:   `catch (_) {}`, `catch (_err) {}`, `catch (_: any) {}`.
+        pattern: /catch\s*(?:\(\s*(?!_)[^)]*\))?\s*\{\s*\}/,
         message: 'Empty catch block swallows errors — a common LLM pattern. Add error handling or logging.',
         impact: 6
       },
@@ -1043,9 +1096,14 @@ function detectSecurityIssues(context) {
         impact: 9
       },
       {
+        // Intentionally does NOT match `rejectUnauthorized: false` — that's
+        // already flagged by CERT_VALIDATION_DISABLED (security-rules-extended)
+        // at the same severity, so firing both creates duplicate noise on the
+        // same line. This rule targets the other common spelling (`verify`)
+        // used by requests-like HTTP clients and some SDK configs.
         id: 'AI_CODE_RISK_SKIP_SSL_VERIFY',
         severity: 'HIGH',
-        pattern: /(?:rejectUnauthorized|verify)\s*[:=]\s*false/,
+        pattern: /\bverify\s*[:=]\s*false\b/,
         message: 'SSL/TLS verification disabled — dangerous in production, often added by AI for "quick testing".',
         impact: 9
       }
@@ -1127,7 +1185,7 @@ function detectSecurityIssues(context) {
   // ── Supply chain / malicious pattern analysis ─────────────────────────────
   // Detects obfuscation, exfiltration channels, Trojan Source, dynamic require
   try {
-    const scIssues = analyzeSupplyChain(context.filePath, context.content);
+    const scIssues = analyzeSupplyChain(context.filePath, context.content, { isTestFile });
     for (const sc of scIssues) {
       issues.push(formatIssue({
         line: sc.line,
@@ -1165,6 +1223,16 @@ function detectSecurityIssues(context) {
       // lineGuard: a regex that, if it matches the current line, suppresses the rule.
       // Use this for inline mitigations (e.g. a SQL escaper wrapping the interpolation).
       if (rule.lineGuard && rule.lineGuard.test(line)) return;
+
+      // SENSITIVE_DATA_CONSOLE_LOG: the rule's pattern matches any keyword
+      // inside a console.log, including informational string-literal text like
+      // `console.log('Checking for hardcoded secrets...')`. Suppress when the
+      // sensitive keyword only appears inside quoted strings — real leaks are
+      // variable refs that survive `stripQuotedStrings`.
+      if (rule.id === 'SENSITIVE_DATA_CONSOLE_LOG') {
+        const codeOnly = stripQuotedStrings(line);
+        if (!/password|passwd|ssn|creditCard|cvv|privateKey|secret|authToken/i.test(codeOnly)) return;
+      }
 
       const match = rule.pattern.exec(line);
       if (!match) return;

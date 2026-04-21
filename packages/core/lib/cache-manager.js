@@ -14,16 +14,44 @@
 
 const crypto = require('crypto');
 const fs = require('fs').promises;
+const fsSync = require('fs');
 const path = require('path');
 
 const DEFAULT_CACHE_VERSION = 'analysis-v8';
+
+// Files whose contents should invalidate all cached findings when they change.
+// If you add a new engine file that defines or filters rules, list it here.
+const RULE_DEFINITION_FILES = [
+  'security-rules-extended.js',
+  'domain-analyzers.js',
+  'taint-analyzer.js'
+];
+
+// Sync hash of the rule-definition files at module load. Any edit to a listed
+// file changes this suffix, which invalidates every on-disk cache entry keyed
+// with a different suffix. Missing files don't crash — the hash just skips them.
+function hashRuleDefinitions() {
+  const h = crypto.createHash('sha256');
+  for (const f of RULE_DEFINITION_FILES) {
+    const p = path.join(__dirname, f);
+    try {
+      h.update(fsSync.readFileSync(p));
+    } catch (_) {
+      // Rule file missing — not fatal; just means it doesn't contribute to the key.
+    }
+  }
+  return h.digest('hex').slice(0, 12);
+}
+
+const RULE_DEFINITIONS_HASH = hashRuleDefinitions();
+const DEFAULT_CACHE_VERSION_WITH_HASH = `${DEFAULT_CACHE_VERSION}-${RULE_DEFINITIONS_HASH}`;
 
 class CacheManager {
   constructor(options = {}) {
     this.cacheDir = options.cacheDir || path.join(process.cwd(), '.codetitan', 'cache');
     this.ttl = options.ttl || 86400000; // 24 hours in ms
     this.enabled = options.enabled !== false;
-    this.version = options.version || DEFAULT_CACHE_VERSION;
+    this.version = options.version || DEFAULT_CACHE_VERSION_WITH_HASH;
 
     // Statistics
     this.stats = {
@@ -330,3 +358,6 @@ class CacheManager {
 }
 
 module.exports = CacheManager;
+module.exports.DEFAULT_CACHE_VERSION = DEFAULT_CACHE_VERSION;
+module.exports.RULE_DEFINITIONS_HASH = RULE_DEFINITIONS_HASH;
+module.exports.DEFAULT_CACHE_VERSION_WITH_HASH = DEFAULT_CACHE_VERSION_WITH_HASH;

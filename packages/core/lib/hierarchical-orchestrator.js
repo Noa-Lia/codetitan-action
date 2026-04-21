@@ -123,26 +123,53 @@ class HierarchicalOrchestrator {
   }
 
   /**
-   * Load .codetitanignore patterns from project root.
-   * Returns an array of glob-style patterns (strings).
+   * Load ignore patterns from project root. Reads .codetitanignore first
+   * (user-authored rule/path suppressions), then .gitignore (so the walker
+   * doesn't scan tree state the user has already told git to ignore).
+   *
+   * `.gitignore` negation lines (`!pattern`) are dropped — the existing
+   * matcher only has exclude semantics, and every dir we want to keep
+   * analyzing (source trees) isn't inside a blanket ignore anyway.
    */
   async loadIgnorePatterns(projectPath) {
-    const ignoreFile = path.join(projectPath, '.codetitanignore');
     const patterns = [];
+
+    // .codetitanignore — user-authored, takes precedence
     try {
-      const content = await fs.readFile(ignoreFile, 'utf8');
+      const content = await fs.readFile(path.join(projectPath, '.codetitanignore'), 'utf8');
       for (const rawLine of content.split(/\r?\n/)) {
         const line = rawLine.trim();
-        // Skip empty lines and comments
         if (!line || line.startsWith('#')) continue;
         // Rule-specific suppressions like "path/to/file.js:RULE_ID" — extract the path part
         const colonIdx = line.indexOf(':');
-        const pattern = colonIdx > -1 ? line.slice(0, colonIdx) : line;
-        patterns.push(pattern);
+        patterns.push(colonIdx > -1 ? line.slice(0, colonIdx) : line);
       }
     } catch (_) {
       // No .codetitanignore — that's fine
     }
+
+    // .gitignore — respect the user's "not source" intent
+    try {
+      const content = await fs.readFile(path.join(projectPath, '.gitignore'), 'utf8');
+      for (const rawLine of content.split(/\r?\n/)) {
+        const line = rawLine.trim();
+        if (!line || line.startsWith('#')) continue;
+        // Skip negation — the matcher has no un-ignore path. Losing negation semantics is
+        // safe here because SKIP_DIRS already covers the dirs where negation typically applies.
+        if (line.startsWith('!')) continue;
+        // Normalize gitignore anchoring markers so the matcher's prefix-regex lands:
+        //   leading "/" — root-anchored marker; our matcher is already root-relative.
+        //   trailing "/" — directory-only marker; the matcher uses "(/.*)?$" to
+        //     cover subpaths, so a trailing "/" would force `publish-check/` to
+        //     require a literal slash that `publish-check` (dir name alone) lacks.
+        let stripped = line.startsWith('/') ? line.slice(1) : line;
+        if (stripped.endsWith('/')) stripped = stripped.slice(0, -1);
+        if (stripped) patterns.push(stripped);
+      }
+    } catch (_) {
+      // No .gitignore — that's fine
+    }
+
     return patterns;
   }
 
@@ -179,6 +206,9 @@ class HierarchicalOrchestrator {
     const files = [];
     const resolvedIgnoreRoot = ignoreRoot || projectPath;
     const ignorePatterns = await this.loadIgnorePatterns(resolvedIgnoreRoot);
+    if (this.verbose && ignorePatterns.length > 0) {
+      console.log(`[FILES] Loaded ${ignorePatterns.length} ignore pattern(s) from .codetitanignore + .gitignore`);
+    }
     const SKIP_DIRS = new Set([
       'node_modules',
       '.git',
