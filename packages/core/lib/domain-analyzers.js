@@ -19,7 +19,7 @@ const BENCH_DIR_REGEX = /[/\\](?:benchmarks?|bench)[/\\]/i;
 // Engine infrastructure files and build scripts that intentionally call exec/spawn as part of their function
 // Also covers: node-compat / polyfill implementation files (e.g. bun's src/js/node/), scripts/ dirs (build tooling),
 // codegen/ dirs, and misctools/ (code generators / release tooling)
-const INFRA_EXEC_FILE_REGEX = /(?:fixers[\\/](?:command-exec-fixer|xss-fixer|fix-verifier)|tool-bridge|test-executor|benchmark-runner|supply-chain-analyzer)\.[jt]s$|(?:^|[/\\])(?:Makefile|Gruntfile|Gulpfile|Jakefile)\.[jt]s$|[/\\](?:src[/\\]js[/\\]node|polyfills?|compat|node-compat|codegen|misctools)[/\\]|[/\\]scripts[/\\][^/\\]+\.[jt]s$/i;
+const INFRA_EXEC_FILE_REGEX = /(?:fixers[\\/](?:command-exec-fixer|xss-fixer|fix-verifier)|tool-bridge|test-executor|benchmark-runner|supply-chain-analyzer)\.[jt]s$|(?:^|[/\\])(?:Makefile|Gruntfile|Gulpfile|Jakefile)\.[jt]s$|[/\\](?:src[/\\]js[/\\]node|polyfills?|compat|node-compat|codegen|misctools)[/\\]|[/\\]scripts[/\\][^/\\]+\.[jt]s$|[/\\][^/\\]+-cli[/\\]src[/\\]/i;
 // Minified/bundled dist files — findings in these are always FPs (they reflect source, not user code)
 const MINIFIED_FILE_REGEX = /(?:\.min\.[jt]s$|[/\\](?:dist|build|out|\.next|client-dist|min)[/\\])/i;
 const COMMENT_REGEX = /^\s*(?:\/\/|#|\/\*|\*|"""|''')/;
@@ -38,6 +38,15 @@ const SECRET_PATTERN_DEFINITION_REGEX = /\b(?:regex|pattern)\s*:\s*\/.+\/[dgimsu
 const SENSITIVE_LOG_IDENTIFIER_REGEX = /\b(?:password|passwd|token|secret|apiKey|api_key|authToken|authorization)\b/i;
 const SENSITIVE_TEMPLATE_INTERPOLATION_REGEX = /\$\{[^}]*\b(?:password|passwd|token|secret|apiKey|api_key|authToken|authorization)\b[^}]*}/i;
 const SENSITIVE_ENV_ACCESS_REGEX = /process\.env\.[A-Z0-9_]*(?:PASSWORD|TOKEN|SECRET|API_KEY|APIKEY|AUTHORIZATION|AUTH_TOKEN|ACCESS_KEY)[A-Z0-9_]*/i;
+
+// Matches log-adjacent outer calls that wrap a redaction helper whose last
+// argument is a redaction-flag string literal. The helper redacts before the
+// log call ever sees the secret value:
+//   console.log(wrapParam('password', options.password, true, 'secret'))
+//     → prints '***** [password]' — no secret in output
+// The outer-call anchor (console.* / logger.* / bare log() etc.) is mandatory
+// so we don't suppress unrelated calls like `Schema.field({ type: 'secret' })`.
+const REDACTED_LOG_CALL_REGEX = /\b(?:console\.(?:log|info|debug|warn|error)|logger(?:\.(?:log|info|debug|warn|error|trace))?|log|info|debug|warn)\s*\(\s*[A-Za-z_$][\w$]*\s*\([^)]*,\s*['"`](?:secret|redacted|mask(?:ed)?|hidden|private|censored|sensitive|obfuscated)['"`]\s*\)/;
 
 // ── Named secret patterns (high precision) ─────────────────────────────────
 const SECRET_PATTERNS = [
@@ -129,7 +138,17 @@ const SECRET_PATTERNS = [
   { id: 'SPOTIFY_CLIENT_SECRET',   severity: 'HIGH',     impact: 8,  pattern: /(?:spotify)[_-]?client[_-]?secret\s*[:=]\s*['"`][A-Za-z0-9]{32}['"`]/i,                                                         message: 'Spotify client secret detected.' }, // gitleaks-derived
 ];
 
-const PLACEHOLDER_REGEX = /YOUR_|your[-_\w]*here|xxxx|xxx|<[A-Z_]+>|_PLACEHOLDER_|sk-test|pk_test|example|dummy|fake|mock|replace|change[_-]?me|todo|test-key|ct_key_|super-secret-token/i;
+const PLACEHOLDER_REGEX = /YOUR_|your[-_\w]*here|xxxx|xxx|<[A-Z_]+>|_PLACEHOLDER_|sk-test|pk_test|example|dummy|fake|mock|replace|change[_-]?me|todo|test-key|ct_key_|super-secret-token|TEST_KEY|randomString/i;
+
+// Marker-string secrets: constants whose VALUE is the same shape as an
+// enum/marker/error code — e.g. `const INVALID_API_KEY = "INVALID_API_KEY"`,
+// `refresh_token: "refresh_token"`, `access_token: "ACCESS_TOKEN"`. These
+// are labels, not credentials. Two shapes cover the common cases:
+//   - All-caps snake: `^[A-Z][A-Z0-9_]+$` (2+ chars after first letter)
+//   - Lowercase snake with no digits: `^[a-z][a-z_]+$` (length < 30)
+// Length bound keeps this from matching long real secrets that happen to be
+// all-caps or all-lowercase.
+const MARKER_STRING_REGEX = /^(?:[A-Z][A-Z0-9_]{2,39}|[a-z][a-z_]{2,29})$/;
 
 /**
  * Calculate Shannon entropy for a string (bits per character).
@@ -201,6 +220,9 @@ function stripQuotedStrings(line) {
 
 function isSensitiveConsoleLog(line) {
   if (!/console\.(?:log|info|debug)\s*\(/.test(line)) return false;
+  // Early-out: if the call wraps a redaction helper with a redaction flag
+  // literal, the secret is masked before reaching the log output.
+  if (REDACTED_LOG_CALL_REGEX.test(line)) return false;
   if (SENSITIVE_TEMPLATE_INTERPOLATION_REGEX.test(line)) return true;
 
   const codeWithoutStrings = stripQuotedStrings(line);
@@ -810,9 +832,21 @@ function detectSecurityIssues(context) {
     // `fast-xml-parser` (the npm package) does NOT implement entity resolution
     // at all — it cannot be vulnerable to XXE by construction. If the file
     // imports it, suppress the XMLParser match regardless of nearby flags.
+    //
+    // Browser DOMParser with `text/html` MIME type does not perform entity
+    // resolution either — that's XML-only behavior. HTML parsing of untrusted
+    // input is its own risk (XSS via innerHTML sinks), but not XXE. Suppress
+    // when the parseFromString call passes a literal "text/html" as 2nd arg.
     const xxeMatch = /new\s+(?:DOMParser|XMLParser|xml2js|libxmljs|sax)\s*\(|parseFromString\s*\(/.exec(line);
     const importsFastXmlParser = /from\s+['"]fast-xml-parser['"]|require\s*\(\s*['"]fast-xml-parser['"]/.test(context.content);
-    if (xxeMatch && !COMMENT_REGEX.test(normalized) && !isTestFile && !importsFastXmlParser) {
+    // Look ahead a small window — typical pattern splits `new DOMParser()` and
+    // `parser.parseFromString(input, "text/html")` across 1-3 lines. Allow the
+    // 2nd arg to sit after arbitrary text (not just `[^)]*`) so nested calls
+    // like `parser.parseFromString(node.getText(), "text/html")` don't trip
+    // the closing paren before we reach the MIME-type argument.
+    const xxeWindow = context.lines.slice(index, Math.min(context.lines.length, index + 4)).join('\n');
+    const isHtmlParse = /parseFromString\s*\([\s\S]{0,200}?['"`]text\/html['"`]/.test(xxeWindow);
+    if (xxeMatch && !isHtmlParse && !COMMENT_REGEX.test(normalized) && !isTestFile && !importsFastXmlParser) {
       // Only flag if there's no entity disabling nearby
       const ctxBlock = context.lines.slice(Math.max(0, index - 5), index + 5).join('\n');
       if (!/(noent|allowExternalEntities.*false|resolveExternalEntities.*false|FEATURE_EXTERNAL_GENERAL_ENTITIES)/.test(ctxBlock)) {
@@ -840,8 +874,14 @@ function detectSecurityIssues(context) {
       // auth-token names (authToken, sessionToken, bearer) match instead.
       const CRYPTO_CONTEXT = /\b(password|session|jwt|hmac|signature|apiKey|apiSecret|hashPassword|signPayload|authToken|sessionToken|sessionKey|bearer)\b/i;
       const inCryptoContext = CRYPTO_CONTEXT.test(context.content);
+      // Known non-crypto uses of md5 on a line-by-line basis:
+      //   - Gravatar / email-hash canonicalization (md5 of lowercased email)
+      //   - Cache keys / ETags / fingerprints on content
+      // These are deterministic identifiers, not credentials.
+      const isEmailMd5 = /\bmd5[^)]*\)\s*\.update\s*\([^)]*\b(?:email|emailAddress|gravatar|md5Email|emailMd5)\b/i.test(line);
+      const isFingerprintMd5 = /\b(?:fingerprint|cacheKey|etag|contentHash|checksum|dedupe(?:Key|Hash)?)\b/i.test(line);
 
-      if (inCryptoContext) {
+      if (inCryptoContext && !isEmailMd5 && !isFingerprintMd5) {
         const column = md5Match.index;
         const matchLength = md5Match[0].length;
 
@@ -880,12 +920,27 @@ function detectSecurityIssues(context) {
         if (isMinifiedFile) continue; // dist/bundled files contain vendored code — never surface secrets from them
         if (isBenchDir) continue; // bench dirs contain bundled fixtures — always FPs for secrets
         if (isTestFile && rule.severity !== 'CRITICAL') continue; // test files only surface CRITICAL secrets
+        // NOTE: we intentionally do NOT broadly suppress PRIVATE_KEY_PEM in
+        // test files. Real keys in test fixtures are a real leak class. The
+        // Cal.com `redactSensitiveData.test.ts` PEM case is the correct-TP
+        // behavior: if a PEM body is committed, someone should confirm it's
+        // test material or revoke it. Fixture-only headers (no body) and
+        // values containing TEST_KEY/DUMMY/etc are already caught by
+        // PLACEHOLDER_REGEX. See __tests__/fp-regression/test-files.test.js.
         if (isExampleConfigFile && !['HIGH', 'CRITICAL'].includes(rule.severity)) continue;
         const match = rule.pattern.exec(line);
         if (!match) continue;
+        // OpenAPI / JSON-schema / TypeScript-decorator example fields:
+        // `example: "<token-shape string>"` and `default: "<token-shape>"` are
+        // schema documentation metadata, not real credentials. Same for
+        // @ApiProperty({ example: "..." }) decorator arguments. Suppress here
+        // before checking the assigned value.
+        if (/(?:^|[\s{,(])(?:example|default|defaultValue|sample|mock)\s*:\s*['"`]/.test(line)
+            && /\bApiProperty|swagger|openapi|@ApiProperty|@Schema/i.test(context.content)) continue;
         const assignedSecretValue = extractAssignedStringLiteral(line);
         if (assignedSecretValue) {
           if (PLACEHOLDER_REGEX.test(assignedSecretValue)) continue;
+          if (MARKER_STRING_REGEX.test(assignedSecretValue)) continue;
           if (hasLowSecretEntropy(assignedSecretValue)) continue;
         }
 
@@ -895,6 +950,7 @@ function detectSecurityIssues(context) {
           if (rhsMatch) {
             const val = rhsMatch[1];
             if (PLACEHOLDER_REGEX.test(val)) continue;
+            if (MARKER_STRING_REGEX.test(val)) continue;
             if ((val.match(/ /g) || []).length > 2) continue;
             if (/^[A-Za-z][A-Za-z .'":,!?-]+$/.test(val)) continue;
           }
@@ -1070,7 +1126,13 @@ function detectSecurityIssues(context) {
       {
         id: 'AI_CODE_RISK_DEFAULT_CREDENTIALS',
         severity: 'CRITICAL',
-        pattern: /(?:password|passwd|pwd|secret)\s*[:=]\s*['"`](?:admin|password|123456|test|root|letmein|welcome|changeme|default)['"`]/i,
+        // Only fire on password-shape keys (not `secret:` which is heavily
+        // reused in test fixtures and config validation — e.g. playwright
+        // `fillOtp({ page, secret: "123456" })`). A literal value of "admin"
+        // or "123456" assigned to `password:` / `pwd:` / `passwd:` in
+        // non-test code is a real risk; on `secret:` it's usually test OTP
+        // or OAuth client-secret placeholder.
+        pattern: /(?:password|passwd|pwd)\s*[:=]\s*['"`](?:admin|password|123456|test|root|letmein|welcome|changeme|default)['"`]/i,
         message: 'Default or example credential detected — frequently inserted by AI code generators.',
         impact: 10
       },
@@ -1130,6 +1192,18 @@ function detectSecurityIssues(context) {
         const match = rule.pattern.exec(line);
         if (!match) continue;
         if (rule.id === 'AI_CODE_RISK_CONSOLE_SENSITIVE' && !isSensitiveConsoleLog(line)) continue;
+        // PERMISSIVE_CORS: suppress when the finding sits inside the CORS
+        // library's own default-options object literal (the library surface,
+        // not a user deployment). File-path heuristic is strong: filename ends
+        // in `cors/index.{js,ts}` and the surrounding lines contain
+        // `const defaults` / `DEFAULT_OPTIONS` / `defaultConfig` near the match.
+        if (rule.id === 'AI_CODE_RISK_PERMISSIVE_CORS') {
+          const isCorsLibraryFile = /(?:^|[\\/])(?:middleware[\\/])?cors[\\/]index\.[jt]sx?$/.test(normalizedFilePath);
+          if (isCorsLibraryFile) {
+            const ctxBlock = context.lines.slice(Math.max(0, index - 5), index + 2).join('\n');
+            if (/\b(?:const|let|var)\s+default(?:s|Options|Config)?\b/i.test(ctxBlock)) continue;
+          }
+        }
         const col = match.index;
         issues.push(formatIssue({
           line: index + 1, column: col, endLine: index + 1, endColumn: col + match[0].length,
@@ -1216,6 +1290,12 @@ function detectSecurityIssues(context) {
       if (rule.filePathPattern && !rule.filePathPattern.test(context.filePath)) return;
       if (isRuleMetadataLine(normalized)) return;
 
+      // fileRequires: a regex that MUST match the whole file for the rule to
+      // be eligible. Use for rules whose pattern is ambiguous without context
+      // (e.g. `credentials: true` is CORS-risky ONLY when a CORS signal is
+      // present in the file — otherwise it's a Prisma include or fetch option).
+      if (rule.fileRequires && !rule.fileRequires.test(context.content)) return;
+
       // fileGuard: a regex that, if it matches the whole file, suppresses the rule.
       // Use this to avoid false positives when a mitigation exists elsewhere in the file.
       if (rule.fileGuard && rule.fileGuard.test(context.content)) return;
@@ -1229,7 +1309,33 @@ function detectSecurityIssues(context) {
       // `console.log('Checking for hardcoded secrets...')`. Suppress when the
       // sensitive keyword only appears inside quoted strings — real leaks are
       // variable refs that survive `stripQuotedStrings`.
+      if (rule.id === 'BEARER_TOKEN_LOGGED') {
+        // Require the credential keyword to appear OUTSIDE any quoted strings
+        // — that is, as a variable reference or property access, not as
+        // message text. The pre-fix rule fired on lines like
+        //   log.debug("Attempting to authorize using JWT auth")
+        // where "JWT" is purely a description of what the code is about to do,
+        // no token being logged.
+        const codeOnly = stripQuotedStrings(line);
+        if (!/\bauthorization\b|\bbearer\b|\bjwt\b|\b(?:access|id|refresh|session|api|bearer|auth)Token\b/i.test(codeOnly)) return;
+        // Also exempt boolean-coercion patterns: `!!accessToken`, `Boolean(accessToken)`,
+        // `hasToken: !!accessToken`. These log truthiness, not the token value.
+        // Detect by checking each token ref is adjacent to `!!` or inside `Boolean(`.
+        const tokenMatches = codeOnly.match(/\b(?:access|id|refresh|session|api|bearer|auth)Token\b/gi) || [];
+        if (tokenMatches.length > 0) {
+          const everyTokenCoerced = tokenMatches.every(tok => {
+            const idx = codeOnly.indexOf(tok);
+            const prefix = codeOnly.slice(Math.max(0, idx - 16), idx);
+            return /!!\s*$|Boolean\s*\(\s*$/.test(prefix);
+          });
+          if (everyTokenCoerced) return;
+        }
+      }
       if (rule.id === 'SENSITIVE_DATA_CONSOLE_LOG') {
+        // Same redaction-helper exemption as AI_CODE_RISK_CONSOLE_SENSITIVE
+        // (see REDACTED_LOG_CALL_REGEX). If the call wraps a redactor with a
+        // redaction-flag literal, the secret is masked before output.
+        if (REDACTED_LOG_CALL_REGEX.test(line)) return;
         const codeOnly = stripQuotedStrings(line);
         if (!/password|passwd|ssn|creditCard|cvv|privateKey|secret|authToken/i.test(codeOnly)) return;
       }

@@ -41,7 +41,7 @@ const INJECTION_RULES = [
     id: 'NOSQL_INJECTION_WHERE',
     severity: 'CRITICAL',
     impact: 10,
-    pattern: /\$where\s*:\s*(?:req\.|request\.|params\.|query\.|body\.|input|`[^`]*\$\{)/,
+    pattern: /\$where\s*:\s*(?:req\.|request\.|params\.|query\.|body\.|`[^`]*\$\{)/,
     message: 'MongoDB $where operator with user input executes arbitrary JavaScript on the server — remove $where or use a query whitelist.',
     skipTest: true,
     skipDoc: true,
@@ -59,7 +59,7 @@ const INJECTION_RULES = [
     id: 'TEMPLATE_INJECTION_LODASH',
     severity: 'HIGH',
     impact: 9,
-    pattern: /(?:_\.template|lodash\.template)\s*\([^)]*(?:req\.|request\.|params\.|query\.|body\.|input|\+\s*(?:req|request|params|query|body|input))/,
+    pattern: /(?:_\.template|lodash\.template)\s*\([^)]*(?:req\.|request\.|params\.|query\.|body\.|\+\s*(?:req|request|params|query|body))/,
     message: 'Lodash _.template() with user input enables server-side template injection (SSTI) — avoid compiling untrusted template strings.',
     skipTest: true,
     skipDoc: true,
@@ -68,7 +68,7 @@ const INJECTION_RULES = [
     id: 'TEMPLATE_INJECTION_HANDLEBARS',
     severity: 'HIGH',
     impact: 9,
-    pattern: /(?:handlebars|Handlebars)\.compile\s*\([^)]*(?:req\.|request\.|params\.|query\.|body\.|input|\+)/,
+    pattern: /(?:handlebars|Handlebars)\.compile\s*\([^)]*(?:req\.|request\.|params\.|query\.|body\.|\+)/,
     message: 'Handlebars.compile() called with dynamic user input — template injection can lead to RCE. Use pre-compiled, trusted templates only.',
     skipTest: true,
     skipDoc: true,
@@ -86,7 +86,7 @@ const INJECTION_RULES = [
     id: 'EMAIL_INJECTION',
     severity: 'HIGH',
     impact: 8,
-    pattern: /(?:^|[{,]\s*)(?:to|cc|bcc)\s*:\s*(?:req\.|request\.|params\.|query\.|body\.|input|`[^`]*\$\{)/,
+    pattern: /(?:^|[{,]\s*)(?:to|cc|bcc)\s*:\s*(?:req\.|request\.|params\.|query\.|body\.|`[^`]*\$\{)/,
     message: 'Nodemailer to/cc/bcc field populated from user input — email header injection allows spam relay. Strip newlines and validate email addresses.',
     skipTest: true,
     skipDoc: true,
@@ -131,7 +131,7 @@ const INJECTION_RULES = [
     id: 'HTML_INJECTION_INNERHTML',
     severity: 'HIGH',
     impact: 8,
-    pattern: /\.innerHTML\s*(?:\+?=)\s*(?:req\.|request\.|params\.|query\.|body\.|input|`[^`]*\$\{)/,
+    pattern: /\.innerHTML\s*(?:\+?=)\s*(?:req\.|request\.|params\.|query\.|body\.|`[^`]*\$\{)/,
     message: 'innerHTML assigned from user-controlled data — DOM-based XSS. Use textContent, or sanitize with DOMPurify before setting innerHTML.',
     skipTest: true,
     skipDoc: true,
@@ -172,7 +172,7 @@ const INJECTION_RULES = [
     id: 'OPEN_REDIRECT',
     severity: 'HIGH',
     impact: 7,
-    pattern: /res\.redirect\s*\([^)]*(?:req\.|request\.|params\.|query\.|body\.|input)/,
+    pattern: /res\.redirect\s*\([^)]*(?:req\.|request\.|params\.|query\.|body\.)/,
     message: 'Redirect destination derived from user input — open redirect enables phishing. Validate against an allowlist of permitted URLs or paths.',
     skipTest: true,
     skipDoc: true,
@@ -191,9 +191,14 @@ const INJECTION_RULES = [
     severity: 'CRITICAL',
     impact: 10,
     pattern: /(?:query|execute|db\.run|db\.get|db\.all)\s*\(\s*(?:`[^`]*\$\{|["'][^"']*["']\s*\+)/,
-    // Suppress when every interpolation is wrapped in a known SQL identifier escaper.
-    // These helpers produce escaped, backtick/double-quote-wrapped identifiers that cannot break out.
-    lineGuard: /\$\{\s*(?:quoteIdentifier|escapeIdentifier|escapeId|quoteId|pgIdent|mysqlIdent|knex\.raw|sql\.identifier)\s*\(/,
+    // Suppress when EITHER (a) every interpolation passes through a known SQL
+    // identifier escaper (output is guaranteed safe), OR (b) the query leads
+    // with a non-parameterizable SQL verb — DDL / transaction-control
+    // statements that accept identifiers, not values. On those, the wire
+    // protocol physically prohibits bind parameters, so template-literal
+    // construction is the only way to build the statement. Firing
+    // SQL_INJECTION on that shape is a category error on our side.
+    lineGuard: /\$\{\s*(?:quoteIdentifier|escapeIdentifier|escapeId|quoteId|pgIdent|mysqlIdent|knex\.raw|sql\.identifier|(?:this\.)?sanitize(?:Sql|Soql|Value|Identifier|Input|Param)[A-Za-z]*)\s*\(|(?:query|execute|db\.run|db\.get|db\.all)\s*\(\s*['"`]\s*(?:savepoint|release\s+savepoint|rollback\s+to\s+savepoint|set\s+(?:transaction|session)|begin|commit|rollback|drop\s+(?:database|table|schema|index)|create\s+(?:database|table|schema|index)|alter\s+table|use\s+\w|grant|revoke)\b/i,
     message: 'SQL query built with template literal or string concatenation — SQL injection. Use prepared statements or parameterized queries.',
     skipTest: true,
     skipDoc: true,
@@ -219,11 +224,17 @@ const INJECTION_RULES = [
     id: 'SERVER_SIDE_REDIRECT_INJECTION',
     severity: 'HIGH',
     impact: 8,
-    // Only match the capitalized HTTP header form ('Location') to avoid firing
-    // on unrelated object property keys like `location: input.location` in
-    // business domain objects. Also drop the bare `|input` alternate which
-    // matched any arg named `input` regardless of whether it was a request source.
-    pattern: /(?:['"`]?Location['"`]?)\s*[:,]\s*(?:req\.|request\.|params\.|query\.|body\.|`[^`]*\$\{)/,
+    // Only match the capitalized HTTP header form ('Location') with word
+    // boundaries to avoid firing on unrelated domain property keys like
+    // `platformBookingLocation: req.platformBookingLocation` (object-property
+    // assignment in a request-body shape). Also drop the bare `|input`
+    // alternate which matched any arg named `input` regardless of whether it
+    // was a request source. Additionally require the surrounding file context
+    // to show HTTP-response-adjacent signals (setHeader('Location', ...),
+    // res.redirect, response.writeHead, or common CORS/Access-Control imports).
+    pattern: /(?:^|[{,\s(])(?:['"`]Location['"`]|\bLocation\b)\s*[:,]\s*(?:req\.|request\.|params\.|query\.|body\.|`[^`]*\$\{)/,
+    // File-level requirement: must have HTTP-response-header context.
+    fileRequires: /res\.(?:setHeader|writeHead|redirect)\s*\(|response\.(?:setHeader|writeHead)\s*\(|'location'|Access-Control-Allow-|httpRedirect|sendRedirect/i,
     message: 'Location header built from user input — HTTP response splitting or open redirect. Sanitize and validate redirect targets.',
     skipTest: true,
     skipDoc: true,
@@ -259,7 +270,7 @@ const INJECTION_RULES = [
     id: 'SCRIPT_INJECTION_SRC',
     severity: 'CRITICAL',
     impact: 10,
-    pattern: /(?:script\.src|scriptTag\.src|\.setAttribute\s*\(\s*['"]src['"]\s*,)\s*(?:req\.|request\.|params\.|query\.|body\.|input|`[^`]*\$\{)/,
+    pattern: /(?:script\.src|scriptTag\.src|\.setAttribute\s*\(\s*['"]src['"]\s*,)\s*(?:req\.|request\.|params\.|query\.|body\.|`[^`]*\$\{)/,
     message: 'Script src attribute set from user input — remote code execution via script injection. Never assign user-controlled URLs to script src.',
     skipTest: true,
     skipDoc: true,
@@ -298,7 +309,14 @@ const AUTH_RULES = [
     id: 'PASSWORD_IN_URL',
     severity: 'HIGH',
     impact: 8,
-    pattern: /(?:url|endpoint|href|src)\s*(?:\+?=|:)\s*[^;]*(?:password|passwd|pwd|secret|token)\s*=/i,
+    // Only fire on password-shape / secret-shape query parameters. Magic-link
+    // tokens, OAuth auth codes, booking-confirmation JWTs, and session
+    // tokens all legitimately travel via URL; they are the *standard*
+    // mechanism for stateless auth callbacks, not a leak. `token=` is removed
+    // from the alternation because it produces FPs on every OAuth / magic-link
+    // / booking flow. `password=` / `secret=` remain flagged because putting
+    // a real credential in a URL is still a genuine leak.
+    pattern: /(?:url|endpoint|href|src)\s*(?:\+?=|:)\s*[^;]*(?:password|passwd|pwd|secret)\s*=/i,
     message: 'Password or secret passed as URL query parameter — credentials appear in server logs, browser history, and referrer headers. Use POST body or Authorization header instead.',
     skipTest: true,
     skipDoc: true,
@@ -394,8 +412,13 @@ const AUTH_RULES = [
     // Require a credential-shaped identifier near the log call — either an authorization/bearer/jwt keyword,
     // OR a variable name that looks like an auth token (accessToken, idToken, refreshToken, sessionToken, apiToken, bearerToken, authToken).
     pattern: /(?:console|logger|log)\s*\.(?:log|info|debug|warn|error)\s*\([^)]*(?:\bauthorization\b|\bbearer\b|\bjwt\b|\b(?:access|id|refresh|session|api|bearer|auth)Token\b)[^)]*\)/i,
-    // Suppress for LLM token-count telemetry (input/output/prompt/completion/total tokens) and bare sentences about generating/revoking tokens.
-    lineGuard: /\b(?:input|output|prompt|completion|total|remaining|used|consumed|estimated)[_\s-]?Tokens?\b|\b(?:generate|revoke|rotate|create)\s+a?\s*(?:new\s+)?(?:CLI|API|access)?\s*token\b|tokenCount\b/i,
+    // Suppress for:
+    //  - LLM token-count telemetry (input/output/prompt/completion/total tokens)
+    //  - Bare sentences about generating/revoking tokens
+    //  - Log calls wrapping a redaction helper with a redaction-flag literal
+    //    argument: e.g. `console.log(wrapParam('authToken', val, true, 'secret'))`
+    //    where the helper replaces the value with '*****' before logging.
+    lineGuard: /\b(?:input|output|prompt|completion|total|remaining|used|consumed|estimated)[_\s-]?Tokens?\b|\b(?:generate|revoke|rotate|create)\s+a?\s*(?:new\s+)?(?:CLI|API|access)?\s*token\b|tokenCount\b|\b(?:console\.(?:log|info|debug|warn|error)|logger(?:\.(?:log|info|debug|warn|error|trace))?|log|info|debug|warn)\s*\(\s*[A-Za-z_$][\w$]*\s*\([^)]*,\s*['"`](?:secret|redacted|mask(?:ed)?|hidden|private|censored|sensitive|obfuscated)['"`]\s*\)/i,
     message: 'Authorization token or Bearer credential logged — tokens in log aggregators can be stolen. Redact credentials before logging.',
     skipTest: true,
     skipDoc: true,
@@ -622,6 +645,11 @@ const MISCONFIG_RULES = [
     severity: 'MEDIUM',
     impact: 6,
     pattern: /(?:debug|debugMode|DEBUG)\s*:\s*true/,
+    // Suppress in demo/playground/example directories and in code-generator
+    // output (codegen*.ts). These files exist to exercise the library surface
+    // with debug enabled — they are not production config. Firing 30+
+    // findings on a single `playground/` dir is classic FP noise.
+    filePathPattern: /^(?!.*(?:[\\/](?:playground|playgrounds|demos?|examples?|fixtures?|sandbox)[\\/]|[\\/]codegen[^\\/]*\.[jt]sx?$))/i,
     message: 'Debug mode enabled in code — may expose stack traces, verbose errors, or internal state in production. Gate behind NODE_ENV === "development" check.',
     skipTest: true,
     skipDoc: true,
@@ -648,7 +676,18 @@ const MISCONFIG_RULES = [
     id: 'PERMISSIVE_CORS_WITH_CREDENTIALS',
     severity: 'CRITICAL',
     impact: 10,
+    // Require a positive CORS-context signal. `credentials: true` on its own
+    // is ambiguous — it also appears in Prisma `include: { credentials: true }`
+    // (relation include), Apollo fetch options, axios configs, etc. Without a
+    // CORS signal we fire on unrelated code and the rule becomes a 100% FP
+    // machine on typical ORM-using apps (every `include: { credentials: true }`
+    // on an auth-joined model trips it).
     pattern: /(?:credentials\s*:\s*true|withCredentials\s*:\s*true)/,
+    // fileRequires: file MUST contain at least one CORS-context signal
+    // (cors import, Access-Control header, cors middleware name) for the rule
+    // to even be eligible.
+    fileRequires: /\bcors\b|from\s+['"](?:cors|@koa\/cors|@fastify\/cors|hono\/cors)['"]|require\s*\(\s*['"](?:cors|@koa\/cors|@fastify\/cors|hono\/cors)['"]\s*\)|Access-Control-Allow-[A-Za-z-]+|res\.setHeader\s*\(\s*['"]access-control-/i,
+    // Then suppress when a dynamic origin allowlist IS configured in the same file.
     fileGuard: /origin\s*:\s*(?:req\.|function|allowedOrigins|\[[^\]]+\])|allowedOrigins|allowList|whitelist/i,
     message: "CORS credentials: true without a dynamic origin whitelist effectively allows any origin to make authenticated cross-origin requests — CSRF amplification. Set origin to a specific allowlist, never '*'.",
     skipTest: true,
@@ -763,15 +802,10 @@ const MISCONFIG_RULES = [
     skipTest: true,
     skipDoc: true,
   },
-  {
-    id: 'UNVALIDATED_REDIRECT',
-    severity: 'HIGH',
-    impact: 7,
-    pattern: /res\.redirect\s*\([^)]*(?:req\.|request\.|params\.|query\.|body\.)[^)]*\)/,
-    message: 'Redirect target derived from request input without validation — open redirect for phishing. Validate against an allowlist of permitted destinations.',
-    skipTest: true,
-    skipDoc: true,
-  },
+  // UNVALIDATED_REDIRECT removed 2026-04-22 — pattern was effectively
+  // identical to OPEN_REDIRECT (both: `res.redirect(... req.* ...)`) and the
+  // pair produced dedup noise on every real open-redirect finding. Kept
+  // OPEN_REDIRECT as the canonical rule.
 ];
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -829,7 +863,7 @@ const CLIENT_RULES = [
     id: 'CSS_INJECTION',
     severity: 'MEDIUM',
     impact: 6,
-    pattern: /\.style\.(?:cssText|background|backgroundImage|content)\s*=\s*(?:req\.|request\.|params\.|query\.|body\.|input|`[^`]*\$\{)/,
+    pattern: /\.style\.(?:cssText|background|backgroundImage|content)\s*=\s*(?:req\.|request\.|params\.|query\.|body\.|`[^`]*\$\{)/,
     message: 'CSS property set from user input — CSS injection can exfiltrate data via attribute selectors or load attacker-controlled resources. Sanitize or use a whitelist for allowed values.',
     skipTest: true,
     skipDoc: true,
@@ -847,7 +881,13 @@ const CLIENT_RULES = [
     id: 'WINDOW_OPEN_NOOPENER',
     severity: 'MEDIUM',
     impact: 5,
-    pattern: /window\.open\s*\([^)]+\)(?![\s\S]{0,100}noopener)/,
+    pattern: /window\.open\s*\(/,
+    // Suppress when `noopener` appears anywhere on the line — covers the
+    // standard `window.open(url, '_blank', 'noopener,noreferrer')` pattern.
+    // The original pattern had a negative-lookahead on `[^)]+\)` that only
+    // looked AFTER the closing paren, missing the inside-args noopener case
+    // (which is the one everyone actually writes).
+    lineGuard: /\bnoopener\b/,
     message: "window.open() without 'noopener' in the features string — the opened window can access window.opener and redirect the parent (reverse tabnapping). Add 'noopener,noreferrer'.",
     skipTest: true,
     skipDoc: true,
@@ -856,7 +896,7 @@ const CLIENT_RULES = [
     id: 'SRCDOC_XSS',
     severity: 'HIGH',
     impact: 8,
-    pattern: /(?:iframe\.srcdoc|\.setAttribute\s*\(\s*['"]srcdoc['"])\s*(?:=|\+?=)\s*(?:req\.|request\.|params\.|query\.|body\.|input|`[^`]*\$\{)/,
+    pattern: /(?:iframe\.srcdoc|\.setAttribute\s*\(\s*['"]srcdoc['"])\s*(?:=|\+?=)\s*(?:req\.|request\.|params\.|query\.|body\.|`[^`]*\$\{)/,
     message: 'iframe srcdoc set from user input — direct script injection in the embedded document. Sanitize HTML before embedding or use a sandboxed iframe without allow-scripts.',
     skipTest: true,
     skipDoc: true,
@@ -893,6 +933,13 @@ const CLIENT_RULES = [
     severity: 'HIGH',
     impact: 8,
     pattern: /dangerouslySetInnerHTML\s*=\s*\{\s*\{[^}]*__html\s*:/,
+    // Suppress when the __html value comes from a clearly-named sanitizer —
+    // either a function call (markdownToSafeHTML, DOMPurify.sanitize, escape,
+    // clean*, purify*) or an identifier containing those tokens
+    // (props.safeBio, sanitizedContent, cleanHtml). Naming-convention
+    // suppression is fuzzy but correct in practice — reviewers already rely
+    // on these naming cues to approve the pattern in code review.
+    lineGuard: /__html\s*:\s*(?:[A-Za-z_$][\w$]*\s*)?(?:[A-Za-z_$][\w$]*\.)*(?:safe|sanitiz|purif|escape|clean)[A-Za-z_$][\w$]*(?:\s*\(|[\s,)}])/i,
     message: 'React dangerouslySetInnerHTML in use — ensure the value is sanitized with DOMPurify before rendering. Any unsanitized HTML causes XSS.',
     skipTest: true,
     skipDoc: true,
@@ -919,7 +966,7 @@ const CLIENT_RULES = [
     id: 'DOM_CLOBBERING',
     severity: 'MEDIUM',
     impact: 6,
-    pattern: /(?:document|window)\s*\[\s*(?:req\.|request\.|params\.|query\.|body\.|input|userInput)/,
+    pattern: /(?:document|window)\s*\[\s*(?:req\.|request\.|params\.|query\.|body\.|userInput)/,
     message: 'User-controlled key used to access document/window property — DOM clobbering allows overwriting built-in browser APIs. Validate and sanitize property names.',
     skipTest: true,
     skipDoc: true,
@@ -955,7 +1002,7 @@ const CLIENT_RULES = [
     id: 'WEBWORKER_IMPORTSCRIPTS_DYNAMIC',
     severity: 'HIGH',
     impact: 8,
-    pattern: /importScripts\s*\([^)]*(?:req\.|request\.|params\.|query\.|body\.|input|`[^`]*\$\{)/,
+    pattern: /importScripts\s*\([^)]*(?:req\.|request\.|params\.|query\.|body\.|`[^`]*\$\{)/,
     message: 'importScripts() called with a user-controlled URL in a Web Worker — arbitrary script execution. Use only hardcoded, trusted script URLs.',
     skipTest: true,
     skipDoc: true,
