@@ -192,4 +192,8 @@ Cache the packed runtime to shave ~10s off repeated runs:
 
 ## License
 
-MIT
+Functional Source License 1.1 with Apache 2.0 Future License (FSL-1.1-Apache-2.0).
+Internal use, non-commercial research/education, and CI usage in your own
+pipelines are permitted. Offering a competing scanning service is not.
+Converts to Apache 2.0 on the second anniversary of release.
+See [LICENSE](LICENSE) for full terms.
