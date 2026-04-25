@@ -92,11 +92,17 @@ const INJECTION_RULES = [
     skipDoc: true,
   },
   {
+    // JS/TS loggers (pino, winston, bunyan, console) do not parse ${...} as
+    // JNDI — that was a Log4j 2.x behavior specific to the JVM. This rule
+    // flags a real but minor log-integrity risk (a user-controlled log
+    // message can still forge multi-line entries or confuse downstream
+    // parsers like Splunk). Keep it MEDIUM to match the Java log-injection
+    // rule and keep it out of CRITICAL/HIGH-gated outputs.
     id: 'LOG4J_STYLE_INJECTION',
-    severity: 'CRITICAL',
-    impact: 10,
+    severity: 'MEDIUM',
+    impact: 5,
     pattern: /(?:logger|log|console|winston|bunyan|pino)\s*\.(?:info|warn|error|debug|trace|log)\s*\([^)]*\$\{[^}]*(?:req\.|request\.|params\.|query\.|body\.|header|userAgent|referer|x-forwarded)/i,
-    message: 'User-controlled data interpolated directly into a log message — Log4Shell-style JNDI/injection patterns may fire if downstream log processors parse ${...}. Use structured logging with separate fields.',
+    message: 'User-controlled data in a log message — can forge multi-line log entries or confuse downstream parsers. Use structured logging with separate fields.',
     skipTest: true,
     skipDoc: true,
   },
@@ -191,6 +197,13 @@ const INJECTION_RULES = [
     severity: 'CRITICAL',
     impact: 10,
     pattern: /(?:query|execute|db\.run|db\.get|db\.all)\s*\(\s*(?:`[^`]*\$\{|["'][^"']*["']\s*\+)/,
+    // Skip DB migration files and one-shot DDL scripts — those universally
+    // concat table/column names from hardcoded lists (schema introspection,
+    // ALTER TABLE, etc.), which the wire protocol can't parameterize. The
+    // threat model (user input → SQL) does not apply to migrations/scripts.
+    // Matched as negative lookahead in positive filePathPattern, following
+    // the precedent set at security-rules-extended.js:658.
+    filePathPattern: /^(?!.*(?:[\\/](?:migrations?|db-(?:download|setup|seed)|seeds?|schema-introspection)[\\/]|[\\/]scripts[\\/](?:db[\\/-]|schema|migrate|seed|drop-)|\d{3,}-[^\\/]+\.(?:sql|[jt]sx?)$))/i,
     // Suppress when EITHER (a) every interpolation passes through a known SQL
     // identifier escaper (output is guaranteed safe), OR (b) the query leads
     // with a non-parameterizable SQL verb — DDL / transaction-control
@@ -198,7 +211,12 @@ const INJECTION_RULES = [
     // protocol physically prohibits bind parameters, so template-literal
     // construction is the only way to build the statement. Firing
     // SQL_INJECTION on that shape is a category error on our side.
-    lineGuard: /\$\{\s*(?:quoteIdentifier|escapeIdentifier|escapeId|quoteId|pgIdent|mysqlIdent|knex\.raw|sql\.identifier|(?:this\.)?sanitize(?:Sql|Soql|Value|Identifier|Input|Param)[A-Za-z]*)\s*\(|(?:query|execute|db\.run|db\.get|db\.all)\s*\(\s*['"`]\s*(?:savepoint|release\s+savepoint|rollback\s+to\s+savepoint|set\s+(?:transaction|session)|begin|commit|rollback|drop\s+(?:database|table|schema|index)|create\s+(?:database|table|schema|index)|alter\s+table|use\s+\w|grant|revoke)\b/i,
+    // Transaction-control DDL that can't be parameterized: SAVEPOINT / RELEASE
+    // / ROLLBACK all accept only identifiers, and the wire protocol forces
+    // literal construction. The token after the SQL verb may be either a
+    // literal identifier ("SAVEPOINT foo") or an interpolation ("SAVEPOINT
+    // ${name}") — both shapes are non-user-input in practice.
+    lineGuard: /\$\{\s*(?:quoteIdentifier|escapeIdentifier|escapeId|quoteId|pgIdent|mysqlIdent|knex\.raw|sql\.identifier|(?:this\.)?sanitize(?:Sql|Soql|Value|Identifier|Input|Param)[A-Za-z]*)\s*\(|(?:query|execute|db\.run|db\.get|db\.all)\s*\(\s*['"`]\s*(?:savepoint|release\b|rollback(?:\s+to)?\b|set\s+(?:transaction|session)|begin|commit|drop\s+(?:database|table|schema|index)|create\s+(?:database|table|schema|index)|alter\s+table|use\s+\w|grant|revoke)\b/i,
     message: 'SQL query built with template literal or string concatenation — SQL injection. Use prepared statements or parameterized queries.',
     skipTest: true,
     skipDoc: true,
@@ -887,7 +905,10 @@ const CLIENT_RULES = [
     // The original pattern had a negative-lookahead on `[^)]+\)` that only
     // looked AFTER the closing paren, missing the inside-args noopener case
     // (which is the one everyone actually writes).
-    lineGuard: /\bnoopener\b/,
+    // Suppress when `noopener` appears anywhere on the line, or when target is
+    // `_self` / `_parent` / `_top` (same browsing context — no separate window
+    // that could access window.opener, so the tabnabbing risk doesn't apply).
+    lineGuard: /\bnoopener\b|,\s*['"`](?:_self|_parent|_top)['"`]/,
     message: "window.open() without 'noopener' in the features string — the opened window can access window.opener and redirect the parent (reverse tabnapping). Add 'noopener,noreferrer'.",
     skipTest: true,
     skipDoc: true,
@@ -1035,7 +1056,13 @@ const INFRA_RULES = [
     id: 'DOCKER_PRIVILEGED_FLAG',
     severity: 'CRITICAL',
     impact: 10,
-    pattern: /--privileged/,
+    // Require docker context on the same line. Without this, the rule fires
+    // on permissions-registry object literals like
+    //   { id: "docker-run:privileged", flags: ["--privileged"], risk: "high" }
+    // where `--privileged` is a meta-string (the rule is DESCRIBING the flag,
+    // not using it). Real invocations always co-occur with `docker` or a
+    // subprocess-spawn call referencing docker.
+    pattern: /(?:\bdocker\b[^\n]*--privileged|--privileged[^\n]*\bdocker\b)/,
     message: '--privileged Docker flag grants full host device access — container escape to host OS possible. Run with the minimum required capabilities using --cap-add instead.',
     skipTest: true,
     skipDoc: true,
@@ -1196,10 +1223,21 @@ const INFRA_RULES = [
     id: 'CI_SECRET_IN_PLAINTEXT',
     severity: 'CRITICAL',
     impact: 10,
-    pattern: /(?:GITHUB_TOKEN|CI_JOB_TOKEN|NPM_TOKEN|REGISTRY_PASSWORD|DEPLOY_KEY)\s*:\s*[^$\s{][^\s]{8,}/,
+    // Line-guard skips obvious mock tokens in any file. Pattern still fires
+    // on literal assignments that look like real tokens. Test files are now
+    // skipped entirely — every other secret rule does this, and mock strings
+    // like `GITHUB_TOKEN: "gh-token"` are the overwhelming common case in
+    // test files. A real CI secret pasted into a test file is still a leak,
+    // but FP-rate matters more than that edge case for a HIGH/CRITICAL rule.
+    // Value must be a quoted string literal — not a bare identifier. A line
+    // like `GITHUB_TOKEN: githubToken` is a runtime variable pass-through
+    // (e.g. `{ GITHUB_TOKEN: githubToken }` forwarding an env value into a
+    // K8s Secret object), not a hardcoded secret. Real leaked secrets in
+    // YAML/JSON/TS assignments are universally quoted.
+    pattern: /(?:GITHUB_TOKEN|CI_JOB_TOKEN|NPM_TOKEN|REGISTRY_PASSWORD|DEPLOY_KEY)\s*:\s*['"`](?!(?:gh-token|mock-|stub-|fake-|test-|placeholder))[^'"`\s$][^'"`]{6,}['"`]/,
     message: 'CI/CD secret hardcoded in pipeline configuration — immediately visible to anyone with read access to the repository. Store in your CI secret store and reference with ${{ secrets.NAME }}.',
-    skipTest: false,
-    skipDoc: false,
+    skipTest: true,
+    skipDoc: true,
   },
 ];
 

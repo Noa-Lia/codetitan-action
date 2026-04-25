@@ -1,6 +1,6 @@
 {
   "name": "@noalia/codetitan-core",
-  "version": "1.0.5",
+  "version": "1.0.6",
   "description": "Core JS/TS verification engine that powers the CodeTitan CLI and GitHub Action",
   "main": "index.js",
   "types": "index.d.ts",
@@ -16,7 +16,7 @@
     "performance"
   ],
   "author": "Noalia",
-  "license": "MIT",
+  "license": "UNLICENSED",
   "repository": {
     "type": "git",
     "url": "https://github.com/Noa-Lia/codetitan.dev.git"

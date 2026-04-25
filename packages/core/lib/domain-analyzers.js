@@ -19,7 +19,7 @@ const BENCH_DIR_REGEX = /[/\\](?:benchmarks?|bench)[/\\]/i;
 // Engine infrastructure files and build scripts that intentionally call exec/spawn as part of their function
 // Also covers: node-compat / polyfill implementation files (e.g. bun's src/js/node/), scripts/ dirs (build tooling),
 // codegen/ dirs, and misctools/ (code generators / release tooling)
-const INFRA_EXEC_FILE_REGEX = /(?:fixers[\\/](?:command-exec-fixer|xss-fixer|fix-verifier)|tool-bridge|test-executor|benchmark-runner|supply-chain-analyzer)\.[jt]s$|(?:^|[/\\])(?:Makefile|Gruntfile|Gulpfile|Jakefile)\.[jt]s$|[/\\](?:src[/\\]js[/\\]node|polyfills?|compat|node-compat|codegen|misctools)[/\\]|[/\\]scripts[/\\][^/\\]+\.[jt]s$|[/\\][^/\\]+-cli[/\\]src[/\\]/i;
+const INFRA_EXEC_FILE_REGEX = /(?:fixers[\\/](?:command-exec-fixer|xss-fixer|fix-verifier)|tool-bridge|test-executor|benchmark-runner|supply-chain-analyzer|action-kit|actions-shim)\.[jt]s$|(?:^|[/\\])(?:Makefile|Gruntfile|Gulpfile|Jakefile)\.[jt]s$|[/\\](?:src[/\\]js[/\\]node|polyfills?|compat|node-compat|codegen|misctools)[/\\]|[/\\]scripts[/\\][^/\\]+\.[jt]s$|[/\\][^/\\]+-cli[/\\]src[/\\]/i;
 // Minified/bundled dist files — findings in these are always FPs (they reflect source, not user code)
 const MINIFIED_FILE_REGEX = /(?:\.min\.[jt]s$|[/\\](?:dist|build|out|\.next|client-dist|min)[/\\])/i;
 const COMMENT_REGEX = /^\s*(?:\/\/|#|\/\*|\*|"""|''')/;
@@ -111,8 +111,11 @@ const SECRET_PATTERNS = [
   { id: 'TWILIO_AUTH_TOKEN',       severity: 'CRITICAL', impact: 10, pattern: /(?:twilio)[_-]?auth[_-]?token\s*[:=]\s*['"`][0-9a-f]{32}['"`]/i,                                                                 message: 'Twilio Auth Token detected.' }, // gitleaks-derived
 
   // ── Infrastructure & Secrets Management ─────────────────────────────────
-  { id: 'VAULT_TOKEN',             severity: 'CRITICAL', impact: 10, pattern: /\bhvs\.[A-Za-z0-9]{24,}\b|\bs\.[A-Za-z0-9]{24,}\b/,                                                                               message: 'HashiCorp Vault token detected.' }, // gitleaks-derived
-  { id: 'VAULT_BATCH_TOKEN',       severity: 'CRITICAL', impact: 10, pattern: /\bhvb\.[A-Za-z0-9]{24,}\b/,                                                                                                       message: 'HashiCorp Vault batch token detected.' }, // gitleaks-derived
+  // Real Vault tokens are always stored as string literals. Require a quote
+  // (single/double/backtick) immediately before the prefix so we don't match
+  // JS property accesses like `s.someMethodNameWhichHappensToBeLong()`.
+  { id: 'VAULT_TOKEN',             severity: 'CRITICAL', impact: 10, pattern: /['"`](?:hvs|s)\.[A-Za-z0-9]{24,}['"`]/,                                                                                              message: 'HashiCorp Vault token detected.' }, // gitleaks-derived
+  { id: 'VAULT_BATCH_TOKEN',       severity: 'CRITICAL', impact: 10, pattern: /['"`]hvb\.[A-Za-z0-9]{24,}['"`]/,                                                                                                    message: 'HashiCorp Vault batch token detected.' }, // gitleaks-derived
   { id: 'OPENSSH_PRIVATE_KEY',     severity: 'CRITICAL', impact: 10, pattern: /-----BEGIN OPENSSH PRIVATE KEY-----/,                                                                                             message: 'OpenSSH private key detected.' }, // gitleaks-derived
   { id: 'PGP_PRIVATE_KEY',         severity: 'CRITICAL', impact: 10, pattern: /-----BEGIN PGP PRIVATE KEY BLOCK-----/,                                                                                           message: 'PGP private key block detected.' }, // gitleaks-derived
   { id: 'AGE_SECRET_KEY',          severity: 'CRITICAL', impact: 10, pattern: /AGE-SECRET-KEY-1[A-Z0-9]{58}/,                                                                                                     message: 'Age encryption identity (secret key) detected.' }, // gitleaks-derived
@@ -256,9 +259,14 @@ function detectLanguage(filePath) {
  * This is best-effort, not a full parser.
  */
 function stripTypeScriptSyntax(content) {
+  // Preserve source line numbers: when removing multi-line constructs we replace
+  // them with N-1 blank lines so rule matches on later code still report the
+  // correct source line. Single-line replacements (`: Type`, `as Type`, `<T>`,
+  // `x!`) don't add or remove newlines, so line count is preserved naturally.
+  const preserveLines = (match) => '\n'.repeat((match.match(/\n/g) || []).length);
   return content
-    // Remove interface and type alias declarations
-    .replace(/^\s*(?:export\s+)?(?:interface|type)\s+\w[\s\S]*?(?=\n(?:export|const|let|var|function|class|import|\/\/|$))/gm, '')
+    // Remove interface and type alias declarations (multi-line — pad with newlines)
+    .replace(/^\s*(?:export\s+)?(?:interface|type)\s+\w[\s\S]*?(?=\n(?:export|const|let|var|function|class|import|\/\/|$))/gm, preserveLines)
     // Remove type annotations after parameter/variable names: `: SomeType`
     .replace(/:\s*[A-Z]\w*(?:<[^>]*>)?(?:\s*[|&]\s*\w+(?:<[^>]*>)?)*/g, '')
     // Remove `as Type` assertions
@@ -786,8 +794,15 @@ function detectSecurityIssues(context) {
       }));
     }
 
-    // Regex injection — user data in RegExp constructor
-    const regexInjMatch = /new\s+RegExp\s*\(\s*(?:req\.|request\.|params\.|query\.|body\.|process\.argv|userInput)/.exec(line);
+    // Regex injection — user data in RegExp constructor.
+    // Skip in benchmark / CI-script paths: `process.argv` here is a
+    // developer-supplied filter pattern, not an HTTP-request vector.
+    const isBenchOrScriptPath =
+      /(?:^|\/)(?:scripts|benchmarks?|bench)\//.test(normalizedFilePath)
+      || /\.bench\.[jt]sx?$/.test(normalizedFilePath);
+    const regexInjMatch = !isBenchOrScriptPath
+      ? /new\s+RegExp\s*\(\s*(?:req\.|request\.|params\.|query\.|body\.|process\.argv|userInput)/.exec(line)
+      : null;
     if (regexInjMatch && !COMMENT_REGEX.test(normalized)) {
       issues.push(formatIssue({
         line: index + 1, column: regexInjMatch.index,
@@ -810,12 +825,23 @@ function detectSecurityIssues(context) {
       }));
     }
 
-    // Unsigned JWT algorithm
+    // Unsigned JWT algorithm ("none" algorithm).
+    //
+    // Historical rule fired when a line contained BOTH "none" (any context)
+    // AND /sign|verify|decode|jwt/i (any context). Both conditions matched
+    // on innocuous React JSX — `userSelect: "none"` + a `designer` var in
+    // the same style block, or `textDecoration: 'none'` on a `<Link>Sign
+    // In</Link>` button. That's not JWT code.
+    //
+    // Fix: require the "none" token to co-occur with a JWT-library call
+    // (`jwt.sign`, `jwt.verify`, `jwt.decode`, `jose.jwt*`) or a clear
+    // algorithm-config keyword (`alg:`, `algorithm:`) on the same line.
+    // Bare `sign`/`verify` as words (word-boundary flanked) don't count.
     const unsignedAlgorithmPattern = new RegExp(
-      ['alg.*' + 'no' + 'ne', 'algorithm.*' + 'no' + 'ne', `["']` + 'no' + 'ne' + `["']`].join('|'),
+      ['\\balg\\b\\s*[:=]\\s*["\']' + 'no' + 'ne["\']', '\\balgorithm\\b\\s*[:=]\\s*["\']' + 'no' + 'ne["\']', '\\balgorithms?\\b\\s*[:=]\\s*\\[\\s*["\']' + 'no' + 'ne["\']'].join('|'),
       'i'
     );
-    const authTokenPattern = new RegExp(['jw' + 't', 'sign', 'verify', 'decode'].join('|'), 'i');
+    const authTokenPattern = new RegExp(['\\bjwt\\.(?:sign|verify|decode)\\b', '\\bjose\\.[A-Za-z]*(?:sign|verify|decode)', '\\bjsonwebtoken\\b'].join('|'), 'i');
     const unsignedAlgorithmMatch = unsignedAlgorithmPattern.exec(line);
     if (unsignedAlgorithmMatch && authTokenPattern.test(line) && !COMMENT_REGEX.test(normalized)) {
       issues.push(formatIssue({
@@ -934,9 +960,15 @@ function detectSecurityIssues(context) {
         // `example: "<token-shape string>"` and `default: "<token-shape>"` are
         // schema documentation metadata, not real credentials. Same for
         // @ApiProperty({ example: "..." }) decorator arguments. Suppress here
-        // before checking the assigned value.
-        if (/(?:^|[\s{,(])(?:example|default|defaultValue|sample|mock)\s*:\s*['"`]/.test(line)
-            && /\bApiProperty|swagger|openapi|@ApiProperty|@Schema/i.test(context.content)) continue;
+        // before checking the assigned value. Also covers the nested-object
+        // form `@ApiProperty({ example: { clientSecret: "..." } })` — backward
+        // window detects the enclosing example/@ApiProperty on a prior line.
+        const isOpenApiFile = /\bApiProperty|swagger|openapi|@ApiProperty|@Schema/i.test(context.content);
+        if (isOpenApiFile) {
+          if (/(?:^|[\s{,(])(?:example|default|defaultValue|sample|mock)\s*:\s*['"`{[]/.test(line)) continue;
+          const openApiBackWindow = context.lines.slice(Math.max(0, index - 4), index).join('\n');
+          if (/@ApiProperty\s*\(|(?:^|[\s{,(])(?:example|default|defaultValue|sample|mock)\s*:\s*\{/.test(openApiBackWindow)) continue;
+        }
         const assignedSecretValue = extractAssignedStringLiteral(line);
         if (assignedSecretValue) {
           if (PLACEHOLDER_REGEX.test(assignedSecretValue)) continue;
@@ -976,6 +1008,16 @@ function detectSecurityIssues(context) {
 
       // Entropy scan: find quoted strings ≥ 20 chars with high entropy
       if (matchedNamedSecret || isTestFile || isBenchDir || isExampleConfigFile) return;
+      // JSX `data-*=` attributes hold third-party publishable IDs (Plausible,
+      // Meticulous, PostHog, Segment, etc.) that happen to be high-entropy
+      // by design. Attribute name prefix `data-` is the convention.
+      if (/\bdata-[a-z][a-z0-9-]*\s*=\s*['"`]/.test(line)) return;
+      // OpenAPI nested example blocks: `@ApiProperty({ example: { k: "..." } })`.
+      // Entropy scan would hit the inner string without this — the SECRET_PATTERNS
+      // loop above suppresses the named-secret form; this mirrors it for entropy.
+      const openApiBackWindow = context.lines.slice(Math.max(0, index - 4), index).join('\n');
+      if (/\bApiProperty|swagger|openapi|@ApiProperty|@Schema/i.test(context.content)
+          && /@ApiProperty\s*\(|(?:^|[\s{,(])(?:example|default|defaultValue|sample|mock)\s*:\s*\{/.test(openApiBackWindow)) return;
       const quotedStrings = line.matchAll(/['"`]([^'"`\s]{20,})['"`]/g);
       for (const qm of quotedStrings) {
         const val = qm[1];
@@ -1192,6 +1234,42 @@ function detectSecurityIssues(context) {
         const match = rule.pattern.exec(line);
         if (!match) continue;
         if (rule.id === 'AI_CODE_RISK_CONSOLE_SENSITIVE' && !isSensitiveConsoleLog(line)) continue;
+        // EMPTY_CATCH: suppress when the preceding try-block wraps a
+        // well-known feature-detect API whose failure path is *supposed* to
+        // be a silent fallback. These are not "LLM-pattern empty catches" —
+        // they're the documented-correct way to use the browser/runtime API.
+        if (rule.id === 'AI_CODE_RISK_EMPTY_CATCH') {
+          const tryBlock = context.lines.slice(Math.max(0, index - 8), index + 1).join('\n');
+          const isFeatureDetect = /\b(?:fs\.accessSync|structuredClone|matchMedia|atob|require\.resolve|localStorage\.(?:getItem|setItem|removeItem)|sessionStorage\.(?:getItem|setItem|removeItem)|navigator\.clipboard|document\.execCommand|performance\.mark|performance\.measure)\s*\(|\bawait\s+import\s*\(/.test(tryBlock);
+          if (isFeatureDetect) continue;
+          // Allow explicit opt-out for cases the heuristic misses — use
+          // sparingly and only when a throw would genuinely break the UX.
+          // Marker must be on the same line as the `catch` or the line above.
+          const suppressMarker = /\/\/\s*codetitan-suppress:\s*empty-catch\b/;
+          const nearbyComment = [
+            context.lines[index] || '',
+            context.lines[index - 1] || '',
+            context.lines[index + 1] || '',
+          ].join('\n');
+          if (suppressMarker.test(nearbyComment)) continue;
+          // Non-production code paths: CLI bootstrap probes, CI publish
+          // scripts, package-manager version fetchers, codegen cache-signal
+          // writers. These swallow by design — a thrown error means
+          // "degraded UX," not "security incident."
+          //
+          // `/bootstrap/` and `/scripts/ci/` are generic path conventions.
+          // `/fetch-engine/` and `/client-generator-js/` happen to be Prisma
+          // package names; acceptable here because the names are descriptive
+          // enough that false-suppression on an unrelated repo is low-risk
+          // (the semantic match between name and code role carries the weight,
+          // not the repo identity).
+          const isNonProductionPath =
+            /(?:^|\/)bootstrap\//.test(normalizedFilePath) ||
+            /(?:^|\/)scripts\/ci\//.test(normalizedFilePath) ||
+            /(?:^|\/)fetch-engine\//.test(normalizedFilePath) ||
+            /(?:^|\/)client-generator-js\//.test(normalizedFilePath);
+          if (isNonProductionPath) continue;
+        }
         // PERMISSIVE_CORS: suppress when the finding sits inside the CORS
         // library's own default-options object literal (the library surface,
         // not a user deployment). File-path heuristic is strong: filename ends
@@ -1338,6 +1416,23 @@ function detectSecurityIssues(context) {
         if (REDACTED_LOG_CALL_REGEX.test(line)) return;
         const codeOnly = stripQuotedStrings(line);
         if (!/password|passwd|ssn|creditCard|cvv|privateKey|secret|authToken/i.test(codeOnly)) return;
+        // Narrow suppression: only skip when the ONLY sensitive-keyword tokens
+        // are AGGREGATION containers (counts, totals, stats). A variable or
+        // property named `apiSecret` / `myAuthToken` may hold the actual secret
+        // value, so we deliberately DO NOT suppress on compound-tail alone.
+        // Suppress only when every match is preceded by an aggregation hint
+        // (`stats.`, `counts.`, `total`, `num`, `count`, `found`, `detected`)
+        // or has the canonical count-container tail (`...Secrets`, `...Passwords`).
+        const allMatches = codeOnly.match(/\b\w*(?:password|passwd|ssn|creditCard|cvv|privateKey|secret|authToken)\w*\b/gi) || [];
+        if (allMatches.length > 0) {
+          const everyMatchLooksAggregate = allMatches.every(m => {
+            // Pluralized forms are almost always count containers: `hardcodedSecrets`, `apiPasswords`
+            if (/(?:Secrets|Passwords)$/.test(m)) return true;
+            // Otherwise require an aggregation prefix in the compound name
+            return /^(?:total|num|count|found|detected|stats?|counts?|has|is|n)\w*(?:Password|Passwd|Ssn|SSN|CreditCard|Cvv|CVV|PrivateKey|Secret|AuthToken)$/.test(m);
+          });
+          if (everyMatchLooksAggregate) return;
+        }
       }
 
       const match = rule.pattern.exec(line);
