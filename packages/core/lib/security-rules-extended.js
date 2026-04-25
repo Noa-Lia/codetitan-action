@@ -232,8 +232,10 @@ const INJECTION_RULES = [
     // the inner `Buffer.from(...)` closes first and the regex then matches the
     // `.toString(` — not a real deserialization-into-method chain, just a b64
     // decode. Likewise `readFileSync(path).toString()` is well-formed file I/O.
-    // Suppress when the line contains these well-known serialization helpers.
-    lineGuard: /(?:Buffer\.from\s*\(|readFileSync\s*\(|fs\.readFileSync\s*\()/,
+    // Suppress when the line contains these well-known serialization helpers,
+    // OR when the chained method is a known-safe Array / Object operation
+    // (parse-then-map / parse-then-filter is normal, not a sink).
+    lineGuard: /(?:Buffer\.from\s*\(|readFileSync\s*\(|fs\.readFileSync\s*\(|\.(?:map|filter|forEach|find|findIndex|some|every|reduce|reduceRight|flat|flatMap|join|slice|sort|reverse|concat|includes|indexOf|lastIndexOf|keys|values|entries|hasOwnProperty|toString|valueOf|length)\s*[\(\.])/,
     message: 'JSON.parse result immediately passed to a method or eval — prototype pollution or deserialization attack possible. Validate the parsed shape before use.',
     skipTest: true,
     skipDoc: true,

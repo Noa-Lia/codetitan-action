@@ -19,7 +19,7 @@ const BENCH_DIR_REGEX = /[/\\](?:benchmarks?|bench)[/\\]/i;
 // Engine infrastructure files and build scripts that intentionally call exec/spawn as part of their function
 // Also covers: node-compat / polyfill implementation files (e.g. bun's src/js/node/), scripts/ dirs (build tooling),
 // codegen/ dirs, and misctools/ (code generators / release tooling)
-const INFRA_EXEC_FILE_REGEX = /(?:fixers[\\/](?:command-exec-fixer|xss-fixer|fix-verifier)|tool-bridge|test-executor|benchmark-runner|supply-chain-analyzer|action-kit|actions-shim)\.[jt]s$|(?:^|[/\\])(?:Makefile|Gruntfile|Gulpfile|Jakefile)\.[jt]s$|[/\\](?:src[/\\]js[/\\]node|polyfills?|compat|node-compat|codegen|misctools)[/\\]|[/\\]scripts[/\\][^/\\]+\.[jt]s$|[/\\][^/\\]+-cli[/\\]src[/\\]/i;
+const INFRA_EXEC_FILE_REGEX = /(?:fixers[\\/](?:command-exec-fixer|xss-fixer|fix-verifier)|tool-bridge|test-executor|benchmark-runner|supply-chain-analyzer|action-kit|actions-shim)\.[jt]s$|(?:^|[/\\])(?:Makefile|Gruntfile|Gulpfile|Jakefile)\.[jt]s$|[/\\](?:src[/\\]js[/\\]node|polyfills?|compat|node-compat|codegen|misctools)[/\\]|[/\\]scripts[/\\][^/\\]+\.[jt]s$|[/\\][^/\\]+-cli[/\\]src[/\\]|[/\\](?:e2e|integration)-(?:test-runner|tests?)[/\\]|[/\\][^/\\]+-test-runner[/\\]/i;
 // Minified/bundled dist files — findings in these are always FPs (they reflect source, not user code)
 const MINIFIED_FILE_REGEX = /(?:\.min\.[jt]s$|[/\\](?:dist|build|out|\.next|client-dist|min)[/\\])/i;
 const COMMENT_REGEX = /^\s*(?:\/\/|#|\/\*|\*|"""|''')/;
@@ -1018,6 +1018,13 @@ function detectSecurityIssues(context) {
       const openApiBackWindow = context.lines.slice(Math.max(0, index - 4), index).join('\n');
       if (/\bApiProperty|swagger|openapi|@ApiProperty|@Schema/i.test(context.content)
           && /@ApiProperty\s*\(|(?:^|[\s{,(])(?:example|default|defaultValue|sample|mock)\s*:\s*\{/.test(openApiBackWindow)) return;
+      // nanoid `customAlphabet(alphabet, size)` takes a high-entropy alphabet
+      // string as its first argument. The alphabet may sit on the same line
+      // or on the next line in a multi-line call. Suppress the entropy scan
+      // when the import or call is in scope.
+      if (/\bcustomAlphabet\s*\(/.test(line)) return;
+      const customAlphabetBackWindow = context.lines.slice(Math.max(0, index - 2), index).join('\n');
+      if (/\bcustomAlphabet\s*\(\s*$/.test(customAlphabetBackWindow)) return;
       const quotedStrings = line.matchAll(/['"`]([^'"`\s]{20,})['"`]/g);
       for (const qm of quotedStrings) {
         const val = qm[1];
@@ -1381,6 +1388,15 @@ function detectSecurityIssues(context) {
       // lineGuard: a regex that, if it matches the current line, suppresses the rule.
       // Use this for inline mitigations (e.g. a SQL escaper wrapping the interpolation).
       if (rule.lineGuard && rule.lineGuard.test(line)) return;
+
+      // Maintainer-acknowledged suppression comments on the previous line.
+      // If the line above carries a biome-ignore / eslint-disable / codetitan-
+      // suppress directive, the maintainer has already reviewed the pattern;
+      // re-flagging it is noise. Look only one line back to avoid distance-
+      // based false suppression.
+      const prevLine = context.lines[index - 1] || '';
+      const SUPPRESS_COMMENT_REGEX = /(?:biome-ignore\s+lint(?:\/[A-Za-z]+)*\/(?:noDangerouslySetInnerHtml|noGlobalEval|noExplicitAny|security\/[A-Za-z]+)|eslint-disable(?:-next-line|-line)?\s+(?:react\/no-danger|security\/detect-[A-Za-z-]+|no-eval|no-script-url)|codetitan-suppress:\s*\S+)/;
+      if (SUPPRESS_COMMENT_REGEX.test(prevLine)) return;
 
       // SENSITIVE_DATA_CONSOLE_LOG: the rule's pattern matches any keyword
       // inside a console.log, including informational string-literal text like
