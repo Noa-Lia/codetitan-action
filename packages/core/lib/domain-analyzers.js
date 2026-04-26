@@ -264,9 +264,13 @@ function stripTypeScriptSyntax(content) {
   // correct source line. Single-line replacements (`: Type`, `as Type`, `<T>`,
   // `x!`) don't add or remove newlines, so line count is preserved naturally.
   const preserveLines = (match) => '\n'.repeat((match.match(/\n/g) || []).length);
+  // The earlier broad regex for `interface|type` declaration bodies could greedily
+  // eat the `/**` openers of nested JSDoc inside a `type Foo = { ... }` block while
+  // leaving the `*/` closers intact, breaking downstream multi-line comment tracking
+  // (real fallout: console.log inside a JSDoc code-fence on `got` flagged as a HIGH
+  // sensitive-console FP). Drop that pass — the per-line type-annotation strips
+  // below cover the actual FP cases (e.g. `: SomeType` matching code patterns).
   return content
-    // Remove interface and type alias declarations (multi-line — pad with newlines)
-    .replace(/^\s*(?:export\s+)?(?:interface|type)\s+\w[\s\S]*?(?=\n(?:export|const|let|var|function|class|import|\/\/|$))/gm, preserveLines)
     // Remove type annotations after parameter/variable names: `: SomeType`
     .replace(/:\s*[A-Z]\w*(?:<[^>]*>)?(?:\s*[|&]\s*\w+(?:<[^>]*>)?)*/g, '')
     // Remove `as Type` assertions
@@ -1364,9 +1368,21 @@ function detectSecurityIssues(context) {
   }
 
   // ── Extended security rules (120 additional patterns) ────────────────────
+  let extInBlockComment = false;
   context.lines.forEach((line, index) => {
     const normalized = line.trim();
-    if (!normalized || COMMENT_REGEX.test(normalized)) return;
+    if (!normalized) return;
+    // Track multi-line block comments (handles JSDoc /** ... */ blocks with
+    // markdown code fences inside, common in TS libraries like got/axios).
+    if (extInBlockComment) {
+      if (normalized.includes('*/')) extInBlockComment = false;
+      return;
+    }
+    if (normalized.startsWith('/*')) {
+      if (!normalized.includes('*/')) extInBlockComment = true;
+      return;
+    }
+    if (COMMENT_REGEX.test(normalized)) return;
 
     EXTENDED_SECURITY_RULES.forEach(rule => {
       if (rule.skipTest && isTestFile) return;
