@@ -41,10 +41,13 @@ const ENV_HARVEST_PATTERN = /(?:Object\.(?:keys|entries|values)\s*\(\s*process\.
 // Suppress when same-line restricts iteration to known-public env-var prefixes.
 // Next.js (NEXT_PUBLIC_), Astro/SvelteKit (PUBLIC_), Vite strict (VITE_PUBLIC_),
 // CRA (REACT_APP_), Nuxt (NUXT_PUBLIC_) all use prefix-based public-exposure
-// conventions. Iteration filtered to these prefixes is by-design exposure of
-// already-public vars, not supply-chain exfil. Closes Documenso D4 from Phase
-// 1 Week 2 measurement (packages/lib/utils/env.ts:24, 2026-05-12).
-const ENV_HARVEST_PUBLIC_PREFIX_FILTER = /\.startsWith\s*\(\s*['"`](?:NEXT_PUBLIC_|PUBLIC_|VITE_PUBLIC_|REACT_APP_|NUXT_PUBLIC_)['"`]/;
+// conventions. Vite's default convention exposes ANY `VITE_*` to the client
+// bundle (Vite docs), so bare `VITE_` is also recognized (v5-B, 2026-05-13).
+// Iteration filtered to these prefixes is by-design exposure of already-public
+// vars, not supply-chain exfil. Closes Documenso D4 + Plane v5-B from Phase
+// 1 Week 2 measurement (packages/lib/utils/env.ts:24 + apps/*/vite.config.ts).
+// Order: longer alternatives first (VITE_PUBLIC_ before bare VITE_).
+const ENV_HARVEST_PUBLIC_PREFIX_FILTER = /\.startsWith\s*\(\s*['"`](?:NEXT_PUBLIC_|PUBLIC_|VITE_PUBLIC_|VITE_|REACT_APP_|NUXT_PUBLIC_)['"`]/;
 
 // ── Suspicious exfil destinations ─────────────────────────────────────────────
 // Requests to raw IP addresses or non-standard ports from a library
@@ -212,8 +215,13 @@ function analyzeSupplyChain(filePath, content, opts = {}) {
       }));
     }
 
-    // Environment variable bulk harvest
-    if (ENV_HARVEST_PATTERN.test(line) && !ENV_HARVEST_PUBLIC_PREFIX_FILTER.test(line)) {
+    // Environment variable bulk harvest.
+    // Check public-prefix filter in a 3-line forward window — multi-line chains
+    // like `Object.keys(process.env)\n  .filter((k) => k.startsWith("VITE_"))\n  .reduce(...)`
+    // need the .filter on a different line than the Object.keys call. Closes
+    // Plane v5-B FPs on apps/{admin,space,web}/vite.config.ts (2026-05-13).
+    const harvestWindow = lines.slice(idx, Math.min(lines.length, idx + 3)).join('\n');
+    if (ENV_HARVEST_PATTERN.test(line) && !ENV_HARVEST_PUBLIC_PREFIX_FILTER.test(harvestWindow)) {
       findings.push(makeFinding({
         line: lineNo, column: 0, severity: 'CRITICAL',
         category: 'ENV_HARVEST',

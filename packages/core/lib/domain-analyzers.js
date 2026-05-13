@@ -1099,6 +1099,13 @@ function detectSecurityIssues(context) {
         if (/^phc_[A-Za-z0-9]+$/.test(val)) continue; // PostHog publishable client key — designed to ship in browser bundle
         if (/^s2s\.[a-z0-9]+\.[a-z0-9]+$/i.test(val)) continue; // Jitsu server-to-server publishable telemetry key — designed to ship in browser bundle (Cal.com FP CC3, 2026-05-12)
         if (/^\d+-[A-Za-z0-9_-]+\.apps\.googleusercontent\.com$/.test(val)) continue; // Google OAuth client ID — public by OAuth spec (Plane FP P4, 2026-05-12). Anchored at end to prevent attacker-domain suffix tricks.
+        // Google Client Secret form-placeholder (Plane FP v5-A, 2026-05-13).
+        // Two-condition skip: line context is `placeholder:` field assignment AND
+        // value matches GOCSPX-shape (lenient on typo neighbors per Plane's GOCShX-:
+        // [Ss] covers case typos, [PpHh] covers P/H swap typo).
+        // The GOOGLE_OAUTH_SECRET named pattern at line 159 still fires on real
+        // GOCSPX- assignments outside placeholder context — see test cases.
+        if (/^\s*placeholder:\s*['"`]/.test(line) && /^GOC[Ss][PpHh]X-[A-Za-z0-9_-]+$/.test(val)) continue;
         if (!looksLikeSecret(val)) continue;
         if (foundSecretCategories.has('HIGH_ENTROPY_SECRET')) continue;
         foundSecretCategories.add('HIGH_ENTROPY_SECRET');
