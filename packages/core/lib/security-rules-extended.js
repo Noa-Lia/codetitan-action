@@ -87,6 +87,10 @@ const INJECTION_RULES = [
     severity: 'HIGH',
     impact: 8,
     pattern: /(?:^|[{,]\s*)(?:to|cc|bcc)\s*:\s*(?:req\.|request\.|params\.|query\.|body\.|`[^`]*\$\{)/,
+    // File must import a known email-sending library so we know `to:` is
+    // genuinely an email-header field, not a routing/state-machine `to`.
+    // Mirrors the file-context guard on HEADER_INJECTION + PERMISSIVE_CORS.
+    fileRequires: /from\s+['"](?:nodemailer|sendmail|mailgun-js|@sendgrid\/mail|postmark|resend|@aws-sdk\/client-ses|mandrill-api|emailjs|emailjs-com|@mailchimp\/mailchimp_transactional)['"]|require\s*\(\s*['"](?:nodemailer|sendmail|mailgun-js|@sendgrid\/mail|postmark|resend|@aws-sdk\/client-ses|mandrill-api|emailjs|emailjs-com|@mailchimp\/mailchimp_transactional)['"]\s*\)/i,
     message: 'Nodemailer to/cc/bcc field populated from user input — email header injection allows spam relay. Strip newlines and validate email addresses.',
     skipTest: true,
     skipDoc: true,
@@ -527,7 +531,12 @@ const CRYPTO_RULES = [
     id: 'PREDICTABLE_RANDOM_TOKEN',
     severity: 'HIGH',
     impact: 8,
-    pattern: /Math\.random\s*\(\s*\)(?:[^;]*)(?:token|secret|key|session|nonce|salt|csrf|otp|code|password)/i,
+    // Word-boundaries around each context keyword required. Without \b, the
+    // substring matches caused FPs on Plane: `code` matched RANDOM_EMOJI_CODES,
+    // `key` matched Object.keys(...).length. Word-boundary keeps real TPs
+    // (Math.random() ... token / session / secret as standalone identifiers)
+    // while killing the list-index FPs. Plane FP P5 from Week 2 (2026-05-12).
+    pattern: /Math\.random\s*\(\s*\)(?:[^;]*)\b(?:token|secret|key|session|nonce|salt|csrf|otp|code|password)\b/i,
     message: 'Math.random() used in a security-sensitive context — it is not cryptographically secure. Use crypto.randomBytes() or crypto.getRandomValues() instead.',
     skipTest: true,
     skipDoc: true,

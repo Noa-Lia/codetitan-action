@@ -2,7 +2,7 @@
 /******/ 	"use strict";
 /******/ 	var __webpack_modules__ = ({
 
-/***/ 755:
+/***/ 107:
 /***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
 
 
@@ -283,7 +283,7 @@ exports.exec = {
 
 /***/ }),
 
-/***/ 395:
+/***/ 411:
 /***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
 
 
@@ -329,7 +329,7 @@ const fs = __importStar(__nccwpck_require__(896));
 const os = __importStar(__nccwpck_require__(857));
 const path = __importStar(__nccwpck_require__(928));
 const module_1 = __nccwpck_require__(339);
-const action_kit_1 = __nccwpck_require__(755);
+const action_kit_1 = __nccwpck_require__(107);
 const SUPPORTED_EXTENSIONS = new Set([
     '.js',
     '.jsx',
@@ -1155,7 +1155,7 @@ async function runActionAnalysis(projectPath, level, options = {}) {
 
 /***/ }),
 
-/***/ 194:
+/***/ 18:
 /***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
 
 
@@ -1202,9 +1202,9 @@ exports.run = run;
 const fs = __importStar(__nccwpck_require__(896));
 const https = __importStar(__nccwpck_require__(692));
 const path = __importStar(__nccwpck_require__(928));
-const action_kit_1 = __nccwpck_require__(755);
-const analysis_runtime_1 = __nccwpck_require__(395);
-var analysis_runtime_2 = __nccwpck_require__(395);
+const action_kit_1 = __nccwpck_require__(107);
+const analysis_runtime_1 = __nccwpck_require__(411);
+var analysis_runtime_2 = __nccwpck_require__(411);
 Object.defineProperty(exports, "findBundledRepoRoot", ({ enumerable: true, get: function () { return analysis_runtime_2.findBundledRepoRoot; } }));
 const SEVERITY_ORDER = ['LOW', 'MEDIUM', 'HIGH', 'CRITICAL'];
 const COMMENT_MARKER = '<!-- codetitan-phase1-summary -->';
@@ -1703,7 +1703,7 @@ module.exports = require("path");
 /******/ 	// startup
 /******/ 	// Load entry module and return exports
 /******/ 	// This entry module is referenced by other modules so it can't be inlined
-/******/ 	var __webpack_exports__ = __nccwpck_require__(194);
+/******/ 	var __webpack_exports__ = __nccwpck_require__(18);
 /******/ 	module.exports = __webpack_exports__;
 /******/ 	
 /******/ })()

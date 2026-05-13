@@ -480,7 +480,8 @@ class DependencyScanner {
      * @param {boolean} [options.reachability=true] - Set false to skip reachability analysis
      */
     async scan(projectPath, options = {}) {
-        console.log('🔍 Scanning dependencies for vulnerabilities...');
+        const log = options.silent ? () => {} : (...args) => console.log(...args);
+        log('🔍 Scanning dependencies for vulnerabilities...');
 
         const results = {
             manifests: [],
@@ -500,11 +501,11 @@ class DependencyScanner {
         results.manifests = manifests.map(m => m.path);
 
         if (manifests.length === 0) {
-            console.log('   No dependency manifests found');
+            log('   No dependency manifests found');
             return results;
         }
 
-        console.log(`   Found ${manifests.length} manifest(s)`);
+        log(`   Found ${manifests.length} manifest(s)`);
 
         // Parse all dependencies
         for (const manifest of manifests) {
@@ -522,7 +523,7 @@ class DependencyScanner {
         }
 
         results.summary.totalDependencies = results.dependencies.length;
-        console.log(`   Scanning ${results.dependencies.length} dependencies...`);
+        log(`   Scanning ${results.dependencies.length} dependencies...`);
 
         // Query OSV in batches
         const vulnerablePackages = new Set();
@@ -551,18 +552,18 @@ class DependencyScanner {
         results.summary.vulnerableDependencies = vulnerablePackages.size;
         results.summary.totalVulnerabilities = results.findings.length;
 
-        console.log(`   Found ${results.findings.length} vulnerabilities in ${vulnerablePackages.size} packages`);
+        log(`   Found ${results.findings.length} vulnerabilities in ${vulnerablePackages.size} packages`);
 
         // Reachability analysis — opt-out with options.reachability === false
         if (options.reachability !== false && results.findings.length > 0) {
             const { SCAReachabilityAnalyzer } = require('./sca-reachability');
             const reachability = new SCAReachabilityAnalyzer();
             const sourceFiles = await this.findSourceFiles(projectPath);
-            console.log(`   Running reachability analysis across ${sourceFiles.length} source file(s)...`);
+            log(`   Running reachability analysis across ${sourceFiles.length} source file(s)...`);
             results.findings = await reachability.analyzeReachability(results.findings, sourceFiles);
             results.summary.reachableVulnerabilities = results.findings.filter(f => f.reachable === true).length;
             results.summary.unreachableVulnerabilities = results.findings.filter(f => f.reachable === false).length;
-            console.log(`   Reachable: ${results.summary.reachableVulnerabilities}, Unreachable/unconfirmed: ${results.summary.unreachableVulnerabilities}`);
+            log(`   Reachable: ${results.summary.reachableVulnerabilities}, Unreachable/unconfirmed: ${results.summary.unreachableVulnerabilities}`);
         }
 
         return results;
@@ -582,7 +583,7 @@ class DependencyScanner {
      * @param {string} projectPath
      * @returns {Promise<{findings: object[], summary: object}>}
      */
-    async scanTransitive(projectPath) {
+    async scanTransitive(projectPath, _options = {}) {
         const lockPath = path.join(projectPath, 'package-lock.json');
         const allDeps = await parseTransitiveDeps(lockPath);
         if (allDeps.length === 0) {

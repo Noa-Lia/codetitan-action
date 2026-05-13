@@ -25,6 +25,25 @@ const MINIFIED_FILE_REGEX = /(?:\.min\.[jt]s$|[/\\](?:dist|build|out|\.next|clie
 const COMMENT_REGEX = /^\s*(?:\/\/|#|\/\*|\*|"""|''')/;
 const DOC_FILE_REGEX = /(\.md$|\.mdx$|[/\\]examples[/\\]|[/\\]docs[/\\]|[/\\]blog[/\\]|[/\\]fixtures[/\\])/i;
 const EXAMPLE_CONFIG_FILE_REGEX = /(?:\.example\.|\.sample\.|\.template\.)/i;
+// i18n/locale/translation files are pure text data, not code. Any pattern-match
+// rule firing on the content (entropy scan, default-credential string match,
+// etc.) is structurally an FP. Closes Plane FPs P2 + P3 (~27 firings) from
+// Phase 1 Week 2 measurement (`docs/plans/2026-05-10-engine-fp-baseline-week2.md`).
+const LOCALE_FILE_REGEX = /[/\\](?:locales?|i18n|translations?|messages)[/\\]/i;
+// Vendored PWA bundles under `public/` — generated service workers (Workbox,
+// firebase-messaging-sw), content-hashed runtime bundles, precache manifests.
+// Pattern-match rules firing on the content are structurally FPs (vendored
+// library code, not user-authored). Closes Plane FP P6 (Workbox postMessage)
+// from Phase 1 Week 2; likely affects more across customer-shape repos.
+const VENDORED_BUNDLE_REGEX = /(?:^|[/\\])public[/\\](?:workbox|sw|service-worker|precache-manifest|firebase-messaging-sw)[A-Za-z0-9_.-]*\.[mc]?js$|(?:^|[/\\])public[/\\][A-Za-z0-9_-]+-[a-f0-9]{8,}\.[mc]?js$/i;
+// Seed scripts, fixture files, sample-data generators. Credentials and high-
+// entropy IDs in these files are by-design (test data, demo content, DB
+// bootstrap), not real secrets. Closes Cal.com FP CC1 (scripts/seed.ts), and
+// Documenso FPs D1 (packages/prisma/seed/users.ts) + D3 (generate-sample-data.ts)
+// from Phase 1 Week 2. Filename-form is strict (must start with seed/fixture/
+// sample-data, or end with .fixture(s).ts / -fixture(s).ts / generate-seed.ts)
+// to avoid suppressing real source like `src/utils/seeded-random.ts`.
+const SEED_FIXTURE_FILE_REGEX = /(?:^|[/\\])(?:seed[s]?|fixtures?|sample[-_]data)(?:[/\\])|(?:^|[/\\])(?:seed[s]?|fixtures?|sample[-_]data)\.[mc]?[jt]sx?$|(?:^|[/\\])generate-(?:seed[s]?|sample[-_]data|fixtures?)[A-Za-z0-9_.-]*\.[mc]?[jt]sx?$|\.fixtures?\.[mc]?[jt]sx?$|-fixtures?\.[mc]?[jt]sx?$/i;
 const MINIFIED_LINE_LENGTH = 500;
 const SECRET_ENTROPY_FLOOR = 3.0;
 // Matches RHS that is a dynamic value (env var, function call, template literal with ${}), not a plain hardcoded string
@@ -438,18 +457,23 @@ function isSafeStaticExecProbe(line) {
 }
 
 // Matches the specific bundler / CJS-ESM interop idioms that use `eval` only
-// to bypass static analysis by tools like webpack/esbuild. These are:
+// to bypass static analysis by tools like webpack/esbuild. Recognized shapes:
 //   eval('require.main === module')
 //   eval(`require('../package.json')`)
 //   eval("require('path').join(...)")
-// Always a quoted literal argument containing `require(` or `require.main`,
-// with no interpolation. Everything else still fires EVAL_USAGE.
+//   eval('__filename')  — webpack/ncc module-identity check
+//   eval('__dirname')   — same class, sibling literal
+// Always a quoted literal argument with no interpolation; body is either a
+// `require`/`require.main` reference or a bare module-identity literal.
+// Everything else still fires EVAL_USAGE.
 function isStaticLiteralEval(line) {
   const m = /\beval\s*\(\s*(['"`])((?:\\.|(?!\1)[\s\S])*)\1\s*\)/.exec(line);
   if (!m) return false;
   const [, quote, body] = m;
   if (quote === '`' && body.includes('${')) return false;
-  return /\brequire\s*(?:\(|\.main\b)/.test(body);
+  if (/\brequire\s*(?:\(|\.main\b)/.test(body)) return true;
+  if (/^(?:__filename|__dirname)$/.test(body.trim())) return true;
+  return false;
 }
 
 function isFunctionLikeDefinition(line) {
@@ -721,6 +745,9 @@ function detectSecurityIssues(context) {
   const isExampleConfigFile = EXAMPLE_CONFIG_FILE_REGEX.test(normalizedFilePath);
   const isInfraExecFile = INFRA_EXEC_FILE_REGEX.test(normalizedFilePath);
   const isMinifiedFile = MINIFIED_FILE_REGEX.test(normalizedFilePath);
+  const isLocaleFile = LOCALE_FILE_REGEX.test(normalizedFilePath);
+  const isVendoredBundle = VENDORED_BUNDLE_REGEX.test(normalizedFilePath);
+  const isSeedFixtureFile = SEED_FIXTURE_FILE_REGEX.test(normalizedFilePath);
   // True for lines that look like rule metadata rather than executable code.
   // Covers three shapes:
   //   1. Key-value rule entries: `pattern: /.../`, `message: '...'`, `name: 'eval()'`.
@@ -763,6 +790,14 @@ function detectSecurityIssues(context) {
         || isSafeLiteralAllowlistedExec(context.lines, index)
         || isInfraExecFile  // engine infra files intentionally call exec
         || isMinifiedFile   // minified/dist files are not user-owned code
+        // No child_process import → exec() is almost always a SQLite-shaped
+        // execute(), a TypeScript interface method signature, or a custom
+        // method named `exec`. Mirrors taint-analyzer.js's CHILD_PROCESS_
+        // IMPORT_REGEX gate on TAINT_COMMAND_INJECTION; closes Remix
+        // adapter.ts:32 (DatabaseSync.exec interface) + Drizzle bun-sqlite
+        // session.ts:45 (Bun SQLite exec method) FPs from 2026-05-10
+        // re-baseline.
+        || !/require\s*\(\s*['"`](?:node:)?child_process['"`]\s*\)|from\s+['"`](?:node:)?child_process['"`]|import\s+['"`](?:node:)?child_process['"`]/.test(context.content)
       )) return;
       // eval('literal') and eval(`literal ${nothing} else`) are bundler/CJS-ESM
       // workarounds, not dynamic eval. Suppress when the argument is a single
@@ -949,14 +984,19 @@ function detectSecurityIssues(context) {
         if (foundSecretCategories.has(rule.id)) continue;
         if (isMinifiedFile) continue; // dist/bundled files contain vendored code — never surface secrets from them
         if (isBenchDir) continue; // bench dirs contain bundled fixtures — always FPs for secrets
-        if (isTestFile && rule.severity !== 'CRITICAL') continue; // test files only surface CRITICAL secrets
-        // NOTE: we intentionally do NOT broadly suppress PRIVATE_KEY_PEM in
-        // test files. Real keys in test fixtures are a real leak class. The
-        // Cal.com `redactSensitiveData.test.ts` PEM case is the correct-TP
-        // behavior: if a PEM body is committed, someone should confirm it's
-        // test material or revoke it. Fixture-only headers (no body) and
-        // values containing TEST_KEY/DUMMY/etc are already caught by
-        // PLACEHOLDER_REGEX. See __tests__/fp-regression/test-files.test.js.
+        if (isTestFile) continue; // test files suppress ALL secret severities (loosened 2026-05-11)
+        if (isLocaleFile) continue; // i18n/locale files are pure UI text; entropy + keyword scans on translations are structural FPs (Plane FPs P2 + P3, 2026-05-12)
+        if (isVendoredBundle) continue; // vendored PWA bundles (Workbox, etc) under public/ — library code not user-authored (Plane FP P6, 2026-05-12)
+        if (isSeedFixtureFile) continue; // seed/fixture/sample-data files — credentials and high-entropy IDs by design (Cal.com CC1, Documenso D1+D3, 2026-05-12)
+        // Policy change 2026-05-11: previously surfaced CRITICAL secrets in
+        // test files (PRIVATE_KEY_PEM, GITHUB_TOKEN, etc.) on the theory that
+        // "real prod keys do leak via test fixtures." In practice, measured
+        // FPs at octokit-rest test/integration/authentication.test.ts:163
+        // (deliberately-generated test RSA keys) caused customer-visible
+        // noise. The rare prod-key-in-test leak is better caught by git
+        // pre-commit hooks scanning staged content + secret-rotation
+        // policies, not by SAST flagging every test fixture.
+        // See docs/plans/2026-05-11-engine-fp-baseline.md.
         if (isExampleConfigFile && !['HIGH', 'CRITICAL'].includes(rule.severity)) continue;
         const match = rule.pattern.exec(line);
         if (!match) continue;
@@ -973,11 +1013,22 @@ function detectSecurityIssues(context) {
           const openApiBackWindow = context.lines.slice(Math.max(0, index - 4), index).join('\n');
           if (/@ApiProperty\s*\(|(?:^|[\s{,(])(?:example|default|defaultValue|sample|mock)\s*:\s*\{/.test(openApiBackWindow)) continue;
         }
+        // Generated `.env`-template strings: an outer-quoted envelope holds
+        // a `KEY="<value>"` pair where the value is a non-credential URI
+        // (file:, loopback hosts, etc.). Catches lines like
+        // `content += 'DATABASE_URL="file:./db.sqlite"';` where
+        // extractAssignedStringLiteral would return only `DATABASE_URL=`.
+        // Measured 2026-05-10: create-t3-app cli/src/installers/envVars.ts FP.
+        if (/=\s*"file:[^"]+"/i.test(line)) continue;
+        if (/=\s*"(?:postgres(?:ql)?|mysql|mongodb|redis):\/\/[^"@]*@(?:localhost|127\.0\.0\.1|0\.0\.0\.0)(?::\d+)?[^"]*"/i.test(line)) continue;
+
         const assignedSecretValue = extractAssignedStringLiteral(line);
         if (assignedSecretValue) {
           if (PLACEHOLDER_REGEX.test(assignedSecretValue)) continue;
           if (MARKER_STRING_REGEX.test(assignedSecretValue)) continue;
           if (hasLowSecretEntropy(assignedSecretValue)) continue;
+          if (/^file:/i.test(assignedSecretValue)) continue;
+          if (/^(?:postgres(?:ql)?|mysql|mongodb|redis):\/\/[^@]*@(?:localhost|127\.0\.0\.1|0\.0\.0\.0)(?::\d+)?\b/i.test(assignedSecretValue)) continue;
         }
 
         // For GENERIC_SECRET, apply extra FP guards
@@ -990,6 +1041,15 @@ function detectSecurityIssues(context) {
             if ((val.match(/ /g) || []).length > 2) continue;
             if (/^[A-Za-z][A-Za-z .'":,!?-]+$/.test(val)) continue;
           }
+          // Algolia search-only API keys are public by design — embedded in
+          // client-side code so the docs site can do search. The shape is
+          // `{ appId: "...", apiKey: "..." }` (or `applicationId:` variant).
+          // When the same const/object literal contains an appId field,
+          // suppress the apiKey match. Measured 2026-05-10: create-t3-app
+          // www/src/config.ts FP.
+          const algoliaWindow = context.lines.slice(Math.max(0, index - 4), Math.min(context.lines.length, index + 5)).join('\n');
+          if (/\b(?:appId|applicationId|ALGOLIA)\b/.test(algoliaWindow)
+              && /\bapiKey\s*:/.test(line)) continue;
         }
 
         foundSecretCategories.add(rule.id);
@@ -1011,7 +1071,7 @@ function detectSecurityIssues(context) {
       }
 
       // Entropy scan: find quoted strings ≥ 20 chars with high entropy
-      if (matchedNamedSecret || isTestFile || isBenchDir || isExampleConfigFile) return;
+      if (matchedNamedSecret || isTestFile || isBenchDir || isExampleConfigFile || isLocaleFile || isVendoredBundle || isSeedFixtureFile) return;
       // JSX `data-*=` attributes hold third-party publishable IDs (Plausible,
       // Meticulous, PostHog, Segment, etc.) that happen to be high-entropy
       // by design. Attribute name prefix `data-` is the convention.
@@ -1036,6 +1096,9 @@ function detectSecurityIssues(context) {
         if (/[()[\]{}:;,%/]/.test(val)) continue; // paths, URLs, module names, etc.
         if (/^[a-z]+[A-Z]+[0-9]*[$_]*$/.test(val) && val.length > 30) continue; // sequential char enumerations (abcde...XYZ0-9$_)
         if (/[^\x00-\x7F]/.test(val) && /_/.test(val)) continue; // non-ASCII underscore-delimited strings (locale word lists, e.g. month names)
+        if (/^phc_[A-Za-z0-9]+$/.test(val)) continue; // PostHog publishable client key — designed to ship in browser bundle
+        if (/^s2s\.[a-z0-9]+\.[a-z0-9]+$/i.test(val)) continue; // Jitsu server-to-server publishable telemetry key — designed to ship in browser bundle (Cal.com FP CC3, 2026-05-12)
+        if (/^\d+-[A-Za-z0-9_-]+\.apps\.googleusercontent\.com$/.test(val)) continue; // Google OAuth client ID — public by OAuth spec (Plane FP P4, 2026-05-12). Anchored at end to prevent attacker-domain suffix tricks.
         if (!looksLikeSecret(val)) continue;
         if (foundSecretCategories.has('HIGH_ENTROPY_SECRET')) continue;
         foundSecretCategories.add('HIGH_ENTROPY_SECRET');
@@ -1185,7 +1248,12 @@ function detectSecurityIssues(context) {
         // or "123456" assigned to `password:` / `pwd:` / `passwd:` in
         // non-test code is a real risk; on `secret:` it's usually test OTP
         // or OAuth client-secret placeholder.
-        pattern: /(?:password|passwd|pwd)\s*[:=]\s*['"`](?:admin|password|123456|test|root|letmein|welcome|changeme|default)['"`]/i,
+        //
+        // Capture-group on the key name (match[1]) so the per-rule gate at
+        // ~line 1378 can distinguish enum/constant identifiers (`PASSWORD =
+        // "PASSWORD"` — all-caps SCREAMING_SNAKE_CASE) from real lowercase
+        // credential assignments. Plane FP P1 from Week 2 baseline (2026-05-12).
+        pattern: /(password|passwd|pwd)\s*[:=]\s*['"`](?:admin|password|123456|test|root|letmein|welcome|changeme|default)['"`]/i,
         message: 'Default or example credential detected — frequently inserted by AI code generators.',
         impact: 10
       },
@@ -1199,8 +1267,22 @@ function detectSecurityIssues(context) {
       {
         id: 'AI_CODE_RISK_TODO_SECURITY',
         severity: 'MEDIUM',
-        pattern: /\/\/\s*(?:TODO|FIXME|HACK)\s*[:\-]?\s*.*(?:auth|security|validat|sanitiz|permiss|encrypt|secret|token)/i,
-        message: 'Security-critical TODO/FIXME — AI-generated placeholders in auth/security paths must be resolved.',
+        // Match security-critical TODOs without over-matching benign keywords.
+        // Bare `token` matches "design token" / "component token" (keystone v3
+        // FP #2). Bare `auth` matches "author" / "authority". `validat` /
+        // `sanitiz` are broad and rarely mark security-critical TODOs.
+        // Replaced with qualified shapes:
+        //   - `(?:jwt|api|access|...)[-_\s]*token` — anchors token to auth context
+        //   - `bypass\s+(?:auth|security|check)` — explicit bypass markers
+        //   - `disable[d]?\s+(?:auth|security|check)` — explicit disable markers
+        //   - high-precision keywords kept: secret, password, credential,
+        //     permission, encrypt, decrypt, signature, hmac, oauth, jwt, csrf,
+        //     xss, sql injection, hardcod
+        pattern: /\/\/\s*(?:TODO|FIXME|HACK)\s*[:\-]?\s*[^\n]*\b(?:secret|password|credential|permission|encrypt|decrypt|signature|hmac|oauth|jwt|csrf|xss|sql\s*injection|hardcod|bypass\s+(?:auth|security|check)|disable[d]?\s+(?:auth|security|check)|(?:jwt|api|access|refresh|bearer|csrf|session|auth)[-_\s]*token)\b/i,
+        // Message text matches the rule's actual mechanism — flags TODOs
+        // *containing* security keywords, not TODOs *located in* auth paths
+        // (the rule has no path-based attribution).
+        message: 'Security-critical TODO/FIXME — placeholders for auth, encryption, or credentials should be resolved before merge.',
         impact: 7
       },
       {
@@ -1242,9 +1324,23 @@ function detectSecurityIssues(context) {
       for (const rule of aiRules) {
         if (isTestFile) continue; // AI pattern rules fire heavily in test files — almost always FPs
         if (isMinifiedFile) continue; // dist/bundled files contain vendored code — not user-authored
+        if (isLocaleFile) continue; // i18n/locale UI strings like "Password" / "Password forgot?" fire AI_CODE_RISK_DEFAULT_CREDENTIALS as FPs (Plane FP P2, 2026-05-12)
+        if (isVendoredBundle) continue; // vendored PWA bundles — library code, not user-authored (2026-05-12)
+        if (isSeedFixtureFile) continue; // seed/fixture/sample-data — credentials by design (2026-05-12)
         const match = rule.pattern.exec(line);
         if (!match) continue;
         if (rule.id === 'AI_CODE_RISK_CONSOLE_SENSITIVE' && !isSensitiveConsoleLog(line)) continue;
+        // DEFAULT_CREDENTIALS: skip when the captured key name is all-caps —
+        // SCREAMING_SNAKE_CASE convention marks enum members / env-var names,
+        // NOT credential assignments (e.g. `PASSWORD = "PASSWORD"` in Plane's
+        // EAuthSteps enum at apps/space/types/auth.ts:14 — the value happens
+        // to match the allow-list literal but the all-caps key signals an
+        // identifier marker, not a credential). Lowercase `password = "password"`
+        // remains a real TP. Plane FP P1 from Week 2 baseline (2026-05-12).
+        // Pre-flight grep across 5 corpus clones found zero MY_API_PASSWORD =
+        // "default" instances, so SCREAMING_SNAKE_CASE env-var-shape false-
+        // positives are theoretical — accept the trade-off.
+        if (rule.id === 'AI_CODE_RISK_DEFAULT_CREDENTIALS' && match[1] === match[1].toUpperCase()) continue;
         // EMPTY_CATCH: suppress when the preceding try-block wraps a
         // well-known feature-detect API whose failure path is *supposed* to
         // be a silent fallback. These are not "LLM-pattern empty catches" —
@@ -1287,10 +1383,23 @@ function detectSecurityIssues(context) {
         // in `cors/index.{js,ts}` and the surrounding lines contain
         // `const defaults` / `DEFAULT_OPTIONS` / `defaultConfig` near the match.
         if (rule.id === 'AI_CODE_RISK_PERMISSIVE_CORS') {
-          const isCorsLibraryFile = /(?:^|[\\/])(?:middleware[\\/])?cors[\\/]index\.[jt]sx?$/.test(normalizedFilePath);
+          // CORS-library file shapes:
+          //   - cors/index.{js,ts,mjs,cjs,jsx,tsx} (Hono H1: src/middleware/cors/index.ts)
+          //   - <anywhere>/cors.{js,ts,mjs,cjs,jsx,tsx} (Documenso D2: apps/openpage-api/lib/cors.ts)
+          //   - <anywhere>/cors/<name>.{ext} (sibling library shapes)
+          // 2026-05-12: broadened from cors/index.[jt]sx only to also cover the
+          // bare cors.[ext] filename pattern (Documenso D2) + extended .mjs/.cjs.
+          const isCorsLibraryFile = /(?:^|[/\\])cors[/\\][^/\\]+\.[mc]?[jt]sx?$|(?:^|[/\\])cors\.[mc]?[jt]sx?$/i.test(normalizedFilePath);
           if (isCorsLibraryFile) {
             const ctxBlock = context.lines.slice(Math.max(0, index - 5), index + 2).join('\n');
-            if (/\b(?:const|let|var)\s+default(?:s|Options|Config)?\b/i.test(ctxBlock)) continue;
+            // Library-default surrounding-code shapes:
+            //   - `const defaults` / `defaultOptions` / `defaultConfig` (existing, Documenso D2)
+            //   - `const opts` / `let opts` / `var opts` (Hono H1: `const opts = { origin: '*', ..., ...options }`)
+            // (Type annotations like `: CorsOptions` were considered but the
+            // engine's context-line normalizer strips TS type annotations,
+            // making them an unreliable signal here. const-defaults shape
+            // alone covers both real Phase 1 Week 2 FPs.)
+            if (/\b(?:const|let|var)\s+(?:default(?:s|Options|Config)?|opts)\b/i.test(ctxBlock)) continue;
           }
         }
         const col = match.index;
@@ -1387,6 +1496,9 @@ function detectSecurityIssues(context) {
     EXTENDED_SECURITY_RULES.forEach(rule => {
       if (rule.skipTest && isTestFile) return;
       if (rule.skipDoc && isDocFile) return;
+      if (isLocaleFile) return; // i18n/locale text data — all extended pattern rules are structural FPs here (2026-05-12)
+      if (isVendoredBundle) return; // vendored PWA bundles — library code (2026-05-12)
+      if (isSeedFixtureFile) return; // seed/fixture/sample-data files (2026-05-12)
       if (isInfraExecFile) return; // engine infra files intentionally contain dangerous patterns
       if (rule.filePathPattern && !rule.filePathPattern.test(context.filePath)) return;
       if (isRuleMetadataLine(normalized)) return;
@@ -1711,12 +1823,53 @@ function detectTestingGaps(context) {
   const issues = [];
   const isTestFile = TEST_FILE_REGEX.test(context.filePath);
 
+  // Suppress FOCUSED_TEST entirely when the file is testing a test-framework's
+  // own `.only`/`.skip`/`.todo` API (Remix FP #5 from 2026-05-10 re-baseline:
+  // `packages/test/src/test/framework.test.ts:88, 161` — describe('describe.only',
+  // ...) blocks where `.only()` is the system-under-test). Detection is content-
+  // based (file mentions `describe('describe.only'...)` or similar) so it
+  // generalizes across any test framework's self-tests, not just Remix's.
+  const isTestFrameworkSelfTest = /\b(?:describe|it|test|context|suite|each)\s*\(\s*['"`](?:describe|it|test|context|suite|each)\.(?:only|skip|todo|each|concurrent)\b/.test(context.content);
+
+  // Require a test-framework identifier before `.only(`. Bare `.only(` matches
+  // React's `Children.only(...)` API (Hono FP #2 from 2026-05-10 re-baseline)
+  // and any other library that exposes a method named `only`. Test runners
+  // gate `.only()` on `describe|it|test|context|suite|each`-shaped callers.
+  const focusedTestPattern = /\b(?:describe|it|test|context|suite|each)\s*\.\s*only\s*\(/;
+
+  // Track JSDoc / block-comment state. Test-framework docs frequently embed
+  // `describe.only(...)` examples inside `/** ... */` (Remix FP #4). Mirrors
+  // the same state machine used by the AI-rules loop above.
+  let inBlockComment = false;
+
   context.lines.forEach((line, index) => {
     const normalized = line.trim();
 
-    // Focused test detection (.only)
-    const focusedTestPattern = /\.only\s*\(/;
-    const focusedTestMatch = focusedTestPattern.exec(line);
+    // Block-comment state machine. FOCUSED_TEST and TODO_TESTS must NOT fire
+    // on lines inside JSDoc `/** ... */` blocks — test-framework docs embed
+    // `describe.only(...)` examples there (Remix FP #4 from 2026-05-10).
+    let isCommentLine = false;
+    if (inBlockComment) {
+      if (normalized.includes('*/')) inBlockComment = false;
+      isCommentLine = true;
+    } else if (normalized.startsWith('/*')) {
+      if (!normalized.includes('*/')) inBlockComment = true;
+      isCommentLine = true;
+    } else if (normalized.startsWith('*')) {
+      // JSDoc continuation line (` * something`)
+      isCommentLine = true;
+    }
+    // NOTE: `//` line-comments are NOT treated as `isCommentLine` here —
+    // TODO_TESTS deliberately matches `// TODO: add tests for X`. The
+    // FOCUSED_TEST check below has its own line-comment guard.
+
+    // Focused test detection (.only) — anchored to test-framework callers.
+    // Skip block-comment lines AND `//` line-comments (FOCUSED_TEST fires on
+    // executable code, not comments). Skip entirely when the file is a
+    // test-framework self-test (`.only` is the system-under-test).
+    const focusedTestMatch = !isCommentLine && !normalized.startsWith('//') && !isTestFrameworkSelfTest
+      ? focusedTestPattern.exec(line)
+      : null;
     if (isTestFile && focusedTestMatch) {
       const column = focusedTestMatch.index;
       const matchLength = focusedTestMatch[0].length;

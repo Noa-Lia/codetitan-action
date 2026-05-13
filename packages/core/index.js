@@ -46,9 +46,9 @@ const godmode = {
 };
 
 // Scanners
-const ContainerScanner = require('./lib/container-scanner');
-const IaCScanner = require('./lib/iac-scanner');
-const DependencyScanner = require('./lib/dependency-scanner');
+const { ContainerScanner } = require('./lib/container-scanner');
+const { IaCScanner } = require('./lib/iac-scanner');
+const { DependencyScanner } = require('./lib/dependency-scanner');
 
 // Generators & Exporters
 const SBOMGenerator = require('./lib/sbom-generator');

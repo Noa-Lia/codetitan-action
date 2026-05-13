@@ -38,6 +38,13 @@ const DYNAMIC_IMPORT_PATTERN = /import\s*\(\s*(?:[^'"`)\s]+\s*\+|\[)/;
 // ── Environment variable harvesting ──────────────────────────────────────────
 // Bulk harvest: iterating over process.env keys and sending/writing them
 const ENV_HARVEST_PATTERN = /(?:Object\.(?:keys|entries|values)\s*\(\s*process\.env|for\s*\([^)]*\s+(?:in|of)\s+process\.env)/;
+// Suppress when same-line restricts iteration to known-public env-var prefixes.
+// Next.js (NEXT_PUBLIC_), Astro/SvelteKit (PUBLIC_), Vite strict (VITE_PUBLIC_),
+// CRA (REACT_APP_), Nuxt (NUXT_PUBLIC_) all use prefix-based public-exposure
+// conventions. Iteration filtered to these prefixes is by-design exposure of
+// already-public vars, not supply-chain exfil. Closes Documenso D4 from Phase
+// 1 Week 2 measurement (packages/lib/utils/env.ts:24, 2026-05-12).
+const ENV_HARVEST_PUBLIC_PREFIX_FILTER = /\.startsWith\s*\(\s*['"`](?:NEXT_PUBLIC_|PUBLIC_|VITE_PUBLIC_|REACT_APP_|NUXT_PUBLIC_)['"`]/;
 
 // ── Suspicious exfil destinations ─────────────────────────────────────────────
 // Requests to raw IP addresses or non-standard ports from a library
@@ -206,7 +213,7 @@ function analyzeSupplyChain(filePath, content, opts = {}) {
     }
 
     // Environment variable bulk harvest
-    if (ENV_HARVEST_PATTERN.test(line)) {
+    if (ENV_HARVEST_PATTERN.test(line) && !ENV_HARVEST_PUBLIC_PREFIX_FILTER.test(line)) {
       findings.push(makeFinding({
         line: lineNo, column: 0, severity: 'CRITICAL',
         category: 'ENV_HARVEST',
