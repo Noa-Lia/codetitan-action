@@ -8,12 +8,12 @@ We don't claim to find behavioral defects (race conditions, off-by-ones, busines
 
 On 5 production-grade OSS+SaaS codebases at pinned upstream SHAs (Hono, Drizzle, Cal.com, Plane, Documenso):
 
-- **Cal.com (~250k LOC SaaS):** 1 of 8 in-scope HIGH/CRITICAL findings was a false positive
-- **Aggregate across all 5 repos:** 2 of 11 in-scope findings were false positives
-- **Zero true-positive bugs lost** to false-positive fixes
-- Reproducible measurement methodology published in [`docs/plans/2026-05-12-engine-fp-baseline-v5.md`](https://github.com/Noa-Lia/codetitan.dev/blob/master/docs/plans/2026-05-12-engine-fp-baseline-v5.md)
+- **Cal.com (~250k LOC SaaS):** 1 of 8 in-scope HIGH/CRITICAL findings was a false positive — **12.5% FP rate** on the headline customer-shape repo
+- **Aggregate across all 5 repos:** 1 of 10 in-scope findings were false positives — **10% FP rate**
+- **Zero true-positive bugs lost** to false-positive fixes across Bundles 1-5
+- Reproducible measurement methodology published in [`docs/plans/2026-05-13-engine-fp-baseline-v6.md`](https://github.com/Noa-Lia/codetitan.dev/blob/master/docs/plans/2026-05-13-engine-fp-baseline-v6.md) (latest); [v5 baseline](https://github.com/Noa-Lia/codetitan.dev/blob/master/docs/plans/2026-05-12-engine-fp-baseline-v5.md) for the prior Bundle 4 measurement.
 
-Engine HEAD: `@noalia/codetitan-core@1.0.9`. Pin `@v1.0.9` for an immutable reference.
+Engine HEAD: `@noalia/codetitan-core@1.0.10`. Pin `@v1.0.11` for an immutable reference (includes PR comment footer hotfix on top of v1.0.10's engine).
 
 ## What it does
 
