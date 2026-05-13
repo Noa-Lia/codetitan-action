@@ -1,8 +1,22 @@
-# CodeTitan GitHub Action
+# CodeTitan GitHub Action (beta)
 
-Diff-aware security scanning for JavaScript and TypeScript pull requests, running entirely in your CI — no account or API key required.
+**A 7-second sanity check that catches surface-level security smells your eslint config misses.** Diff-aware scanning for JavaScript and TypeScript pull requests, running entirely in your CI — no account or API key required. Free for the first 30 PR scans, no signup.
 
-What it does:
+We don't claim to find behavioral defects (race conditions, off-by-ones, business-logic bugs) — those need human eyes. CodeTitan pairs with human review.
+
+## Measured against real repos
+
+On 5 production-grade OSS+SaaS codebases at pinned upstream SHAs (Hono, Drizzle, Cal.com, Plane, Documenso):
+
+- **Cal.com (~250k LOC SaaS):** 1 of 8 in-scope HIGH/CRITICAL findings was a false positive
+- **Aggregate across all 5 repos:** 2 of 11 in-scope findings were false positives
+- **Zero true-positive bugs lost** to false-positive fixes
+- Reproducible measurement methodology published in [`docs/plans/2026-05-12-engine-fp-baseline-v5.md`](https://github.com/Noa-Lia/codetitan.dev/blob/master/docs/plans/2026-05-12-engine-fp-baseline-v5.md)
+
+Engine HEAD: `@noalia/codetitan-core@1.0.9`. Pin `@v1.0.9` for an immutable reference.
+
+## What it does
+
 - Scans only the files changed in your PR (diff-aware, not full-repo)
 - Posts an inline PR comment with severity, file, line, and explanation
 - Emits JSON and markdown reports as artifacts
