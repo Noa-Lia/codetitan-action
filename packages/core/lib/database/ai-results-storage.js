@@ -13,8 +13,8 @@
  * @module database/ai-results-storage
  */
 
-const fs = require('fs').promises;
-const path = require('path');
+const fs = require("fs").promises;
+const path = require("path");
 
 function shouldUseTls(connectionString) {
   if (!connectionString) {
@@ -28,22 +28,28 @@ class AIResultsStorage {
   constructor(config = {}) {
     this.config = {
       // Database type: 'postgres' or 'sqlite'
-      type: config.type || process.env.DATABASE_TYPE || 'sqlite',
+      type: config.type || process.env.DATABASE_TYPE || "sqlite",
 
       // PostgreSQL connection
-      postgresUrl: config.postgresUrl || process.env.DATABASE_URL || process.env.POSTGRES_CONNECTION_STRING,
+      postgresUrl:
+        config.postgresUrl ||
+        process.env.DATABASE_URL ||
+        process.env.POSTGRES_CONNECTION_STRING,
 
       // SQLite file path
-      sqlitePath: config.sqlitePath || process.env.CODETITAN_SQLITE_PATH || './data/codetitan.db',
+      sqlitePath:
+        config.sqlitePath ||
+        process.env.CODETITAN_SQLITE_PATH ||
+        "./data/codetitan.db",
 
       // Auto-create tables
       autoMigrate: config.autoMigrate !== false,
 
-      ...config
+      ...config,
     };
 
     this.db = null;
-    this.isPostgres = this.config.type === 'postgres';
+    this.isPostgres = this.config.type === "postgres";
   }
 
   /**
@@ -68,19 +74,21 @@ class AIResultsStorage {
    */
   async initializePostgres() {
     try {
-      const { Pool } = require('pg');
+      const { Pool } = require("pg");
       this.db = new Pool({
         connectionString: this.config.postgresUrl,
-        ssl: shouldUseTls(this.config.postgresUrl) ? {} : false
+        ssl: shouldUseTls(this.config.postgresUrl) ? {} : false,
       });
 
       // Test connection
-      await this.db.query('SELECT NOW()');
-      console.log('[AIResultsStorage] Connected to PostgreSQL');
-
+      await this.db.query("SELECT NOW()");
+      console.log("[AIResultsStorage] Connected to PostgreSQL");
     } catch (error) {
-      console.error('[AIResultsStorage] PostgreSQL initialization failed:', error.message);
-      console.log('[AIResultsStorage] Falling back to SQLite');
+      console.error(
+        "[AIResultsStorage] PostgreSQL initialization failed:",
+        error.message,
+      );
+      console.log("[AIResultsStorage] Falling back to SQLite");
       this.isPostgres = false;
       await this.initializeSQLite();
     }
@@ -91,18 +99,22 @@ class AIResultsStorage {
    */
   async initializeSQLite() {
     try {
-      const sqlite3 = require('better-sqlite3');
+      const sqlite3 = require("better-sqlite3");
 
       // Ensure directory exists
       const dir = path.dirname(this.config.sqlitePath);
       await fs.mkdir(dir, { recursive: true });
 
       this.db = sqlite3(this.config.sqlitePath);
-      console.log(`[AIResultsStorage] Connected to SQLite: ${this.config.sqlitePath}`);
-
+      console.log(
+        `[AIResultsStorage] Connected to SQLite: ${this.config.sqlitePath}`,
+      );
     } catch (error) {
-      console.error('[AIResultsStorage] SQLite initialization failed:', error.message);
-      throw new Error('Failed to initialize database');
+      console.error(
+        "[AIResultsStorage] SQLite initialization failed:",
+        error.message,
+      );
+      throw new Error("Failed to initialize database");
     }
   }
 
@@ -110,7 +122,7 @@ class AIResultsStorage {
    * Run database migrations
    */
   async runMigrations() {
-    console.log('[AIResultsStorage] Running migrations...');
+    console.log("[AIResultsStorage] Running migrations...");
 
     if (this.isPostgres) {
       await this.runPostgresMigrations();
@@ -118,7 +130,7 @@ class AIResultsStorage {
       await this.runSQLiteMigrations();
     }
 
-    console.log('[AIResultsStorage] Migrations complete');
+    console.log("[AIResultsStorage] Migrations complete");
   }
 
   /**
@@ -263,7 +275,7 @@ class AIResultsStorage {
       `CREATE INDEX IF NOT EXISTS idx_ai_findings_provider ON ai_findings(provider, created_at DESC)`,
       `CREATE INDEX IF NOT EXISTS idx_ai_provider_perf_lookup ON ai_provider_performance(provider, domain, date DESC)`,
       `CREATE INDEX IF NOT EXISTS idx_ai_fix_apps_finding ON ai_fix_applications(finding_id)`,
-      `CREATE INDEX IF NOT EXISTS idx_ai_ensemble_run ON ai_ensemble_results(run_id)`
+      `CREATE INDEX IF NOT EXISTS idx_ai_ensemble_run ON ai_ensemble_results(run_id)`,
     ];
 
     for (const migration of migrations) {
@@ -409,11 +421,11 @@ class AIResultsStorage {
       `CREATE INDEX IF NOT EXISTS idx_ai_findings_provider ON ai_findings(provider, created_at DESC)`,
       `CREATE INDEX IF NOT EXISTS idx_ai_provider_perf_lookup ON ai_provider_performance(provider, domain, date DESC)`,
       `CREATE INDEX IF NOT EXISTS idx_ai_fix_apps_finding ON ai_fix_applications(finding_id)`,
-      `CREATE INDEX IF NOT EXISTS idx_ai_ensemble_run ON ai_ensemble_results(run_id)`
+      `CREATE INDEX IF NOT EXISTS idx_ai_ensemble_run ON ai_ensemble_results(run_id)`,
     ];
 
     for (const migration of migrations) {
-// TODO: Fix COMMAND_EXEC - Command execution opens the door to injection attacks. Validate or sandbox inputs.
+      // TODO: Fix COMMAND_EXEC - Command execution opens the door to injection attacks. Validate or sandbox inputs.
       this.db.exec(migration);
     }
   }
@@ -430,23 +442,39 @@ class AIResultsStorage {
       project_path: data.projectPath,
       level: data.level,
       started_at: now,
-      status: 'running',
+      status: "running",
       ensemble_enabled: data.ensembleEnabled || false,
-      metadata: JSON.stringify(data.metadata || {})
+      metadata: JSON.stringify(data.metadata || {}),
     };
 
     if (this.isPostgres) {
       await this.db.query(
         `INSERT INTO ai_analysis_runs (id, project_path, level, started_at, status, ensemble_enabled, metadata)
          VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-        [run.id, run.project_path, run.level, run.started_at, run.status, run.ensemble_enabled, run.metadata]
+        [
+          run.id,
+          run.project_path,
+          run.level,
+          run.started_at,
+          run.status,
+          run.ensemble_enabled,
+          run.metadata,
+        ],
       );
     } else {
       const stmt = this.db.prepare(
         `INSERT INTO ai_analysis_runs (id, project_path, level, started_at, status, ensemble_enabled, metadata)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
       );
-      stmt.run(run.id, run.project_path, run.level, run.started_at, run.status, run.ensemble_enabled ? 1 : 0, run.metadata);
+      stmt.run(
+        run.id,
+        run.project_path,
+        run.level,
+        run.started_at,
+        run.status,
+        run.ensemble_enabled ? 1 : 0,
+        run.metadata,
+      );
     }
 
     return run;
@@ -464,16 +492,32 @@ class AIResultsStorage {
          SET completed_at = $1, status = $2, files_analyzed = $3, findings_count = $4,
              total_cost_usd = $5, duration_ms = $6
          WHERE id = $7`,
-        [now, 'completed', data.filesAnalyzed, data.findingsCount, data.totalCost, data.duration, runId]
+        [
+          now,
+          "completed",
+          data.filesAnalyzed,
+          data.findingsCount,
+          data.totalCost,
+          data.duration,
+          runId,
+        ],
       );
     } else {
       const stmt = this.db.prepare(
         `UPDATE ai_analysis_runs
          SET completed_at = ?, status = ?, files_analyzed = ?, findings_count = ?,
              total_cost_usd = ?, duration_ms = ?
-         WHERE id = ?`
+         WHERE id = ?`,
       );
-      stmt.run(now, 'completed', data.filesAnalyzed, data.findingsCount, data.totalCost, data.duration, runId);
+      stmt.run(
+        now,
+        "completed",
+        data.filesAnalyzed,
+        data.findingsCount,
+        data.totalCost,
+        data.duration,
+        runId,
+      );
     }
   }
 
@@ -496,19 +540,26 @@ class AIResultsStorage {
       code_snippet: finding.code_snippet || null,
       suggestion: finding.suggestion || null,
       impact_score: finding.impact_score || null,
-      provider: finding.sourceProvider || finding.provider || 'unknown',
+      provider: finding.sourceProvider || finding.provider || "unknown",
       model: finding.model || null,
-      confidence_score: finding.confidenceScore?.score || finding.confidence_score || null,
-      confidence_level: finding.confidenceScore?.level || finding.confidence_level || null,
-      confidence_explanation: finding.confidenceScore?.explanation || finding.confidence_explanation || null,
-      supporting_providers: finding.supportingProviders ? JSON.stringify(finding.supportingProviders) : null,
+      confidence_score:
+        finding.confidenceScore?.score || finding.confidence_score || null,
+      confidence_level:
+        finding.confidenceScore?.level || finding.confidence_level || null,
+      confidence_explanation:
+        finding.confidenceScore?.explanation ||
+        finding.confidence_explanation ||
+        null,
+      supporting_providers: finding.supportingProviders
+        ? JSON.stringify(finding.supportingProviders)
+        : null,
       agreement_rate: finding.agreement_rate || null,
       dispute_level: finding.dispute_level || null,
       has_auto_fix: finding.has_auto_fix || false,
       fix_applied: finding.fix_applied || false,
       fix_id: finding.fix_id || null,
       created_at: now,
-      metadata: JSON.stringify(finding.metadata || {})
+      metadata: JSON.stringify(finding.metadata || {}),
     };
 
     if (this.isPostgres) {
@@ -519,7 +570,7 @@ class AIResultsStorage {
           confidence_level, confidence_explanation, supporting_providers, agreement_rate,
           dispute_level, has_auto_fix, fix_applied, fix_id, created_at, metadata
          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24)`,
-        Object.values(data)
+        Object.values(data),
       );
     } else {
       const stmt = this.db.prepare(
@@ -528,9 +579,13 @@ class AIResultsStorage {
           code_snippet, suggestion, impact_score, provider, model, confidence_score,
           confidence_level, confidence_explanation, supporting_providers, agreement_rate,
           dispute_level, has_auto_fix, fix_applied, fix_id, created_at, metadata
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       );
-      stmt.run(...Object.values(data).map(v => typeof v === 'boolean' ? (v ? 1 : 0) : v));
+      stmt.run(
+        ...Object.values(data).map((v) =>
+          typeof v === "boolean" ? (v ? 1 : 0) : v,
+        ),
+      );
     }
 
     return data;

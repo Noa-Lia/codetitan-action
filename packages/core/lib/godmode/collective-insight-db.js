@@ -10,14 +10,15 @@
  * - Team knowledge (patterns, best practices)
  */
 
-const Database = require('better-sqlite3');
-const path = require('path');
-const fs = require('fs');
+const Database = require("better-sqlite3");
+const path = require("path");
+const fs = require("fs");
 
 class CollectiveInsightDB {
   constructor(dbPath = null) {
     // Default to project root /data directory
-    this.dbPath = dbPath || path.join(process.cwd(), 'data', 'collective-insight.db');
+    this.dbPath =
+      dbPath || path.join(process.cwd(), "data", "collective-insight.db");
 
     // Ensure data directory exists
     const dataDir = path.dirname(this.dbPath);
@@ -26,7 +27,7 @@ class CollectiveInsightDB {
     }
 
     this.db = new Database(this.dbPath);
-    this.db.pragma('journal_mode = WAL'); // Better concurrency
+    this.db.pragma("journal_mode = WAL"); // Better concurrency
 
     this.initializeTables();
   }
@@ -36,7 +37,7 @@ class CollectiveInsightDB {
    */
   initializeTables() {
     // Table 1: Analysis Runs
-// TODO: Fix COMMAND_EXEC - Command execution opens the door to injection attacks. Validate or sandbox inputs.
+    // TODO: Fix COMMAND_EXEC - Command execution opens the door to injection attacks. Validate or sandbox inputs.
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS analysis_runs (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -53,7 +54,7 @@ class CollectiveInsightDB {
       )
     `);
 
-// TODO: Fix COMMAND_EXEC - Command execution opens the door to injection attacks. Validate or sandbox inputs.
+    // TODO: Fix COMMAND_EXEC - Command execution opens the door to injection attacks. Validate or sandbox inputs.
     // Table 2: Findings
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS findings (
@@ -71,7 +72,7 @@ class CollectiveInsightDB {
         FOREIGN KEY (run_id) REFERENCES analysis_runs(id)
       )
     `);
-// TODO: Fix COMMAND_EXEC - Command execution opens the door to injection attacks. Validate or sandbox inputs.
+    // TODO: Fix COMMAND_EXEC - Command execution opens the door to injection attacks. Validate or sandbox inputs.
 
     // Table 3: Fixes
     this.db.exec(`
@@ -143,7 +144,7 @@ class CollectiveInsightDB {
       CREATE INDEX IF NOT EXISTS idx_knowledge_pattern ON team_knowledge(pattern_type, category);
     `);
 
-    console.log('✓ Collective Insight database initialized');
+    console.log("✓ Collective Insight database initialized");
   }
 
   /**
@@ -159,7 +160,7 @@ class CollectiveInsightDB {
       projectPath,
       projectName || path.basename(projectPath),
       level,
-      JSON.stringify(metadata)
+      JSON.stringify(metadata),
     );
 
     return result.lastInsertRowid;
@@ -168,7 +169,10 @@ class CollectiveInsightDB {
   /**
    * Complete an analysis run
    */
-  completeRun(runId, { filesAnalyzed, durationMs, success = true, error = null }) {
+  completeRun(
+    runId,
+    { filesAnalyzed, durationMs, success = true, error = null },
+  ) {
     const stmt = this.db.prepare(`
       UPDATE analysis_runs
       SET completed_at = datetime('now'),
@@ -201,8 +205,8 @@ class CollectiveInsightDB {
       finding.line || finding.lineNumber,
       finding.message,
       finding.suggestion || finding.fix,
-      finding.provider || 'heuristic',
-      finding.confidence || 0.7
+      finding.provider || "heuristic",
+      finding.confidence || 0.7,
     ).lastInsertRowid;
   }
 
@@ -221,12 +225,12 @@ class CollectiveInsightDB {
       fix.findingId || null,
       runId,
       fix.category,
-      fix.provider || 'heuristic',
+      fix.provider || "heuristic",
       fix.code || fix.fixCode,
       fix.success ? 1 : 0,
       fix.confidence || 0.7,
       fix.rollbackReason || null,
-      JSON.stringify(fix.metadata || {})
+      JSON.stringify(fix.metadata || {}),
     ).lastInsertRowid;
   }
 
@@ -252,7 +256,7 @@ class CollectiveInsightDB {
       perf.tokensUsed || 0,
       perf.confidenceAvg || 0,
       perf.success ? 1 : 0,
-      perf.error || null
+      perf.error || null,
     );
   }
 
@@ -261,14 +265,20 @@ class CollectiveInsightDB {
    */
   updateKnowledge(pattern) {
     // Check if pattern exists
-    const existing = this.db.prepare(`
+    const existing = this.db
+      .prepare(
+        `
       SELECT id, occurrences FROM team_knowledge
       WHERE pattern_type = ? AND category = ? AND provider = ?
-    `).get(pattern.type, pattern.category || '', pattern.provider || '');
+    `,
+      )
+      .get(pattern.type, pattern.category || "", pattern.provider || "");
 
     if (existing) {
       // Update existing
-      this.db.prepare(`
+      this.db
+        .prepare(
+          `
         UPDATE team_knowledge
         SET occurrences = occurrences + 1,
             success_rate = ?,
@@ -276,27 +286,33 @@ class CollectiveInsightDB {
             last_seen = datetime('now'),
             metadata = ?
         WHERE id = ?
-      `).run(
-        pattern.successRate || null,
-        pattern.avgConfidence || null,
-        JSON.stringify(pattern.metadata || {}),
-        existing.id
-      );
+      `,
+        )
+        .run(
+          pattern.successRate || null,
+          pattern.avgConfidence || null,
+          JSON.stringify(pattern.metadata || {}),
+          existing.id,
+        );
     } else {
       // Insert new
-      this.db.prepare(`
+      this.db
+        .prepare(
+          `
         INSERT INTO team_knowledge (
           pattern_type, category, provider, occurrences,
           success_rate, avg_confidence, first_seen, last_seen, metadata
         ) VALUES (?, ?, ?, 1, ?, ?, datetime('now'), datetime('now'), ?)
-      `).run(
-        pattern.type,
-        pattern.category || null,
-        pattern.provider || null,
-        pattern.successRate || null,
-        pattern.avgConfidence || null,
-        JSON.stringify(pattern.metadata || {})
-      );
+      `,
+        )
+        .run(
+          pattern.type,
+          pattern.category || null,
+          pattern.provider || null,
+          pattern.successRate || null,
+          pattern.avgConfidence || null,
+          JSON.stringify(pattern.metadata || {}),
+        );
     }
   }
 
@@ -309,22 +325,32 @@ class CollectiveInsightDB {
     const cutoffStr = cutoff.toISOString();
 
     return {
-      runs: this.db.prepare(`
+      runs: this.db
+        .prepare(
+          `
         SELECT * FROM analysis_runs
         WHERE started_at >= ?
         ORDER BY started_at DESC
-      `).all(cutoffStr),
+      `,
+        )
+        .all(cutoffStr),
 
-      findingsByCategory: this.db.prepare(`
+      findingsByCategory: this.db
+        .prepare(
+          `
         SELECT category, severity, COUNT(*) as count
         FROM findings f
         JOIN analysis_runs r ON f.run_id = r.id
         WHERE r.started_at >= ?
         GROUP BY category, severity
         ORDER BY count DESC
-      `).all(cutoffStr),
+      `,
+        )
+        .all(cutoffStr),
 
-      fixSuccessRate: this.db.prepare(`
+      fixSuccessRate: this.db
+        .prepare(
+          `
         SELECT f.category,
                COUNT(*) as total,
                SUM(CASE WHEN f.success = 1 THEN 1 ELSE 0 END) as successful,
@@ -334,9 +360,13 @@ class CollectiveInsightDB {
         WHERE r.started_at >= ?
         GROUP BY f.category
         ORDER BY successful DESC
-      `).all(cutoffStr),
+      `,
+        )
+        .all(cutoffStr),
 
-      providerStats: this.db.prepare(`
+      providerStats: this.db
+        .prepare(
+          `
         SELECT p.provider,
                COUNT(*) as analyses,
                AVG(p.duration_ms) as avg_duration,
@@ -346,13 +376,19 @@ class CollectiveInsightDB {
         FROM provider_performance p
         WHERE p.created_at >= ?
         GROUP BY p.provider
-      `).all(cutoffStr),
+      `,
+        )
+        .all(cutoffStr),
 
-      patterns: this.db.prepare(`
+      patterns: this.db
+        .prepare(
+          `
         SELECT * FROM team_knowledge
         WHERE last_seen >= ?
         ORDER BY occurrences DESC
-      `).all(cutoffStr)
+      `,
+        )
+        .all(cutoffStr),
     };
   }
 
@@ -361,15 +397,27 @@ class CollectiveInsightDB {
    */
   getStats() {
     return {
-      totalRuns: this.db.prepare('SELECT COUNT(*) as count FROM analysis_runs').get().count,
-      totalFindings: this.db.prepare('SELECT COUNT(*) as count FROM findings').get().count,
-      totalFixes: this.db.prepare('SELECT COUNT(*) as count FROM fixes').get().count,
-      fixSuccessRate: this.db.prepare(`
+      totalRuns: this.db
+        .prepare("SELECT COUNT(*) as count FROM analysis_runs")
+        .get().count,
+      totalFindings: this.db
+        .prepare("SELECT COUNT(*) as count FROM findings")
+        .get().count,
+      totalFixes: this.db.prepare("SELECT COUNT(*) as count FROM fixes").get()
+        .count,
+      fixSuccessRate:
+        this.db
+          .prepare(
+            `
         SELECT
           SUM(CASE WHEN success = 1 THEN 1 ELSE 0 END) * 100.0 / COUNT(*) as rate
         FROM fixes
-      `).get().rate || 0,
-      uniquePatterns: this.db.prepare('SELECT COUNT(*) as count FROM team_knowledge').get().count
+      `,
+          )
+          .get().rate || 0,
+      uniquePatterns: this.db
+        .prepare("SELECT COUNT(*) as count FROM team_knowledge")
+        .get().count,
     };
   }
 

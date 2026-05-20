@@ -5,16 +5,16 @@
  * Applies safe, high-confidence fixes to common code issues
  */
 
-const fs = require('fs').promises;
-const path = require('path');
-const GitIntegration = require('../git-integration');
-const FixVerifier = require('./fix-verifier');
-const ConfidenceScorer = require('./confidence-scorer');
+const fs = require("fs").promises;
+const path = require("path");
+const GitIntegration = require("../git-integration");
+const FixVerifier = require("./fix-verifier");
+const ConfidenceScorer = require("./confidence-scorer");
 
 class AutoFixer {
   constructor(config = {}) {
     this.config = {
-      minConfidence: config.minConfidence || 0.90, // Increased from 0.80 to 0.90
+      minConfidence: config.minConfidence || 0.9, // Increased from 0.80 to 0.90
       dryRun: config.dryRun || false,
       createBackup: config.createBackup !== false,
       verbose: config.verbose || false,
@@ -24,7 +24,7 @@ class AutoFixer {
       enableVerification: config.enableVerification !== false,
       verificationOptions: config.verificationOptions || {},
       useAdvancedConfidence: config.useAdvancedConfidence !== false,
-      ...config
+      ...config,
     };
 
     this.stats = {
@@ -33,7 +33,7 @@ class AutoFixer {
       failed: 0,
       skipped: 0,
       verified: 0,
-      verificationFailed: 0
+      verificationFailed: 0,
     };
 
     this.fixResults = [];
@@ -43,7 +43,7 @@ class AutoFixer {
       this.gitIntegration = new GitIntegration({
         dryRun: this.config.dryRun,
         verbose: this.config.verbose,
-        createBranch: this.config.createBranch
+        createBranch: this.config.createBranch,
       });
     }
 
@@ -53,7 +53,7 @@ class AutoFixer {
         enableAstValidation: true,
         enableTestExecution: false, // Disabled by default for performance
         enableRollback: !this.config.dryRun,
-        ...this.config.verificationOptions
+        ...this.config.verificationOptions,
       });
     }
 
@@ -73,26 +73,37 @@ class AutoFixer {
     let effectiveConfidence = finding.confidence || 0.7;
 
     if (this.confidenceScorer) {
-      const confidenceResult = this.confidenceScorer.calculateConfidence(finding, {
-        complexity: finding.complexity,
-        fileType: path.extname(finding.filePath || finding.file),
-        otherIssues: finding.relatedIssues || []
-      });
+      const confidenceResult = this.confidenceScorer.calculateConfidence(
+        finding,
+        {
+          complexity: finding.complexity,
+          fileType: path.extname(finding.filePath || finding.file),
+          otherIssues: finding.relatedIssues || [],
+        },
+      );
 
       effectiveConfidence = confidenceResult.score;
 
       if (this.config.verbose) {
-        console.log(`📊 Confidence: ${(effectiveConfidence * 100).toFixed(1)}% (${confidenceResult.level})`);
+        console.log(
+          `📊 Confidence: ${(effectiveConfidence * 100).toFixed(1)}% (${confidenceResult.level})`,
+        );
       }
     }
 
     // Check confidence threshold
     if (effectiveConfidence < this.config.minConfidence) {
       if (this.config.verbose) {
-        console.log(`⏭️  Skipped ${finding.category} (confidence ${(effectiveConfidence * 100).toFixed(0)}% < ${(this.config.minConfidence * 100).toFixed(0)}%)`);
+        console.log(
+          `⏭️  Skipped ${finding.category} (confidence ${(effectiveConfidence * 100).toFixed(0)}% < ${(this.config.minConfidence * 100).toFixed(0)}%)`,
+        );
       }
       this.stats.skipped++;
-      return { success: false, reason: 'low_confidence', confidence: effectiveConfidence };
+      return {
+        success: false,
+        reason: "low_confidence",
+        confidence: effectiveConfidence,
+      };
     }
 
     // Update finding with effective confidence
@@ -105,14 +116,14 @@ class AutoFixer {
         console.log(`⏭️  No fixer available for ${finding.category}`);
       }
       this.stats.skipped++;
-      return { success: false, reason: 'no_fixer' };
+      return { success: false, reason: "no_fixer" };
     }
 
     // Read original content for verification and rollback
     let originalContent = null;
     if (this.config.enableVerification && !this.config.dryRun) {
       try {
-        originalContent = await fs.readFile(finding.filePath, 'utf-8');
+        originalContent = await fs.readFile(finding.filePath, "utf-8");
       } catch (error) {
         if (this.config.verbose) {
           console.warn(`⚠️  Could not read original content: ${error.message}`);
@@ -135,7 +146,7 @@ class AutoFixer {
           const verificationResult = await this.verifier.verifyFix({
             filePath: finding.filePath,
             type: finding.category,
-            originalContent
+            originalContent,
           });
 
           this.stats.verified++;
@@ -145,8 +156,10 @@ class AutoFixer {
             this.stats.failed++;
 
             if (this.config.verbose) {
-              console.log(`❌ Fix verification failed for ${finding.category} in ${finding.filePath}`);
-              verificationResult.errors.forEach(err => {
+              console.log(
+                `❌ Fix verification failed for ${finding.category} in ${finding.filePath}`,
+              );
+              verificationResult.errors.forEach((err) => {
                 console.log(`   • ${err.type}: ${err.message}`);
               });
               if (verificationResult.rolledBack) {
@@ -156,17 +169,21 @@ class AutoFixer {
 
             return {
               success: false,
-              error: 'Verification failed',
-              verificationResult
+              error: "Verification failed",
+              verificationResult,
             };
           }
 
           if (this.config.verbose) {
-            console.log(`✅ Fixed ${finding.category} in ${finding.filePath}:${finding.line} (verified)`);
+            console.log(
+              `✅ Fixed ${finding.category} in ${finding.filePath}:${finding.line} (verified)`,
+            );
           }
         } else {
           if (this.config.verbose) {
-            console.log(`✅ Fixed ${finding.category} in ${finding.filePath}:${finding.line}`);
+            console.log(
+              `✅ Fixed ${finding.category} in ${finding.filePath}:${finding.line}`,
+            );
           }
         }
 
@@ -182,12 +199,11 @@ class AutoFixer {
       const fixResult = {
         ...result,
         finding,
-        filePath: finding.filePath
+        filePath: finding.filePath,
       };
       this.fixResults.push(fixResult);
 
       return result;
-
     } catch (error) {
       this.stats.failed++;
       if (this.config.verbose) {
@@ -202,13 +218,13 @@ class AutoFixer {
    */
   getFixer(category) {
     const fixers = {
-      'HARDCODED_SECRET': require('./hardcoded-secret-fixer'),
-      'SQL_INJECTION': require('./sql-injection-fixer'),
-      'XSS': require('./xss-fixer'),
-      'SYNC_IO': require('./sync-io-fixer'),
-      'MISSING_DOCS': require('./missing-docs-fixer'),
-      'COMMAND_EXEC': require('./command-exec-fixer'),
-      'MAGIC_NUMBER': require('./magic-number-fixer')
+      HARDCODED_SECRET: require("./hardcoded-secret-fixer"),
+      SQL_INJECTION: require("./sql-injection-fixer"),
+      XSS: require("./xss-fixer"),
+      SYNC_IO: require("./sync-io-fixer"),
+      MISSING_DOCS: require("./missing-docs-fixer"),
+      COMMAND_EXEC: require("./command-exec-fixer"),
+      MAGIC_NUMBER: require("./magic-number-fixer"),
     };
 
     return fixers[category] || null;
@@ -239,27 +255,27 @@ class AutoFixer {
     if (!this.config.autoCommit) {
       return {
         success: false,
-        reason: 'auto_commit_disabled',
-        message: 'Auto-commit is not enabled'
+        reason: "auto_commit_disabled",
+        message: "Auto-commit is not enabled",
       };
     }
 
     if (this.fixResults.length === 0) {
       return {
         success: false,
-        reason: 'no_fixes',
-        message: 'No fixes to commit'
+        reason: "no_fixes",
+        message: "No fixes to commit",
       };
     }
 
     if (this.config.verbose) {
-      console.log('\n🔄 Committing fixes to git...');
+      console.log("\n🔄 Committing fixes to git...");
     }
 
     try {
       const commitResult = await this.gitIntegration.commitFixes(
         this.fixResults,
-        { projectPath: this.config.projectPath }
+        { projectPath: this.config.projectPath },
       );
 
       if (commitResult.success) {
@@ -281,15 +297,14 @@ class AutoFixer {
       }
 
       return commitResult;
-
     } catch (error) {
       if (this.config.verbose) {
         console.error(`\n❌ Git commit failed:`, error.message);
       }
       return {
         success: false,
-        reason: 'git_error',
-        message: error.message
+        reason: "git_error",
+        message: error.message,
       };
     }
   }
@@ -300,9 +315,11 @@ class AutoFixer {
   getStats() {
     const stats = {
       ...this.stats,
-      successRate: this.stats.attempted > 0
-        ? (this.stats.succeeded / this.stats.attempted * 100).toFixed(1) + '%'
-        : '0%'
+      successRate:
+        this.stats.attempted > 0
+          ? ((this.stats.succeeded / this.stats.attempted) * 100).toFixed(1) +
+            "%"
+          : "0%",
     };
 
     // Add verification stats if verifier is enabled
@@ -338,7 +355,7 @@ class AutoFixer {
       attempted: 0,
       succeeded: 0,
       failed: 0,
-      skipped: 0
+      skipped: 0,
     };
     this.fixResults = [];
     if (this.gitIntegration) {

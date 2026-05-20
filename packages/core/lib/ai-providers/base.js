@@ -23,7 +23,8 @@ class AIProvider {
     this.apiKey = config.apiKey;
     this.costPerInputToken = config.costPerInputToken;
     this.costPerOutputToken = config.costPerOutputToken;
-    this.costPerCachedToken = config.costPerCachedToken || config.costPerInputToken;
+    this.costPerCachedToken =
+      config.costPerCachedToken || config.costPerInputToken;
     this.maxTokens = config.maxTokens || 4000;
     this.timeout = config.timeout || 60000;
     this.enabled = !!config.apiKey;
@@ -59,7 +60,9 @@ class AIProvider {
    * }
    */
   async analyze(domain, filePath, content, projectRoot, options = {}) {
-    throw new Error(`analyze() must be implemented by ${this.constructor.name}`);
+    throw new Error(
+      `analyze() must be implemented by ${this.constructor.name}`,
+    );
   }
 
   /**
@@ -88,9 +91,11 @@ class AIProvider {
    * @returns {number} Cost in USD
    */
   estimateCost(inputTokens, estimatedOutputTokens = 500, cachedTokens = 0) {
-    const inputCost = ((inputTokens - cachedTokens) * this.costPerInputToken) / 1_000_000;
+    const inputCost =
+      ((inputTokens - cachedTokens) * this.costPerInputToken) / 1_000_000;
     const cachedCost = (cachedTokens * this.costPerCachedToken) / 1_000_000;
-    const outputCost = (estimatedOutputTokens * this.costPerOutputToken) / 1_000_000;
+    const outputCost =
+      (estimatedOutputTokens * this.costPerOutputToken) / 1_000_000;
 
     return inputCost + cachedCost + outputCost;
   }
@@ -115,7 +120,7 @@ class AIProvider {
    */
   getDomainSystemPrompt(domain) {
     const prompts = {
-      'security-god': `You are a world-class security expert analyzing code for vulnerabilities.
+      "security-god": `You are a world-class security expert analyzing code for vulnerabilities.
 Focus on OWASP Top 10 vulnerabilities:
 - SQL Injection
 - XSS (Cross-Site Scripting)
@@ -139,7 +144,7 @@ Return findings as a JSON array with this exact structure:
   ]
 }`,
 
-      'performance-god': `You are a performance optimization expert analyzing code for bottlenecks.
+      "performance-god": `You are a performance optimization expert analyzing code for bottlenecks.
 Focus on:
 - N+1 query problems
 - Synchronous I/O in async contexts
@@ -163,7 +168,7 @@ Return findings as a JSON array with this exact structure:
   ]
 }`,
 
-      'test-god': `You are a testing expert analyzing code coverage and test quality.
+      "test-god": `You are a testing expert analyzing code coverage and test quality.
 Focus on:
 - Missing test coverage for critical paths
 - Weak or meaningless assertions
@@ -186,7 +191,7 @@ Return findings as a JSON array with this exact structure:
   ]
 }`,
 
-      'refactoring-god': `You are a code quality expert analyzing code for maintainability issues.
+      "refactoring-god": `You are a code quality expert analyzing code for maintainability issues.
 Focus on:
 - SOLID principle violations
 - Code duplication (DRY violations)
@@ -210,7 +215,7 @@ Return findings as a JSON array with this exact structure:
   ]
 }`,
 
-      'documentation-god': `You are a documentation expert analyzing code clarity and documentation quality.
+      "documentation-god": `You are a documentation expert analyzing code clarity and documentation quality.
 Focus on:
 - Missing JSDoc/docstrings for public APIs
 - Unclear variable/function names
@@ -231,10 +236,10 @@ Return findings as a JSON array with this exact structure:
       "suggestion": "Add JSDoc with @param, @returns, and usage example"
     }
   ]
-}`
+}`,
     };
 
-    return prompts[domain] || prompts['security-god'];
+    return prompts[domain] || prompts["security-god"];
   }
 
   /**
@@ -264,23 +269,23 @@ Return ONLY valid JSON with findings. If no issues found, return {"issues": []}.
    * @returns {string} Language identifier
    */
   detectLanguage(filePath) {
-    const ext = filePath.split('.').pop().toLowerCase();
+    const ext = filePath.split(".").pop().toLowerCase();
     const langMap = {
-      js: 'javascript',
-      ts: 'typescript',
-      jsx: 'javascript',
-      tsx: 'typescript',
-      py: 'python',
-      rb: 'ruby',
-      go: 'go',
-      java: 'java',
-      cpp: 'cpp',
-      c: 'c',
-      rs: 'rust',
-      php: 'php',
-      cs: 'csharp'
+      js: "javascript",
+      ts: "typescript",
+      jsx: "javascript",
+      tsx: "typescript",
+      py: "python",
+      rb: "ruby",
+      go: "go",
+      java: "java",
+      cpp: "cpp",
+      c: "c",
+      rs: "rust",
+      php: "php",
+      cs: "csharp",
     };
-    return langMap[ext] || 'code';
+    return langMap[ext] || "code";
   }
 
   /**
@@ -305,11 +310,13 @@ Return ONLY valid JSON with findings. If no issues found, return {"issues": []}.
         return parsed.findings;
       }
 
-      console.warn(`[${this.name}] Unexpected response format, returning empty array`);
+      console.warn(
+        `[${this.name}] Unexpected response format, returning empty array`,
+      );
       return [];
     } catch (error) {
       console.error(`[${this.name}] Failed to parse response:`, error.message);
-      console.error('Response:', response.substring(0, 200));
+      console.error("Response:", response.substring(0, 200));
       return [];
     }
   }

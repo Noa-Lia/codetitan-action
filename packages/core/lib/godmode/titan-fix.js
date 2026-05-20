@@ -14,10 +14,10 @@
  * @module godmode/level4-ai-fixers
  */
 
-const { AIProviderManager } = require('../ai-providers');
-const { FixGenerator, FixApplier } = require('../ai-fixers');
-const { ConfidenceScorer } = require('../ai-providers');
-const fs = require('fs').promises;
+const { AIProviderManager } = require("../ai-providers");
+const { FixGenerator, FixApplier } = require("../ai-fixers");
+const { ConfidenceScorer } = require("../ai-providers");
+const fs = require("fs").promises;
 
 class Level4AIFixers {
   constructor(config = {}) {
@@ -26,7 +26,7 @@ class Level4AIFixers {
       minConfidence: config.minConfidence || 75,
 
       // Preferred AI provider for fix generation
-      preferredProvider: config.preferredProvider || 'gpt-5-codex',
+      preferredProvider: config.preferredProvider || "gpt-5-codex",
 
       // Run tests after applying fixes
       runTests: config.runTests !== false,
@@ -39,23 +39,23 @@ class Level4AIFixers {
 
       // Categories to auto-fix
       autoFixCategories: config.autoFixCategories || [
-        'SYNC_IO',
-        'HARDCODED_SECRET',
-        'MISSING_AUTH',
-        'WEAK_CRYPTO',
-        'MAGIC_NUMBER',
-        'UNUSED_VARIABLE'
+        "SYNC_IO",
+        "HARDCODED_SECRET",
+        "MISSING_AUTH",
+        "WEAK_CRYPTO",
+        "MAGIC_NUMBER",
+        "UNUSED_VARIABLE",
       ],
 
-      ...config
+      ...config,
     };
 
     this.aiManager = new AIProviderManager();
     this.fixGenerator = new FixGenerator(this.aiManager, {
-      preferredProvider: this.config.preferredProvider
+      preferredProvider: this.config.preferredProvider,
     });
     this.fixApplier = new FixApplier({
-      createBackups: true
+      createBackups: true,
     });
     this.confidenceScorer = new ConfidenceScorer();
 
@@ -65,7 +65,7 @@ class Level4AIFixers {
       fixesRolledBack: 0,
       totalCost: 0,
       testsPassed: 0,
-      testsFailed: 0
+      testsFailed: 0,
     };
   }
 
@@ -73,7 +73,7 @@ class Level4AIFixers {
    * Run Level 4 AI-powered fixes on analysis findings
    */
   async runLevel4Fixes(findings, options = {}) {
-    console.log('[TITAN MODE Level 4] AI-Powered Adaptive Fixers\n');
+    console.log("[TITAN MODE Level 4] AI-Powered Adaptive Fixers\n");
 
     // Filter findings that are fixable
     const fixable = this.filterFixableFindings(findings);
@@ -84,7 +84,7 @@ class Level4AIFixers {
       return {
         success: true,
         fixesApplied: 0,
-        message: 'No fixable issues found'
+        message: "No fixable issues found",
       };
     }
 
@@ -109,11 +109,11 @@ class Level4AIFixers {
     const summary = {
       total: fixable.length,
       processed: results.length,
-      applied: results.filter(r => r.applied).length,
-      rolledBack: results.filter(r => r.rolledBack).length,
-      failed: results.filter(r => !r.success).length,
+      applied: results.filter((r) => r.applied).length,
+      rolledBack: results.filter((r) => r.rolledBack).length,
+      failed: results.filter((r) => !r.success).length,
       cost: this.stats.totalCost,
-      results
+      results,
     };
 
     console.log(`\n[Level 4] Summary:`);
@@ -129,9 +129,13 @@ class Level4AIFixers {
    * Filter findings that can be auto-fixed
    */
   filterFixableFindings(findings) {
-    return findings.filter(finding => {
+    return findings.filter((finding) => {
       // Must be in auto-fix categories
-      if (!this.config.autoFixCategories.some(cat => finding.category.includes(cat))) {
+      if (
+        !this.config.autoFixCategories.some((cat) =>
+          finding.category.includes(cat),
+        )
+      ) {
         return false;
       }
 
@@ -151,7 +155,9 @@ class Level4AIFixers {
    * Process a single finding: generate fix, apply, test, rollback if needed
    */
   async processFixForFinding(finding, options = {}) {
-    console.log(`\n[Level 4] Processing: ${finding.category} in ${finding.file_path}:${finding.line_number}`);
+    console.log(
+      `\n[Level 4] Processing: ${finding.category} in ${finding.file_path}:${finding.line_number}`,
+    );
 
     const result = {
       finding,
@@ -161,12 +167,12 @@ class Level4AIFixers {
       tested: false,
       testsPassed: false,
       rolledBack: false,
-      cost: 0
+      cost: 0,
     };
 
     try {
       // Read file content
-      const content = await fs.readFile(finding.file_path, 'utf-8');
+      const content = await fs.readFile(finding.file_path, "utf-8");
 
       // Generate fix using AI
       console.log(`   Generating AI fix (${this.config.preferredProvider})...`);
@@ -176,7 +182,7 @@ class Level4AIFixers {
       this.stats.fixesGenerated++;
 
       if (!fixResult.success || !fixResult.fix.verified) {
-        result.error = fixResult.error || 'Fix verification failed';
+        result.error = fixResult.error || "Fix verification failed";
         console.log(`   ✗ Fix generation failed: ${result.error}`);
         return result;
       }
@@ -192,7 +198,7 @@ class Level4AIFixers {
       console.log(`   Applying fix...`);
       const applyResult = await this.fixApplier.applyFix(
         finding.file_path,
-        fixResult.fix
+        fixResult.fix,
       );
 
       if (!applyResult.success) {
@@ -242,7 +248,6 @@ class Level4AIFixers {
       }
 
       return result;
-
     } catch (error) {
       result.error = error.message;
       console.log(`   ✗ Error: ${error.message}`);
@@ -255,8 +260,8 @@ class Level4AIFixers {
    */
   async runTests(filePath) {
     const projectRoot = this.config.projectRoot || process.cwd();
-    const TestRunnerDetector = require('../test-runner-detector');
-    const TestExecutor = require('../test-executor');
+    const TestRunnerDetector = require("../test-runner-detector");
+    const TestExecutor = require("../test-executor");
     const detector = new TestRunnerDetector(projectRoot);
     const executor = new TestExecutor(projectRoot, detector);
 
@@ -265,7 +270,7 @@ class Level4AIFixers {
       return {
         passed: result.failed === 0,
         output: result.output,
-        details: result
+        details: result,
       };
     } catch (err) {
       return { passed: false, output: err.message, error: true };
@@ -278,12 +283,15 @@ class Level4AIFixers {
   getStats() {
     return {
       ...this.stats,
-      successRate: this.stats.fixesApplied > 0
-        ? (this.stats.fixesApplied - this.stats.fixesRolledBack) / this.stats.fixesApplied
-        : 0,
-      avgCostPerFix: this.stats.fixesGenerated > 0
-        ? this.stats.totalCost / this.stats.fixesGenerated
-        : 0
+      successRate:
+        this.stats.fixesApplied > 0
+          ? (this.stats.fixesApplied - this.stats.fixesRolledBack) /
+            this.stats.fixesApplied
+          : 0,
+      avgCostPerFix:
+        this.stats.fixesGenerated > 0
+          ? this.stats.totalCost / this.stats.fixesGenerated
+          : 0,
     };
   }
 }

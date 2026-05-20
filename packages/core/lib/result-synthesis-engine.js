@@ -14,16 +14,16 @@ class ResultSynthesisEngine {
       CRITICAL: 100,
       HIGH: 50,
       MEDIUM: 20,
-      LOW: 5
+      LOW: 5,
     };
 
     // Domain names (human-readable)
     this.domainNames = {
-      'security-god': 'Security',
-      'performance-god': 'Performance',
-      'test-god': 'Testing',
-      'refactoring-god': 'Code Quality',
-      'documentation-god': 'Documentation'
+      "security-god": "Security",
+      "performance-god": "Performance",
+      "test-god": "Testing",
+      "refactoring-god": "Code Quality",
+      "documentation-god": "Documentation",
     };
 
     // Collected data
@@ -35,7 +35,9 @@ class ResultSynthesisEngine {
    * Main synthesis method: aggregate and prioritize all findings
    */
   async synthesize(rawResults) {
-    console.log(`\n[LINK] Synthesizing results from ${rawResults.length} agent executions...`);
+    console.log(
+      `\n[LINK] Synthesizing results from ${rawResults.length} agent executions...`,
+    );
 
     this.rawResults = rawResults;
 
@@ -46,7 +48,9 @@ class ResultSynthesisEngine {
 
       // Step 2: Deduplicate identical issues
       const uniqueFindings = this.deduplicateFindings(allFindings);
-      console.log(`   Deduplicated to ${uniqueFindings.length} unique findings`);
+      console.log(
+        `   Deduplicated to ${uniqueFindings.length} unique findings`,
+      );
 
       // Step 3: Prioritize by severity x impact
       const prioritized = this.prioritizeFindings(uniqueFindings);
@@ -57,7 +61,6 @@ class ResultSynthesisEngine {
       console.log(`   Generated unified report`);
 
       return report;
-
     } catch (error) {
       console.error(`[ERROR] Synthesis failed:`, error);
       throw error;
@@ -78,12 +81,12 @@ class ResultSynthesisEngine {
 
       // Extract findings from result
       if (result.findings && result.findings.issues) {
-        result.findings.issues.forEach(issue => {
+        result.findings.issues.forEach((issue) => {
           allFindings.push({
             ...issue,
             domain: result.god,
             domainName: this.domainNames[result.god] || result.god,
-            file: result.file
+            file: result.file,
           });
         });
       }
@@ -144,7 +147,8 @@ class ResultSynthesisEngine {
     // Group findings by file
     const byFile = this.groupByFile(findings);
 
-    const { totalFiles, totalLinesAnalyzed } = this.getUniqueFileStats(rawResults);
+    const { totalFiles, totalLinesAnalyzed } =
+      this.getUniqueFileStats(rawResults);
 
     // Calculate summary statistics
     const summary = {
@@ -154,8 +158,8 @@ class ResultSynthesisEngine {
       medium: bySeverity.MEDIUM?.length || 0,
       low: bySeverity.LOW?.length || 0,
       totalFiles,
-      filesWithIssues: new Set(findings.map(f => f.file)).size,
-      totalLinesAnalyzed
+      filesWithIssues: new Set(findings.map((f) => f.file)).size,
+      totalLinesAnalyzed,
     };
 
     // Domain breakdown
@@ -165,7 +169,11 @@ class ResultSynthesisEngine {
     }
 
     // Generate actionable recommendations
-    const recommendations = this.generateRecommendations(findings, bySeverity, byDomain);
+    const recommendations = this.generateRecommendations(
+      findings,
+      bySeverity,
+      byDomain,
+    );
 
     // Top issues (highest priority)
     const topIssues = findings.slice(0, 10);
@@ -179,7 +187,7 @@ class ResultSynthesisEngine {
       byFile,
       topIssues,
       recommendations,
-      metrics: this.calculateMetrics(findings, rawResults)
+      metrics: this.calculateMetrics(findings, rawResults),
     };
   }
 
@@ -188,7 +196,7 @@ class ResultSynthesisEngine {
    */
   groupBySeverity(findings) {
     return findings.reduce((acc, finding) => {
-      const severity = finding.severity || 'MEDIUM';
+      const severity = finding.severity || "MEDIUM";
       if (!acc[severity]) {
         acc[severity] = [];
       }
@@ -235,10 +243,10 @@ class ResultSynthesisEngine {
     const criticalCount = bySeverity.CRITICAL?.length || 0;
     if (criticalCount > 0) {
       recommendations.push({
-        priority: 'URGENT',
-        action: `Fix ${criticalCount} critical issue${criticalCount > 1 ? 's' : ''} immediately`,
-        impact: 'High security/stability risk',
-        effort: 'Varies by issue'
+        priority: "URGENT",
+        action: `Fix ${criticalCount} critical issue${criticalCount > 1 ? "s" : ""} immediately`,
+        impact: "High security/stability risk",
+        effort: "Varies by issue",
       });
     }
 
@@ -246,10 +254,10 @@ class ResultSynthesisEngine {
     const highCount = bySeverity.HIGH?.length || 0;
     if (highCount > 5) {
       recommendations.push({
-        priority: 'HIGH',
+        priority: "HIGH",
         action: `Address ${highCount} high-severity issues`,
-        impact: 'Significant quality/security improvement',
-        effort: 'Multiple days'
+        impact: "Significant quality/security improvement",
+        effort: "Multiple days",
       });
     }
 
@@ -259,11 +267,11 @@ class ResultSynthesisEngine {
         const domainName = this.domainNames[domain] || domain;
         const topCategory = this.getTopCategory(domainFindings);
         recommendations.push({
-          priority: 'MEDIUM',
+          priority: "MEDIUM",
           action: `Focus on ${domainName}: ${domainFindings.length} issues found`,
           impact: `Improve ${domainName.toLowerCase()}`,
-          effort: 'Several days',
-          topIssue: topCategory
+          effort: "Several days",
+          topIssue: topCategory,
         });
       }
     });
@@ -272,20 +280,20 @@ class ResultSynthesisEngine {
     const lowCount = bySeverity.LOW?.length || 0;
     if (lowCount > 20) {
       recommendations.push({
-        priority: 'LOW',
+        priority: "LOW",
         action: `Clean up ${lowCount} minor issues for code hygiene`,
-        impact: 'Improved maintainability',
-        effort: 'Quick wins, good for junior devs'
+        impact: "Improved maintainability",
+        effort: "Quick wins, good for junior devs",
       });
     }
 
     // If very few issues, celebrate!
     if (findings.length < 10) {
       recommendations.push({
-        priority: 'INFO',
-        action: 'Excellent code quality! Only minor improvements needed.',
-        impact: 'Maintain current standards',
-        effort: 'Minimal'
+        priority: "INFO",
+        action: "Excellent code quality! Only minor improvements needed.",
+        impact: "Maintain current standards",
+        effort: "Minimal",
       });
     }
 
@@ -301,38 +309,47 @@ class ResultSynthesisEngine {
       return acc;
     }, {});
 
-    const sortedCategories = Object.entries(categoryCounts)
-      .sort((a, b) => b[1] - a[1]);
+    const sortedCategories = Object.entries(categoryCounts).sort(
+      (a, b) => b[1] - a[1],
+    );
 
-    return sortedCategories[0] ? sortedCategories[0][0] : 'Unknown';
+    return sortedCategories[0] ? sortedCategories[0][0] : "Unknown";
   }
 
   /**
    * Calculate quality metrics
    */
   calculateMetrics(findings, rawResults) {
-    const { totalLinesAnalyzed: totalLines } = this.getUniqueFileStats(rawResults);
-    const issuesPerKLOC = totalLines > 0 ? (findings.length / (totalLines / 1000)) : 0;
+    const { totalLinesAnalyzed: totalLines } =
+      this.getUniqueFileStats(rawResults);
+    const issuesPerKLOC =
+      totalLines > 0 ? findings.length / (totalLines / 1000) : 0;
 
-    const criticalCount = findings.filter(f => f.severity === 'CRITICAL').length;
-    const highCount = findings.filter(f => f.severity === 'HIGH').length;
+    const criticalCount = findings.filter(
+      (f) => f.severity === "CRITICAL",
+    ).length;
+    const highCount = findings.filter((f) => f.severity === "HIGH").length;
 
     // Quality score (0-100)
     // Perfect score = 100, decreases with issues
     const criticalPenalty = criticalCount * 10;
     const highPenalty = highCount * 5;
-    const mediumPenalty = findings.filter(f => f.severity === 'MEDIUM').length * 2;
-    const lowPenalty = findings.filter(f => f.severity === 'LOW').length * 0.5;
+    const mediumPenalty =
+      findings.filter((f) => f.severity === "MEDIUM").length * 2;
+    const lowPenalty =
+      findings.filter((f) => f.severity === "LOW").length * 0.5;
 
-    const totalPenalty = criticalPenalty + highPenalty + mediumPenalty + lowPenalty;
+    const totalPenalty =
+      criticalPenalty + highPenalty + mediumPenalty + lowPenalty;
     const qualityScore = Math.max(0, 100 - totalPenalty);
 
     return {
       totalLines,
       issuesPerKLOC: issuesPerKLOC.toFixed(2),
       qualityScore: qualityScore.toFixed(1),
-      criticalDensity: totalLines > 0 ? (criticalCount / (totalLines / 1000)).toFixed(2) : 0,
-      healthGrade: this.calculateHealthGrade(qualityScore)
+      criticalDensity:
+        totalLines > 0 ? (criticalCount / (totalLines / 1000)).toFixed(2) : 0,
+      healthGrade: this.calculateHealthGrade(qualityScore),
     };
   }
 
@@ -340,11 +357,11 @@ class ResultSynthesisEngine {
    * Calculate health grade (A-F) based on quality score
    */
   calculateHealthGrade(score) {
-    if (score >= 90) return 'A';
-    if (score >= 80) return 'B';
-    if (score >= 70) return 'C';
-    if (score >= 60) return 'D';
-    return 'F';
+    if (score >= 90) return "A";
+    if (score >= 80) return "B";
+    if (score >= 70) return "C";
+    if (score >= 60) return "D";
+    return "F";
   }
 
   /**
@@ -361,12 +378,14 @@ class ResultSynthesisEngine {
       fileLines.set(file, lines);
     }
 
-    const totalLinesAnalyzed = Array.from(fileLines.values())
-      .reduce((sum, lines) => sum + lines, 0);
+    const totalLinesAnalyzed = Array.from(fileLines.values()).reduce(
+      (sum, lines) => sum + lines,
+      0,
+    );
 
     return {
       totalFiles: fileLines.size,
-      totalLinesAnalyzed
+      totalLinesAnalyzed,
     };
   }
 
@@ -381,10 +400,10 @@ class ResultSynthesisEngine {
    * Export report as Markdown
    */
   toMarkdown(report) {
-    let md = '# Codebase Analysis Report\n\n';
+    let md = "# Codebase Analysis Report\n\n";
 
     // Summary
-    md += '## Summary\n\n';
+    md += "## Summary\n\n";
     md += `- **Total Findings**: ${report.summary.totalFindings}\n`;
     md += `- **Critical**: 🔴 ${report.summary.critical}\n`;
     md += `- **High**: 🟠 ${report.summary.high}\n`;
@@ -395,15 +414,15 @@ class ResultSynthesisEngine {
     md += `- **Quality Score**: ${report.metrics.qualityScore}/100 (Grade: ${report.metrics.healthGrade})\n\n`;
 
     // Domain breakdown
-    md += '## Findings by Domain\n\n';
+    md += "## Findings by Domain\n\n";
     Object.entries(report.domainSummary).forEach(([god, count]) => {
       const domainName = this.domainNames[god] || god;
       md += `- **${domainName}**: ${count} issues\n`;
     });
-    md += '\n';
+    md += "\n";
 
     // Recommendations
-    md += '## Recommendations\n\n';
+    md += "## Recommendations\n\n";
     report.recommendations.forEach((rec, i) => {
       md += `### ${i + 1}. ${rec.action}\n`;
       md += `- **Priority**: ${rec.priority}\n`;
@@ -412,11 +431,11 @@ class ResultSynthesisEngine {
       if (rec.topIssue) {
         md += `- **Top Issue**: ${rec.topIssue}\n`;
       }
-      md += '\n';
+      md += "\n";
     });
 
     // Top issues
-    md += '## Top 10 Issues\n\n';
+    md += "## Top 10 Issues\n\n";
     report.topIssues.forEach((issue, i) => {
       md += `### ${i + 1}. ${issue.message}\n`;
       md += `- **File**: \`${issue.file}\`\n`;

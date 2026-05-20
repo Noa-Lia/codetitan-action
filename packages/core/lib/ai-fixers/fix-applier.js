@@ -11,9 +11,9 @@
  * @module ai-fixers/fix-applier
  */
 
-const fs = require('fs').promises;
-const path = require('path');
-const crypto = require('crypto');
+const fs = require("fs").promises;
+const path = require("path");
+const crypto = require("crypto");
 
 class FixApplier {
   constructor(config = {}) {
@@ -22,7 +22,7 @@ class FixApplier {
       createBackups: config.createBackups !== false,
 
       // Backup directory
-      backupDir: config.backupDir || '.codetitan/backups',
+      backupDir: config.backupDir || ".codetitan/backups",
 
       // Require git for tracking changes
       requireGit: config.requireGit || false,
@@ -33,7 +33,7 @@ class FixApplier {
       // Maximum files to modify in single operation
       maxBatchSize: config.maxBatchSize || 50,
 
-      ...config
+      ...config,
     };
 
     // Track applied fixes
@@ -42,7 +42,7 @@ class FixApplier {
       successful: 0,
       failed: 0,
       rolledBack: 0,
-      fixes: []
+      fixes: [],
     };
   }
 
@@ -60,11 +60,11 @@ class FixApplier {
     try {
       // Validate fix
       if (!fix || !fix.fixedCode) {
-        throw new Error('Invalid fix object');
+        throw new Error("Invalid fix object");
       }
 
       // Read current file content
-      const originalContent = await fs.readFile(filePath, 'utf-8');
+      const originalContent = await fs.readFile(filePath, "utf-8");
 
       // Apply fix to content
       const fixedContent = this.applyFixToContent(fix, originalContent);
@@ -77,9 +77,9 @@ class FixApplier {
           preview: {
             original: originalContent,
             fixed: fixedContent,
-            diff: this.generateDiff(originalContent, fixedContent)
+            diff: this.generateDiff(originalContent, fixedContent),
           },
-          duration: Date.now() - start
+          duration: Date.now() - start,
         };
       }
 
@@ -90,7 +90,7 @@ class FixApplier {
       }
 
       // Write fixed content
-      await fs.writeFile(filePath, fixedContent, 'utf-8');
+      await fs.writeFile(filePath, fixedContent, "utf-8");
 
       // Track fix application
       const fixRecord = {
@@ -99,7 +99,7 @@ class FixApplier {
         timestamp: new Date().toISOString(),
         fix,
         backupPath,
-        success: true
+        success: true,
       };
 
       this.history.fixes.push(fixRecord);
@@ -111,9 +111,8 @@ class FixApplier {
         filePath,
         backupPath,
         fixId: fixRecord.id,
-        duration: Date.now() - start
+        duration: Date.now() - start,
       };
-
     } catch (error) {
       console.error(`[FixApplier] Failed to apply fix to ${filePath}:`, error);
       this.history.failed++;
@@ -122,7 +121,7 @@ class FixApplier {
         success: false,
         filePath,
         error: error.message,
-        duration: Date.now() - start
+        duration: Date.now() - start,
       };
     }
   }
@@ -131,29 +130,26 @@ class FixApplier {
    * Apply fix to content (same as FixGenerator but extracted for reuse)
    */
   applyFixToContent(fix, content) {
-    const lines = content.split('\n');
+    const lines = content.split("\n");
 
-    if (fix.type === 'replace') {
+    if (fix.type === "replace") {
       const before = lines.slice(0, fix.startLine - 1);
       const after = lines.slice(fix.endLine);
-      const replacement = fix.fixedCode.split('\n');
-      return [...before, ...replacement, ...after].join('\n');
-
-    } else if (fix.type === 'insert') {
+      const replacement = fix.fixedCode.split("\n");
+      return [...before, ...replacement, ...after].join("\n");
+    } else if (fix.type === "insert") {
       const before = lines.slice(0, fix.startLine - 1);
       const after = lines.slice(fix.startLine - 1);
-      const insertion = fix.fixedCode.split('\n');
-      return [...before, ...insertion, ...after].join('\n');
-
-    } else if (fix.type === 'delete') {
+      const insertion = fix.fixedCode.split("\n");
+      return [...before, ...insertion, ...after].join("\n");
+    } else if (fix.type === "delete") {
       const before = lines.slice(0, fix.startLine - 1);
       const after = lines.slice(fix.endLine);
-      return [...before, ...after].join('\n');
-
-    } else if (fix.type === 'comment') {
+      return [...before, ...after].join("\n");
+    } else if (fix.type === "comment") {
       const before = lines.slice(0, fix.startLine - 1);
       const after = lines.slice(fix.startLine - 1);
-      return [...before, fix.fixedCode, ...after].join('\n');
+      return [...before, fix.fixedCode, ...after].join("\n");
     }
 
     return content;
@@ -169,18 +165,17 @@ class FixApplier {
       await fs.mkdir(backupDir, { recursive: true });
 
       // Generate backup filename with timestamp
-      const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+      const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
       const fileName = path.basename(filePath);
       const backupName = `${fileName}.${timestamp}.backup`;
       const backupPath = path.join(backupDir, backupName);
 
       // Write backup
-      await fs.writeFile(backupPath, content, 'utf-8');
+      await fs.writeFile(backupPath, content, "utf-8");
 
       console.log(`[FixApplier] Created backup: ${backupPath}`);
 
       return backupPath;
-
     } catch (error) {
       console.error(`[FixApplier] Failed to create backup:`, error);
       throw new Error(`Backup creation failed: ${error.message}`);
@@ -193,7 +188,7 @@ class FixApplier {
   async rollback(fixId) {
     try {
       // Find fix in history
-      const fixRecord = this.history.fixes.find(f => f.id === fixId);
+      const fixRecord = this.history.fixes.find((f) => f.id === fixId);
 
       if (!fixRecord) {
         throw new Error(`Fix ${fixId} not found in history`);
@@ -204,31 +199,32 @@ class FixApplier {
       }
 
       // Read backup content
-      const backupContent = await fs.readFile(fixRecord.backupPath, 'utf-8');
+      const backupContent = await fs.readFile(fixRecord.backupPath, "utf-8");
 
       // Restore file
-      await fs.writeFile(fixRecord.filePath, backupContent, 'utf-8');
+      await fs.writeFile(fixRecord.filePath, backupContent, "utf-8");
 
       // Update history
       fixRecord.rolledBack = true;
       fixRecord.rollbackTimestamp = new Date().toISOString();
       this.history.rolledBack++;
 
-      console.log(`[FixApplier] Rolled back fix ${fixId} for ${fixRecord.filePath}`);
+      console.log(
+        `[FixApplier] Rolled back fix ${fixId} for ${fixRecord.filePath}`,
+      );
 
       return {
         success: true,
         fixId,
         filePath: fixRecord.filePath,
-        backupPath: fixRecord.backupPath
+        backupPath: fixRecord.backupPath,
       };
-
     } catch (error) {
       console.error(`[FixApplier] Rollback failed:`, error);
       return {
         success: false,
         fixId,
-        error: error.message
+        error: error.message,
       };
     }
   }
@@ -244,14 +240,16 @@ class FixApplier {
 
     // Validate batch size
     if (Object.keys(fixesByFile).length > this.config.maxBatchSize) {
-      throw new Error(`Batch size exceeds limit (${this.config.maxBatchSize} files)`);
+      throw new Error(
+        `Batch size exceeds limit (${this.config.maxBatchSize} files)`,
+      );
     }
 
     // Apply fixes file by file
     for (const [filePath, fileFixes] of Object.entries(fixesByFile)) {
       try {
         // Read file once
-        const originalContent = await fs.readFile(filePath, 'utf-8');
+        const originalContent = await fs.readFile(filePath, "utf-8");
 
         // Apply all fixes for this file
         let content = originalContent;
@@ -267,7 +265,7 @@ class FixApplier {
 
         // Write modified content (or skip in dry-run)
         if (!this.config.dryRun && !options.dryRun) {
-          await fs.writeFile(filePath, content, 'utf-8');
+          await fs.writeFile(filePath, content, "utf-8");
         }
 
         results.push({
@@ -275,7 +273,7 @@ class FixApplier {
           success: true,
           fixCount: fileFixes.length,
           backupPath,
-          dryRun: this.config.dryRun || options.dryRun
+          dryRun: this.config.dryRun || options.dryRun,
         });
 
         // Track each fix
@@ -286,18 +284,20 @@ class FixApplier {
             timestamp: new Date().toISOString(),
             fix: fix.fix,
             backupPath,
-            success: true
+            success: true,
           });
           this.history.totalApplied++;
           this.history.successful++;
         }
-
       } catch (error) {
-        console.error(`[FixApplier] Failed to apply fixes to ${filePath}:`, error);
+        console.error(
+          `[FixApplier] Failed to apply fixes to ${filePath}:`,
+          error,
+        );
         results.push({
           filePath,
           success: false,
-          error: error.message
+          error: error.message,
         });
         this.history.failed += fileFixes.length;
       }
@@ -330,15 +330,15 @@ class FixApplier {
    * Generate simple diff preview
    */
   generateDiff(original, fixed) {
-    const originalLines = original.split('\n');
-    const fixedLines = fixed.split('\n');
+    const originalLines = original.split("\n");
+    const fixedLines = fixed.split("\n");
 
     const diff = [];
     const maxLen = Math.max(originalLines.length, fixedLines.length);
 
     for (let i = 0; i < maxLen; i++) {
-      const origLine = originalLines[i] || '';
-      const fixedLine = fixedLines[i] || '';
+      const origLine = originalLines[i] || "";
+      const fixedLine = fixedLines[i] || "";
 
       if (origLine !== fixedLine) {
         if (origLine) {
@@ -350,14 +350,14 @@ class FixApplier {
       }
     }
 
-    return diff.join('\n');
+    return diff.join("\n");
   }
 
   /**
    * Generate unique fix ID
    */
   generateFixId() {
-    return `fix_${crypto.randomBytes(8).toString('hex')}`;
+    return `fix_${crypto.randomBytes(8).toString("hex")}`;
   }
 
   /**
@@ -368,12 +368,12 @@ class FixApplier {
 
     // Filter by file
     if (options.filePath) {
-      fixes = fixes.filter(f => f.filePath === options.filePath);
+      fixes = fixes.filter((f) => f.filePath === options.filePath);
     }
 
     // Filter by status
     if (options.rolledBack !== undefined) {
-      fixes = fixes.filter(f => f.rolledBack === options.rolledBack);
+      fixes = fixes.filter((f) => f.rolledBack === options.rolledBack);
     }
 
     // Sort by timestamp
@@ -393,12 +393,14 @@ class FixApplier {
   getStats() {
     return {
       ...this.history,
-      successRate: this.history.totalApplied > 0
-        ? this.history.successful / this.history.totalApplied
-        : 0,
-      rollbackRate: this.history.successful > 0
-        ? this.history.rolledBack / this.history.successful
-        : 0
+      successRate:
+        this.history.totalApplied > 0
+          ? this.history.successful / this.history.totalApplied
+          : 0,
+      rollbackRate:
+        this.history.successful > 0
+          ? this.history.rolledBack / this.history.successful
+          : 0,
     };
   }
 
@@ -416,7 +418,8 @@ class FixApplier {
       for (const file of files) {
         const filePath = path.join(backupDir, file);
         const stats = await fs.stat(filePath);
-        const age = (Date.now() - stats.mtime.getTime()) / (1000 * 60 * 60 * 24); // days
+        const age =
+          (Date.now() - stats.mtime.getTime()) / (1000 * 60 * 60 * 24); // days
 
         if (age > maxAge) {
           await fs.unlink(filePath);
@@ -427,7 +430,6 @@ class FixApplier {
       console.log(`[FixApplier] Cleaned ${cleaned} old backups`);
 
       return { cleaned };
-
     } catch (error) {
       console.error(`[FixApplier] Failed to clean backups:`, error);
       return { cleaned: 0, error: error.message };
@@ -440,7 +442,7 @@ class FixApplier {
   exportHistory() {
     return {
       config: this.config,
-      history: this.history
+      history: this.history,
     };
   }
 

@@ -5,8 +5,8 @@
  * @module stream
  */
 
-const AnalysisStream = require('./analysis-stream');
+const AnalysisStream = require("./analysis-stream");
 
 module.exports = {
-  AnalysisStream
+  AnalysisStream,
 };

@@ -9,18 +9,18 @@ class ConfidenceScorer {
   constructor() {
     // Confidence weights for different factors
     this.weights = {
-      patternMatch: 0.30,      // How well the pattern matches
-      complexity: 0.25,        // Code complexity in the area
-      context: 0.20,           // Surrounding code context
-      codeQuality: 0.15,       // Overall code quality
-      fixHistory: 0.10         // Success rate of similar fixes
+      patternMatch: 0.3, // How well the pattern matches
+      complexity: 0.25, // Code complexity in the area
+      context: 0.2, // Surrounding code context
+      codeQuality: 0.15, // Overall code quality
+      fixHistory: 0.1, // Success rate of similar fixes
     };
 
     // Thresholds
     this.thresholds = {
-      high: 0.90,              // 90%+ = High confidence
-      medium: 0.75,            // 75-90% = Medium confidence
-      low: 0.60                // 60-75% = Low confidence
+      high: 0.9, // 90%+ = High confidence
+      medium: 0.75, // 75-90% = Medium confidence
+      low: 0.6, // 60-75% = Low confidence
     };
   }
 
@@ -36,27 +36,27 @@ class ConfidenceScorer {
       complexity: this.scoreComplexity(fix, context),
       context: this.scoreContext(fix, context),
       codeQuality: this.scoreCodeQuality(fix, context),
-      fixHistory: this.scoreFixHistory(fix, context)
+      fixHistory: this.scoreFixHistory(fix, context),
     };
 
     // Calculate weighted average
     const confidence = Object.entries(scores).reduce((total, [key, score]) => {
-      return total + (score * this.weights[key]);
+      return total + score * this.weights[key];
     }, 0);
 
     // Determine confidence level
-    let level = 'low';
+    let level = "low";
     if (confidence >= this.thresholds.high) {
-      level = 'high';
+      level = "high";
     } else if (confidence >= this.thresholds.medium) {
-      level = 'medium';
+      level = "medium";
     }
 
     return {
       score: confidence,
       level,
       breakdown: scores,
-      recommendation: this.getRecommendation(confidence, level)
+      recommendation: this.getRecommendation(confidence, level),
     };
   }
 
@@ -69,11 +69,11 @@ class ConfidenceScorer {
     let score = 0.5; // Base score
 
     // Check if we have an exact pattern match
-    if (fix.patternMatch === 'exact') {
+    if (fix.patternMatch === "exact") {
       score = 1.0;
-    } else if (fix.patternMatch === 'partial') {
+    } else if (fix.patternMatch === "partial") {
       score = 0.7;
-    } else if (fix.patternMatch === 'fuzzy') {
+    } else if (fix.patternMatch === "fuzzy") {
       score = 0.5;
     }
 
@@ -123,7 +123,8 @@ class ConfidenceScorer {
     let complexity = 0;
 
     // Count control flow statements
-    complexity += (fix.code.match(/if|else|while|for|switch|case/g) || []).length * 2;
+    complexity +=
+      (fix.code.match(/if|else|while|for|switch|case/g) || []).length * 2;
 
     // Count function calls
     complexity += (fix.code.match(/\w+\(/g) || []).length;
@@ -149,7 +150,12 @@ class ConfidenceScorer {
 
     // Check if context is consistent
     if (context.fileType) {
-      const expectedTypes = fix.expectedFileTypes || ['.js', '.ts', '.jsx', '.tsx'];
+      const expectedTypes = fix.expectedFileTypes || [
+        ".js",
+        ".ts",
+        ".jsx",
+        ".tsx",
+      ];
       if (expectedTypes.includes(context.fileType)) {
         score += 0.2;
       }
@@ -215,13 +221,13 @@ class ConfidenceScorer {
 
     // Default scores based on fix type
     const defaultScores = {
-      'SYNC_IO': 0.9,           // Usually safe
-      'HARDCODED_SECRET': 0.85,  // Safe to flag
-      'COMMAND_EXEC': 0.8,       // Usually straightforward
-      'SQL_INJECTION': 0.75,     // Needs care
-      'XSS': 0.75,              // Needs care
-      'MISSING_DOCS': 0.95,      // Very safe
-      'MAGIC_NUMBER': 0.7        // Context-dependent
+      SYNC_IO: 0.9, // Usually safe
+      HARDCODED_SECRET: 0.85, // Safe to flag
+      COMMAND_EXEC: 0.8, // Usually straightforward
+      SQL_INJECTION: 0.75, // Needs care
+      XSS: 0.75, // Needs care
+      MISSING_DOCS: 0.95, // Very safe
+      MAGIC_NUMBER: 0.7, // Context-dependent
     };
 
     return defaultScores[fix.category] || 0.7;
@@ -234,12 +240,12 @@ class ConfidenceScorer {
    * @returns {string} Recommendation
    */
   getRecommendation(confidence, level) {
-    if (level === 'high') {
-      return 'AUTO_APPLY - High confidence, safe to apply automatically';
-    } else if (level === 'medium') {
-      return 'REVIEW - Medium confidence, review before applying';
+    if (level === "high") {
+      return "AUTO_APPLY - High confidence, safe to apply automatically";
+    } else if (level === "medium") {
+      return "REVIEW - Medium confidence, review before applying";
     } else {
-      return 'MANUAL - Low confidence, manual review required';
+      return "MANUAL - Low confidence, manual review required";
     }
   }
 
@@ -249,7 +255,7 @@ class ConfidenceScorer {
    * @param {number} threshold - Minimum threshold (default 0.90)
    * @returns {boolean} Whether to auto-apply
    */
-  shouldAutoApply(confidence, threshold = 0.90) {
+  shouldAutoApply(confidence, threshold = 0.9) {
     return confidence >= threshold;
   }
 

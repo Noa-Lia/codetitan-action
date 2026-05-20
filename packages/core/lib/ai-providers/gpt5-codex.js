@@ -7,44 +7,44 @@
  * @module ai-providers/gpt5-codex
  */
 
-const AIProvider = require('./base');
+const AIProvider = require("./base");
 
 class GPT5CodexProvider extends AIProvider {
   constructor(config = {}) {
-    const defaultModel = config.model || 'gpt-5.4';
+    const defaultModel = config.model || "gpt-5.4";
 
     // Model-specific pricing (as of March 2026)
     const modelPricing = {
-      'gpt-5.4': {
-        input: 0.0000025,   // $2.50 per M tokens
-        output: 0.000010,   // $10.00 per M tokens
+      "gpt-5.4": {
+        input: 0.0000025, // $2.50 per M tokens
+        output: 0.00001, // $10.00 per M tokens
         cached: 0.00000125,
-        contextWindow: 1050000
+        contextWindow: 1050000,
       },
-      'gpt-5.4-mini': {
-        input: 0.00000015,  // $0.15 per M tokens
-        output: 0.0000006,  // $0.60 per M tokens
+      "gpt-5.4-mini": {
+        input: 0.00000015, // $0.15 per M tokens
+        output: 0.0000006, // $0.60 per M tokens
         cached: 0.000000075,
-        contextWindow: 400000
+        contextWindow: 400000,
       },
-      'gpt-5.3-codex': {
-        input: 0.000002,    // $2.00 per M tokens
-        output: 0.000008,   // $8.00 per M tokens
+      "gpt-5.3-codex": {
+        input: 0.000002, // $2.00 per M tokens
+        output: 0.000008, // $8.00 per M tokens
         cached: 0.000001,
-        contextWindow: 128000
+        contextWindow: 128000,
       },
-      'gpt-4o': {
+      "gpt-4o": {
         input: 0.0000025,
-        output: 0.000010,
+        output: 0.00001,
         cached: 0.00000125,
-        contextWindow: 128000
-      }
+        contextWindow: 128000,
+      },
     };
 
-    const pricing = modelPricing[defaultModel] || modelPricing['gpt-5.4'];
+    const pricing = modelPricing[defaultModel] || modelPricing["gpt-5.4"];
 
     super({
-      name: 'codex',
+      name: "codex",
       model: defaultModel,
       apiKey: config.apiKey || process.env.OPENAI_API_KEY,
       costPerInputToken: pricing.input,
@@ -53,19 +53,21 @@ class GPT5CodexProvider extends AIProvider {
       maxTokens: config.maxTokens || 4000,
       timeout: config.timeout || 60000,
       contextWindow: pricing.contextWindow,
-      ...config
+      ...config,
     });
 
     // Initialize OpenAI client if available
     this.client = null;
     if (this.enabled) {
       try {
-        const OpenAI = require('openai');
+        const OpenAI = require("openai");
         this.client = new OpenAI({
-          apiKey: this.apiKey
+          apiKey: this.apiKey,
         });
       } catch (error) {
-        console.warn('[GPT5CodexProvider] openai package not installed. Run: npm install openai');
+        console.warn(
+          "[GPT5CodexProvider] openai package not installed. Run: npm install openai",
+        );
         this.enabled = false;
       }
     }
@@ -78,7 +80,9 @@ class GPT5CodexProvider extends AIProvider {
    */
   async analyze(domain, filePath, content, projectRoot, options = {}) {
     if (!this.enabled || !this.client) {
-      throw new Error('GPT5CodexProvider is not available. Check API key and dependencies.');
+      throw new Error(
+        "GPT5CodexProvider is not available. Check API key and dependencies.",
+      );
     }
 
     const start = Date.now();
@@ -91,57 +95,64 @@ class GPT5CodexProvider extends AIProvider {
         model: this.model,
         messages: [
           {
-            role: 'system',
-            content: systemPrompt
+            role: "system",
+            content: systemPrompt,
           },
           {
-            role: 'user',
-            content: userPrompt
-          }
+            role: "user",
+            content: userPrompt,
+          },
         ],
         max_tokens: this.maxTokens,
         temperature: 0.2, // Low temperature for consistent analysis
         response_format: {
-          type: 'json_schema',
+          type: "json_schema",
           json_schema: {
-            name: 'code_analysis',
+            name: "code_analysis",
             strict: true,
             schema: {
-              type: 'object',
+              type: "object",
               properties: {
                 issues: {
-                  type: 'array',
+                  type: "array",
                   items: {
-                    type: 'object',
+                    type: "object",
                     properties: {
-                      category: { type: 'string' },
+                      category: { type: "string" },
                       severity: {
-                        type: 'string',
-                        enum: ['HIGH', 'MEDIUM', 'LOW']
+                        type: "string",
+                        enum: ["HIGH", "MEDIUM", "LOW"],
                       },
-                      line: { type: 'number' },
-                      message: { type: 'string' },
-                      suggestion: { type: 'string' }
+                      line: { type: "number" },
+                      message: { type: "string" },
+                      suggestion: { type: "string" },
                     },
-                    required: ['category', 'severity', 'line', 'message', 'suggestion'],
-                    additionalProperties: false
-                  }
-                }
+                    required: [
+                      "category",
+                      "severity",
+                      "line",
+                      "message",
+                      "suggestion",
+                    ],
+                    additionalProperties: false,
+                  },
+                },
               },
-              required: ['issues'],
-              additionalProperties: false
-            }
-          }
-        }
+              required: ["issues"],
+              additionalProperties: false,
+            },
+          },
+        },
       });
 
       // Parse response (already JSON with structured outputs)
-      const rawResponse = response.choices[0]?.message?.content || '{"issues": []}';
+      const rawResponse =
+        response.choices[0]?.message?.content || '{"issues": []}';
       const parsed = JSON.parse(rawResponse);
       const issues = parsed.issues || [];
 
       // Filter and validate issues
-      const validIssues = issues.filter(issue => this.validateIssue(issue));
+      const validIssues = issues.filter((issue) => this.validateIssue(issue));
 
       return {
         issues: validIssues,
@@ -151,13 +162,13 @@ class GPT5CodexProvider extends AIProvider {
           tokensUsed: {
             input: response.usage.prompt_tokens || 0,
             output: response.usage.completion_tokens || 0,
-            cached: response.usage.prompt_tokens_details?.cached_tokens || 0
+            cached: response.usage.prompt_tokens_details?.cached_tokens || 0,
           },
           costUSD: this.calculateActualCost(response.usage),
           duration: Date.now() - start,
           confidence: 0.94, // GPT-5.4 is highly accurate for code
-          finishReason: response.choices[0]?.finish_reason
-        }
+          finishReason: response.choices[0]?.finish_reason,
+        },
       };
     } catch (error) {
       console.error(`[GPT5CodexProvider] Analysis failed:`, error);
@@ -172,8 +183,8 @@ class GPT5CodexProvider extends AIProvider {
           costUSD: 0,
           duration: Date.now() - start,
           confidence: 0,
-          error: error.message
-        }
+          error: error.message,
+        },
       };
     }
   }
@@ -186,9 +197,9 @@ class GPT5CodexProvider extends AIProvider {
     const outputTokens = usage.completion_tokens || 0;
     const cachedTokens = usage.prompt_tokens_details?.cached_tokens || 0;
 
-    const inputCost = ((inputTokens - cachedTokens) * this.costPerInputToken);
-    const cachedCost = (cachedTokens * this.costPerCachedToken);
-    const outputCost = (outputTokens * this.costPerOutputToken);
+    const inputCost = (inputTokens - cachedTokens) * this.costPerInputToken;
+    const cachedCost = cachedTokens * this.costPerCachedToken;
+    const outputCost = outputTokens * this.costPerOutputToken;
 
     return inputCost + cachedCost + outputCost;
   }
@@ -205,7 +216,7 @@ class GPT5CodexProvider extends AIProvider {
       await this.client.models.retrieve(this.model);
       return true;
     } catch (error) {
-      console.warn('[GPT5CodexProvider] Health check failed:', error.message);
+      console.warn("[GPT5CodexProvider] Health check failed:", error.message);
       return false;
     }
   }
@@ -216,11 +227,11 @@ class GPT5CodexProvider extends AIProvider {
    */
   getQualityScore(domain) {
     const scores = {
-      'security-god': 8,       // Good security analysis
-      'performance-god': 9,    // Excellent performance optimization
-      'test-god': 10,          // Best test generation (76.3% SWE-bench)
-      'refactoring-god': 10,   // Best refactoring (51.3% benchmark)
-      'documentation-god': 10  // Excellent documentation generation
+      "security-god": 8, // Good security analysis
+      "performance-god": 9, // Excellent performance optimization
+      "test-god": 10, // Best test generation (76.3% SWE-bench)
+      "refactoring-god": 10, // Best refactoring (51.3% benchmark)
+      "documentation-god": 10, // Excellent documentation generation
     };
     return scores[domain] || 9;
   }

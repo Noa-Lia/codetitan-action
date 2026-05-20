@@ -17,7 +17,7 @@
  * Confidence: 70% (requires code review for naming)
  */
 
-const fs = require('fs').promises;
+const fs = require("fs").promises;
 
 class MagicNumberFixer {
   constructor() {
@@ -28,65 +28,65 @@ class MagicNumberFixer {
     this.contextPatterns = [
       {
         pattern: /setTimeout.*,\s*(\d+)/,
-        suffix: '_TIMEOUT_MS',
-        confidence: 0.80
+        suffix: "_TIMEOUT_MS",
+        confidence: 0.8,
       },
       {
         pattern: /setInterval.*,\s*(\d+)/,
-        suffix: '_INTERVAL_MS',
-        confidence: 0.80
+        suffix: "_INTERVAL_MS",
+        confidence: 0.8,
       },
       {
         pattern: /sleep.*\((\d+)\)/,
-        suffix: '_DELAY_MS',
-        confidence: 0.75
+        suffix: "_DELAY_MS",
+        confidence: 0.75,
       },
       {
         pattern: /port.*=.*(\d{4,5})/,
-        suffix: '_PORT',
-        confidence: 0.85
+        suffix: "_PORT",
+        confidence: 0.85,
       },
       {
         pattern: /maxRetries.*=.*(\d+)/,
-        suffix: '_MAX_RETRIES',
-        confidence: 0.90
+        suffix: "_MAX_RETRIES",
+        confidence: 0.9,
       },
       {
         pattern: /limit.*=.*(\d+)/,
-        suffix: '_LIMIT',
-        confidence: 0.80
+        suffix: "_LIMIT",
+        confidence: 0.8,
       },
       {
         pattern: /age.*[><=].*(\d+)/,
-        suffix: '_AGE_THRESHOLD',
-        confidence: 0.75
+        suffix: "_AGE_THRESHOLD",
+        confidence: 0.75,
       },
       {
         pattern: /length.*[><=].*(\d+)/,
-        suffix: '_LENGTH_THRESHOLD',
-        confidence: 0.75
+        suffix: "_LENGTH_THRESHOLD",
+        confidence: 0.75,
       },
       {
         pattern: /width.*=.*(\d+)/,
-        suffix: '_WIDTH',
-        confidence: 0.80
+        suffix: "_WIDTH",
+        confidence: 0.8,
       },
       {
         pattern: /height.*=.*(\d+)/,
-        suffix: '_HEIGHT',
-        confidence: 0.80
-      }
+        suffix: "_HEIGHT",
+        confidence: 0.8,
+      },
     ];
   }
 
   async fix(finding, config) {
     try {
-      const code = await fs.readFile(finding.filePath, 'utf8');
-      const lines = code.split('\n');
+      const code = await fs.readFile(finding.filePath, "utf8");
+      const lines = code.split("\n");
       const lineIndex = (finding.line || finding.lineNumber) - 1;
 
       if (lineIndex < 0 || lineIndex >= lines.length) {
-        return { success: false, error: 'Invalid line number' };
+        return { success: false, error: "Invalid line number" };
       }
 
       const originalLine = lines[lineIndex];
@@ -100,9 +100,9 @@ class MagicNumberFixer {
           success: true,
           originalLine,
           fixedLine: originalLine,
-          confidence: 0.50,
+          confidence: 0.5,
           dryRun: config.dryRun,
-          transformation: 'Common number - no fix needed'
+          transformation: "Common number - no fix needed",
         };
       }
 
@@ -112,7 +112,7 @@ class MagicNumberFixer {
       // Replace number with constant
       const fixedLine = originalLine.replace(
         new RegExp(`\\b${magicNumber}\\b`),
-        constantName
+        constantName,
       );
 
       // Find where to insert the constant declaration
@@ -122,8 +122,10 @@ class MagicNumberFixer {
       const constantDecl = `const ${constantName} = ${magicNumber};`;
 
       // Check if constant already exists
-      const constantExists = lines.some(line =>
-        line.includes(`const ${constantName}`) || line.includes(`let ${constantName}`)
+      const constantExists = lines.some(
+        (line) =>
+          line.includes(`const ${constantName}`) ||
+          line.includes(`let ${constantName}`),
       );
 
       if (!constantExists) {
@@ -134,10 +136,10 @@ class MagicNumberFixer {
       const newLineIndex = constantExists ? lineIndex : lineIndex + 1;
       lines[newLineIndex] = fixedLine;
 
-      const modifiedCode = lines.join('\n');
+      const modifiedCode = lines.join("\n");
 
       if (!config.dryRun) {
-        await fs.writeFile(finding.filePath, modifiedCode, 'utf8');
+        await fs.writeFile(finding.filePath, modifiedCode, "utf8");
       }
 
       return {
@@ -145,10 +147,9 @@ class MagicNumberFixer {
         originalLine,
         fixedLine: `${constantDecl}\n${fixedLine}`,
         transformation: `Extracted ${magicNumber} to ${constantName}`,
-        confidence: 0.70,
-        dryRun: config.dryRun
+        confidence: 0.7,
+        dryRun: config.dryRun,
       };
-
     } catch (error) {
       return { success: false, error: error.message };
     }
@@ -160,9 +161,9 @@ class MagicNumberFixer {
   extractMagicNumber(line) {
     // Match numbers that are likely magic numbers
     const patterns = [
-      /\b(\d{2,})\b/,     // Numbers with 2+ digits
-      /\b([2-9])\b/,      // Single digits except 0, 1
-      /\b(\d+\.\d+)\b/    // Decimals
+      /\b(\d{2,})\b/, // Numbers with 2+ digits
+      /\b([2-9])\b/, // Single digits except 0, 1
+      /\b(\d+\.\d+)\b/, // Decimals
     ];
 
     for (const pattern of patterns) {
@@ -184,7 +185,7 @@ class MagicNumberFixer {
       if (pattern.pattern.test(line)) {
         // Extract variable name or use pattern suffix
         const varMatch = line.match(/(\w+)[\s=<>]/);
-        const varName = varMatch ? varMatch[1] : 'VALUE';
+        const varName = varMatch ? varMatch[1] : "VALUE";
         return `${this.toUpperSnakeCase(varName)}${pattern.suffix}`;
       }
     }
@@ -197,7 +198,7 @@ class MagicNumberFixer {
     }
 
     // Ultimate fallback
-    return `MAGIC_NUMBER_${number.replace('.', '_')}`;
+    return `MAGIC_NUMBER_${number.replace(".", "_")}`;
   }
 
   /**
@@ -205,11 +206,11 @@ class MagicNumberFixer {
    */
   toUpperSnakeCase(str) {
     return str
-      .replace(/([a-z])([A-Z])/g, '$1_$2')  // camelCase → camel_Case
-      .replace(/([A-Z]+)([A-Z][a-z])/g, '$1_$2')  // XMLParser → XML_Parser
+      .replace(/([a-z])([A-Z])/g, "$1_$2") // camelCase → camel_Case
+      .replace(/([A-Z]+)([A-Z][a-z])/g, "$1_$2") // XMLParser → XML_Parser
       .toUpperCase()
-      .replace(/[^A-Z0-9]+/g, '_')  // Remove non-alphanumeric
-      .replace(/^_+|_+$/g, '');  // Trim underscores
+      .replace(/[^A-Z0-9]+/g, "_") // Remove non-alphanumeric
+      .replace(/^_+|_+$/g, ""); // Trim underscores
   }
 
   /**
@@ -230,7 +231,7 @@ class MagicNumberFixer {
       ) {
         // Insert after opening brace
         for (let j = i; j < lines.length; j++) {
-          if (lines[j].includes('{')) {
+          if (lines[j].includes("{")) {
             return j + 1;
           }
         }
@@ -241,8 +242,10 @@ class MagicNumberFixer {
     // No function found - insert after imports/requires
     let lastImport = -1;
     for (let i = 0; i < currentLine; i++) {
-      if (lines[i].match(/^(const|let|var|import)\s+/) &&
-          (lines[i].includes('require(') || lines[i].includes('from '))) {
+      if (
+        lines[i].match(/^(const|let|var|import)\s+/) &&
+        (lines[i].includes("require(") || lines[i].includes("from "))
+      ) {
         lastImport = i;
       }
     }
@@ -252,7 +255,7 @@ class MagicNumberFixer {
     }
 
     // Ultimate fallback - top of file (after shebang if present)
-    return lines[0].startsWith('#!') ? 2 : 0;
+    return lines[0].startsWith("#!") ? 2 : 0;
   }
 }
 

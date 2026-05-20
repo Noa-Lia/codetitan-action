@@ -16,26 +16,28 @@
  * - Change tracking
  */
 
-const ToolBridge = require('./tool-bridge');
+const ToolBridge = require("./tool-bridge");
 
 class AutoRefactoringEngine {
   constructor(options = {}) {
-    this.toolBridge = options.toolBridge || new ToolBridge({
-      workingDirectory: options.workingDirectory || process.cwd(),
-      enableFileOperations: true,
-      enableBackups: true,
-      enableValidation: options.enableValidation ?? false
-    });
+    this.toolBridge =
+      options.toolBridge ||
+      new ToolBridge({
+        workingDirectory: options.workingDirectory || process.cwd(),
+        enableFileOperations: true,
+        enableBackups: true,
+        enableValidation: options.enableValidation ?? false,
+      });
 
     this.metrics = {
       refactoringsAttempted: 0,
       refactoringsSucceeded: 0,
       refactoringsFailed: 0,
       filesModified: 0,
-      linesChanged: 0
+      linesChanged: 0,
     };
 
-    console.log('[AutoRefactoring] Initialized');
+    console.log("[AutoRefactoring] Initialized");
   }
 
   /**
@@ -59,51 +61,67 @@ class AutoRefactoringEngine {
       const refactoredContent = await this.performRefactoring(
         originalContent,
         refactoringType,
-        params
+        params,
       );
 
       if (!refactoredContent || refactoredContent === originalContent) {
-        console.log(`[AutoRefactoring] No changes needed for ${refactoringType}`);
+        console.log(
+          `[AutoRefactoring] No changes needed for ${refactoringType}`,
+        );
         return {
           success: true,
           changed: false,
-          refactoringType: refactoringType
+          refactoringType: refactoringType,
         };
       }
 
       // Write the refactored content (with automatic backup)
-      const writeResult = await this.toolBridge.write(filePath, refactoredContent, {
-        validate: params.validate,
-        validationCommand: params.validationCommand
-      });
+      const writeResult = await this.toolBridge.write(
+        filePath,
+        refactoredContent,
+        {
+          validate: params.validate,
+          validationCommand: params.validationCommand,
+        },
+      );
 
       if (writeResult.success) {
         this.metrics.refactoringsSucceeded++;
         this.metrics.filesModified++;
-        this.metrics.linesChanged += this.countLineChanges(originalContent, refactoredContent);
+        this.metrics.linesChanged += this.countLineChanges(
+          originalContent,
+          refactoredContent,
+        );
 
-        console.log(`[AutoRefactoring] Successfully applied ${refactoringType}`);
+        console.log(
+          `[AutoRefactoring] Successfully applied ${refactoringType}`,
+        );
 
         return {
           success: true,
           changed: true,
           changeId: writeResult.changeId,
           refactoringType: refactoringType,
-          linesChanged: this.countLineChanges(originalContent, refactoredContent),
-          backedUp: writeResult.backedUp
+          linesChanged: this.countLineChanges(
+            originalContent,
+            refactoredContent,
+          ),
+          backedUp: writeResult.backedUp,
         };
       } else {
         throw new Error(`Write failed: ${writeResult.error}`);
       }
-
     } catch (error) {
       this.metrics.refactoringsFailed++;
-      console.error(`[AutoRefactoring] Failed to apply ${refactoringType}:`, error.message);
+      console.error(
+        `[AutoRefactoring] Failed to apply ${refactoringType}:`,
+        error.message,
+      );
 
       return {
         success: false,
         refactoringType: refactoringType,
-        error: error.message
+        error: error.message,
       };
     }
   }
@@ -113,97 +131,99 @@ class AutoRefactoringEngine {
    */
   async performRefactoring(content, refactoringType, params) {
     switch (refactoringType) {
-      case 'remove-console-logs':
+      case "remove-console-logs":
         return this.removeConsoleLogs(content);
 
-      case 'add-strict-mode':
+      case "add-strict-mode":
         return this.addStrictMode(content);
 
-      case 'modernize-var-to-const':
+      case "modernize-var-to-const":
         return this.modernizeVarToConst(content);
 
-      case 'add-jsdoc-comments':
+      case "add-jsdoc-comments":
         return this.addJSDocComments(content, params);
 
-      case 'extract-magic-numbers':
+      case "extract-magic-numbers":
         return this.extractMagicNumbers(content, params);
 
-      case 'simplify-conditionals':
+      case "simplify-conditionals":
         return this.simplifyConditionals(content);
 
-      case 'remove-dead-code':
+      case "remove-dead-code":
         return this.removeDeadCode(content);
 
-      case 'optimize-imports':
+      case "optimize-imports":
         return this.optimizeImports(content);
 
       // SECURITY REFACTORINGS (Security God)
-      case 'fix-sql-injection':
+      case "fix-sql-injection":
         return this.fixSQLInjection(content, params);
 
-      case 'remove-hardcoded-secrets':
+      case "remove-hardcoded-secrets":
         return this.removeHardcodedSecrets(content, params);
 
-      case 'fix-xss-vulnerability':
+      case "fix-xss-vulnerability":
         return this.fixXSSVulnerability(content, params);
 
-      case 'add-input-validation':
+      case "add-input-validation":
         return this.addInputValidation(content, params);
 
-      case 'upgrade-weak-crypto':
+      case "upgrade-weak-crypto":
         return this.upgradeWeakCrypto(content, params);
 
       // PERFORMANCE REFACTORINGS (Performance God)
-      case 'fix-n-plus-one-query':
+      case "fix-n-plus-one-query":
         return this.fixNPlusOneQuery(content, params);
 
-      case 'add-caching-layer':
+      case "add-caching-layer":
         return this.addCachingLayer(content, params);
 
-      case 'optimize-nested-loops':
+      case "optimize-nested-loops":
         return this.optimizeNestedLoops(content, params);
 
       // TEST REFACTORINGS (Test God)
-      case 'generate-unit-test':
+      case "generate-unit-test":
         return this.generateUnitTest(content, params);
 
-      case 'add-edge-case-tests':
+      case "add-edge-case-tests":
         return this.addEdgeCaseTests(content, params);
 
-      case 'improve-test-assertions':
+      case "improve-test-assertions":
         return this.improveTestAssertions(content, params);
 
-      case 'add-test-mocks':
+      case "add-test-mocks":
         return this.addTestMocks(content, params);
 
       // REFACTORING OPERATIONS (Refactoring God)
-      case 'extract-constant':
+      case "extract-constant":
         return this.extractConstant(content, params);
 
-      case 'simplify-conditional':
+      case "simplify-conditional":
         return this.simplifyConditional(content, params);
 
-      case 'remove-duplication':
+      case "remove-duplication":
         return this.removeDuplication(content, params);
 
-      case 'extract-method':
+      case "extract-method":
         return this.extractMethod(content, params);
 
       // DOCUMENTATION OPERATIONS (Documentation God)
-      case 'add-jsdoc':
+      case "add-jsdoc":
         return this.addJSDoc(content, params);
 
-      case 'add-param-docs':
+      case "add-param-docs":
         return this.addParamDocs(content, params);
 
-      case 'add-return-docs':
+      case "add-return-docs":
         return this.addReturnDocs(content, params);
 
-      case 'add-usage-examples':
+      case "add-usage-examples":
         return this.addUsageExamples(content, params);
 
       default:
-        console.warn(`[AutoRefactoring] Unknown refactoring type: ${refactoringType}`);
+        console.warn(
+          `[AutoRefactoring] Unknown refactoring type: ${refactoringType}`,
+        );
         return content;
     }
   }
@@ -212,15 +232,17 @@ class AutoRefactoringEngine {
    * Remove console.log statements
    */
   removeConsoleLogs(content) {
-    const lines = content.split('\n');
-    const filtered = lines.filter(line => {
+    const lines = content.split("\n");
+    const filtered = lines.filter((line) => {
       const trimmed = line.trim();
-      return !trimmed.startsWith('console.log(') &&
-        !trimmed.startsWith('console.debug(') &&
-        !trimmed.startsWith('console.info(') &&
-        !trimmed.match(/^\s*\/\/\s*console\./);
+      return (
+        !trimmed.startsWith("console.log(") &&
+        !trimmed.startsWith("console.debug(") &&
+        !trimmed.startsWith("console.info(") &&
+        !trimmed.match(/^\s*\/\/\s*console\./)
+      );
     });
-    return filtered.join('\n');
+    return filtered.join("\n");
   }
 
   /**
@@ -231,28 +253,33 @@ class AutoRefactoringEngine {
       return content; // Already has strict mode
     }
 
-    const lines = content.split('\n');
+    const lines = content.split("\n");
 
     // Find first non-comment, non-empty line
     let insertIndex = 0;
     for (let i = 0; i < lines.length; i++) {
       const trimmed = lines[i].trim();
-      if (trimmed && !trimmed.startsWith('//') && !trimmed.startsWith('/*') && !trimmed.startsWith('*')) {
+      if (
+        trimmed &&
+        !trimmed.startsWith("//") &&
+        !trimmed.startsWith("/*") &&
+        !trimmed.startsWith("*")
+      ) {
         insertIndex = i;
         break;
       }
     }
 
-    lines.splice(insertIndex, 0, "'use strict';", '');
-    return lines.join('\n');
+    lines.splice(insertIndex, 0, "'use strict';", "");
+    return lines.join("\n");
   }
 
   /**
    * Modernize var declarations to const/let
    */
   modernizeVarToConst(content) {
-    const lines = content.split('\n');
-    const refactored = lines.map(line => {
+    const lines = content.split("\n");
+    const refactored = lines.map((line) => {
       // Only match var at start of line (avoids comments/strings mostly)
       const match = line.match(/^(\s*)var\s+(\w+)(.*)$/);
 
@@ -269,12 +296,15 @@ class AutoRefactoringEngine {
 
         // 2. If initialized, check for reassignments in the whole file
         // We count how many times "name =" appears
-        const reassignRegex = new RegExp(`\\b${name}\\s*=[^=]`, 'g');
+        const reassignRegex = new RegExp(`\\b${name}\\s*=[^=]`, "g");
         const assignMatches = content.match(reassignRegex) || [];
         const assignCount = assignMatches.length;
 
         // Check for mutation operators (++, +=, etc)
-        const mutationRegex = new RegExp(`\\b${name}\\s*(\\+\\+|--|\\+=|-=|\\*=|\\/=|%=)`, 'g');
+        const mutationRegex = new RegExp(
+          `\\b${name}\\s*(\\+\\+|--|\\+=|-=|\\*=|\\/=|%=)`,
+          "g",
+        );
         const mutationMatches = content.match(mutationRegex) || [];
 
         // If assigned more than once (declaration + reassignment), or mutated -> let
@@ -288,31 +318,37 @@ class AutoRefactoringEngine {
       return line;
     });
 
-    return refactored.join('\n');
+    return refactored.join("\n");
   }
 
   /**
    * Add JSDoc comments to functions
    */
   addJSDocComments(content, params) {
-    const lines = content.split('\n');
+    const lines = content.split("\n");
     const result = [];
 
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
 
       // Check if this is a function declaration
-      const functionMatch = line.match(/^\s*(async\s+)?function\s+(\w+)\s*\((.*?)\)/);
-      const arrowMatch = line.match(/^\s*const\s+(\w+)\s*=\s*(\(.*?\)|[\w]+)\s*=>/);
+      const functionMatch = line.match(
+        /^\s*(async\s+)?function\s+(\w+)\s*\((.*?)\)/,
+      );
+      const arrowMatch = line.match(
+        /^\s*const\s+(\w+)\s*=\s*(\(.*?\)|[\w]+)\s*=>/,
+      );
 
       if (functionMatch || arrowMatch) {
         // Check if previous line is already a comment
-        const prevLine = i > 0 ? lines[i - 1].trim() : '';
-        if (!prevLine.startsWith('*') && !prevLine.startsWith('//')) {
+        const prevLine = i > 0 ? lines[i - 1].trim() : "";
+        if (!prevLine.startsWith("*") && !prevLine.startsWith("//")) {
           // Add JSDoc comment
           const indent = line.match(/^\s*/)[0];
           result.push(`${indent}/**`);
-          result.push(`${indent} * ${functionMatch ? functionMatch[2] : arrowMatch[1]}`);
+          result.push(
+            `${indent} * ${functionMatch ? functionMatch[2] : arrowMatch[1]}`,
+          );
           result.push(`${indent} */`);
         }
       }
@@ -320,7 +356,7 @@ class AutoRefactoringEngine {
       result.push(line);
     }
 
-    return result.join('\n');
+    return result.join("\n");
   }
 
   /**
@@ -329,14 +365,15 @@ class AutoRefactoringEngine {
   extractMagicNumbers(content, params) {
     // Find magic numbers and suggest constant names
     const numbers = new Set();
-    const lines = content.split('\n');
+    const lines = content.split("\n");
 
     // Find numbers that appear multiple times
-    lines.forEach(line => {
+    lines.forEach((line) => {
       const matches = line.match(/\b\d+\.?\d*\b/g);
       if (matches) {
-        matches.forEach(num => {
-          if (num !== '0' && num !== '1') { // Ignore 0 and 1
+        matches.forEach((num) => {
+          if (num !== "0" && num !== "1") {
+            // Ignore 0 and 1
             numbers.add(num);
           }
         });
@@ -345,9 +382,9 @@ class AutoRefactoringEngine {
 
     // For now, just add a comment suggesting extraction
     // A full implementation would create const declarations
-    const comment = `// TODO: Consider extracting magic numbers to constants: ${Array.from(numbers).join(', ')}`;
+    const comment = `// TODO: Consider extracting magic numbers to constants: ${Array.from(numbers).join(", ")}`;
 
-    return comment + '\n' + content;
+    return comment + "\n" + content;
   }
 
   /**
@@ -357,15 +394,15 @@ class AutoRefactoringEngine {
     let result = content;
 
     // Simplify === true to just the expression
-    result = result.replace(/(\w+)\s*===\s*true/g, '$1');
-    result = result.replace(/(\w+)\s*===\s*false/g, '!$1');
+    result = result.replace(/(\w+)\s*===\s*true/g, "$1");
+    result = result.replace(/(\w+)\s*===\s*false/g, "!$1");
 
     // Simplify !== false to just the expression
-    result = result.replace(/(\w+)\s*!==\s*false/g, '$1');
-    result = result.replace(/(\w+)\s*!==\s*true/g, '!$1');
+    result = result.replace(/(\w+)\s*!==\s*false/g, "$1");
+    result = result.replace(/(\w+)\s*!==\s*true/g, "!$1");
 
     // Simplify double negation
-    result = result.replace(/!!(\w+)/g, '$1');
+    result = result.replace(/!!(\w+)/g, "$1");
 
     return result;
   }
@@ -374,30 +411,30 @@ class AutoRefactoringEngine {
    * Remove commented-out code
    */
   removeDeadCode(content) {
-    const lines = content.split('\n');
-    const filtered = lines.filter(line => {
+    const lines = content.split("\n");
+    const filtered = lines.filter((line) => {
       const trimmed = line.trim();
       // Remove lines that are commented out code (heuristic)
-      if (trimmed.startsWith('// ') && /[;{}()]/.test(trimmed)) {
+      if (trimmed.startsWith("// ") && /[;{}()]/.test(trimmed)) {
         return false;
       }
       return true;
     });
-    return filtered.join('\n');
+    return filtered.join("\n");
   }
 
   /**
    * Optimize import statements
    */
   optimizeImports(content) {
-    const lines = content.split('\n');
+    const lines = content.split("\n");
     const imports = [];
     const other = [];
 
-    lines.forEach(line => {
-      if (line.trim().startsWith('const') && line.includes('require(')) {
+    lines.forEach((line) => {
+      if (line.trim().startsWith("const") && line.includes("require(")) {
         imports.push(line);
-      } else if (line.trim().startsWith('import')) {
+      } else if (line.trim().startsWith("import")) {
         imports.push(line);
       } else {
         other.push(line);
@@ -409,7 +446,7 @@ class AutoRefactoringEngine {
 
     // Combine: imports + blank line + rest
     return imports.length > 0
-      ? imports.join('\n') + '\n\n' + other.join('\n')
+      ? imports.join("\n") + "\n\n" + other.join("\n")
       : content;
   }
 
@@ -430,9 +467,9 @@ class AutoRefactoringEngine {
       /(\.query\s*\(\s*["'`])([^"'`]*)(["'`]\s*\+\s*)(\w+)(\s*\))/g,
       (match, prefix, query, concat, variable, suffix) => {
         // Replace the string with placeholder
-        const updatedQuery = query.replace(/\s+$/, ' ') + '?';
+        const updatedQuery = query.replace(/\s+$/, " ") + "?";
         return `${prefix}${updatedQuery}${query.endsWith("'") ? "'" : '"'}, [${variable}]${suffix}`;
-      }
+      },
     );
 
     // Pattern 2: Template literals with variables
@@ -441,9 +478,9 @@ class AutoRefactoringEngine {
     result = result.replace(
       /\.query\s*\(\s*`([^`]*)\$\{(\w+)\}([^`]*)`\s*\)/g,
       (match, before, variable, after) => {
-        const query = before + '?' + after;
+        const query = before + "?" + after;
         return `.query("${query}", [${variable}])`;
-      }
+      },
     );
 
     return result;
@@ -463,7 +500,7 @@ class AutoRefactoringEngine {
         const envVarName = varName.toUpperCase();
         secretsFound.push({ name: envVarName, value });
         return `${declType} ${varName} = process.env.${envVarName}`;
-      }
+      },
     );
 
     // Pattern 2: Passwords
@@ -473,7 +510,7 @@ class AutoRefactoringEngine {
         const envVarName = varName.toUpperCase();
         secretsFound.push({ name: envVarName, value });
         return `${declType} ${varName} = process.env.${envVarName}`;
-      }
+      },
     );
 
     // Pattern 3: Tokens
@@ -483,7 +520,7 @@ class AutoRefactoringEngine {
         const envVarName = varName.toUpperCase();
         secretsFound.push({ name: envVarName, value });
         return `${declType} ${varName} = process.env.${envVarName}`;
-      }
+      },
     );
 
     // Pattern 4: AWS keys
@@ -492,13 +529,13 @@ class AutoRefactoringEngine {
       (match, declType, varName, value) => {
         secretsFound.push({ name: varName, value });
         return `${declType} ${varName} = process.env.${varName}`;
-      }
+      },
     );
 
     // If secrets were found, add a comment at the top
     if (secretsFound.length > 0) {
-      const secretsList = secretsFound.map(s => s.name).join(', ');
-      const comment = `// SECURITY: Moved secrets to environment variables: ${secretsList}\n// Add these to your .env file:\n${secretsFound.map(s => `// ${s.name}=${s.value}`).join('\n')}\n\n`;
+      const secretsList = secretsFound.map((s) => s.name).join(", ");
+      const comment = `// SECURITY: Moved secrets to environment variables: ${secretsList}\n// Add these to your .env file:\n${secretsFound.map((s) => `// ${s.name}=${s.value}`).join("\n")}\n\n`;
       result = comment + result;
     }
 
@@ -518,12 +555,12 @@ class AutoRefactoringEngine {
       /(\w+)\.innerHTML\s*=\s*([^;]*(?:user|input|param|req\.|data\.|props\.)[^;]*)/gi,
       (match, element, value) => {
         // If it's just a variable (not HTML structure), use textContent
-        if (!value.includes('<')) {
+        if (!value.includes("<")) {
           return `${element}.textContent = ${value}`;
         }
         // If it includes HTML tags, warn but still replace
         return `${element}.textContent = ${value}; // WARNING: Original used innerHTML with user data`;
-      }
+      },
     );
 
     // Pattern 2: dangerouslySetInnerHTML in React
@@ -531,13 +568,13 @@ class AutoRefactoringEngine {
       /dangerouslySetInnerHTML=\{\{__html:\s*([^}]+)\}\}/g,
       (match, value) => {
         return `// WARNING: Removed dangerouslySetInnerHTML. Use safe rendering instead.\n// Consider using a sanitization library like DOMPurify`;
-      }
+      },
     );
 
     // Pattern 3: document.write
     result = result.replace(
       /document\.write\s*\([^)]*\)/g,
-      '// WARNING: document.write removed (security risk). Use DOM manipulation instead.'
+      "// WARNING: document.write removed (security risk). Use DOM manipulation instead.",
     );
 
     return result;
@@ -547,44 +584,64 @@ class AutoRefactoringEngine {
    * Add input validation to functions
    */
   addInputValidation(content, params) {
-    const lines = content.split('\n');
+    const lines = content.split("\n");
     const result = [];
 
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
 
       // Find function declarations
-      const functionMatch = line.match(/^\s*function\s+(\w+)\s*\(([^)]+)\)\s*\{/);
-      const arrowMatch = line.match(/^\s*const\s+(\w+)\s*=\s*\(([^)]+)\)\s*=>\s*\{/);
+      const functionMatch = line.match(
+        /^\s*function\s+(\w+)\s*\(([^)]+)\)\s*\{/,
+      );
+      const arrowMatch = line.match(
+        /^\s*const\s+(\w+)\s*=\s*\(([^)]+)\)\s*=>\s*\{/,
+      );
 
       if (functionMatch || arrowMatch) {
         const funcName = functionMatch ? functionMatch[1] : arrowMatch[1];
         const paramsStr = functionMatch ? functionMatch[2] : arrowMatch[2];
-        const paramsList = paramsStr.split(',').map(p => p.trim());
+        const paramsList = paramsStr.split(",").map((p) => p.trim());
 
         result.push(line);
 
         // Add validation for each parameter
-        const indent = line.match(/^\s*/)[0] + '  ';
+        const indent = line.match(/^\s*/)[0] + "  ";
         for (const param of paramsList) {
-          const paramName = param.split('=')[0].trim(); // Handle default params
+          const paramName = param.split("=")[0].trim(); // Handle default params
 
           // Add type-based validation based on parameter name heuristics
           if (paramName.match(/id$/i)) {
-            result.push(`${indent}if (typeof ${paramName} !== 'number' && typeof ${paramName} !== 'string') {`);
-            result.push(`${indent}  throw new Error('Invalid ${paramName}: must be number or string');`);
+            result.push(
+              `${indent}if (typeof ${paramName} !== 'number' && typeof ${paramName} !== 'string') {`,
+            );
+            result.push(
+              `${indent}  throw new Error('Invalid ${paramName}: must be number or string');`,
+            );
             result.push(`${indent}}`);
           } else if (paramName.match(/email/i)) {
-            result.push(`${indent}if (typeof ${paramName} !== 'string' || !${paramName}.includes('@')) {`);
-            result.push(`${indent}  throw new Error('Invalid ${paramName}: must be valid email');`);
+            result.push(
+              `${indent}if (typeof ${paramName} !== 'string' || !${paramName}.includes('@')) {`,
+            );
+            result.push(
+              `${indent}  throw new Error('Invalid ${paramName}: must be valid email');`,
+            );
             result.push(`${indent}}`);
           } else if (paramName.match(/age|count|index|size/i)) {
-            result.push(`${indent}if (typeof ${paramName} !== 'number' || ${paramName} < 0) {`);
-            result.push(`${indent}  throw new Error('Invalid ${paramName}: must be non-negative number');`);
+            result.push(
+              `${indent}if (typeof ${paramName} !== 'number' || ${paramName} < 0) {`,
+            );
+            result.push(
+              `${indent}  throw new Error('Invalid ${paramName}: must be non-negative number');`,
+            );
             result.push(`${indent}}`);
           } else if (paramName.match(/name|title|text/i)) {
-            result.push(`${indent}if (typeof ${paramName} !== 'string' || ${paramName}.length === 0) {`);
-            result.push(`${indent}  throw new Error('Invalid ${paramName}: must be non-empty string');`);
+            result.push(
+              `${indent}if (typeof ${paramName} !== 'string' || ${paramName}.length === 0) {`,
+            );
+            result.push(
+              `${indent}  throw new Error('Invalid ${paramName}: must be non-empty string');`,
+            );
             result.push(`${indent}}`);
           }
         }
@@ -595,7 +652,7 @@ class AutoRefactoringEngine {
       result.push(line);
     }
 
-    return result.join('\n');
+    return result.join("\n");
   }
 
   /**
@@ -607,13 +664,13 @@ class AutoRefactoringEngine {
     // Pattern 1: MD5 -> SHA256
     result = result.replace(
       /crypto\.createHash\s*\(\s*['"]md5['"]\s*\)/gi,
-      "crypto.createHash('sha256')"
+      "crypto.createHash('sha256')",
     );
 
     // Pattern 2: SHA1 -> SHA256
     result = result.replace(
       /crypto\.createHash\s*\(\s*['"]sha1['"]\s*\)/gi,
-      "crypto.createHash('sha256')"
+      "crypto.createHash('sha256')",
     );
 
     // Pattern 3: Math.random() for security -> crypto.randomBytes()
@@ -622,7 +679,7 @@ class AutoRefactoringEngine {
       /(token|secret|key|id)\s*=\s*Math\.random\(\)\.toString\((\d+)\)/gi,
       (match, varName, radix) => {
         return `${varName} = crypto.randomBytes(16).toString('hex')`;
-      }
+      },
     );
 
     // Pattern 4: Deprecated createCipher -> createCipheriv
@@ -630,7 +687,7 @@ class AutoRefactoringEngine {
       /crypto\.createCipher\s*\(\s*['"]([^'"]+)['"]\s*,\s*([^)]+)\)/g,
       (match, algorithm, password) => {
         return `// WARNING: crypto.createCipher is deprecated. Use crypto.createCipheriv instead.\n// Example: crypto.createCipheriv('aes-256-gcm', key, iv)`;
-      }
+      },
     );
 
     return result;
@@ -666,7 +723,7 @@ const resultsMap = results.reduce((acc, item) => {
 
 // Map to maintain original order
 const data = ${arrayVar}.map(${itemVar} => resultsMap[${itemVar}]);`;
-      }
+      },
     );
 
     return result;
@@ -676,29 +733,34 @@ const data = ${arrayVar}.map(${itemVar} => resultsMap[${itemVar}]);`;
    * Add caching layer to expensive operations
    */
   addCachingLayer(content, params) {
-    const lines = content.split('\n');
+    const lines = content.split("\n");
     const result = [];
     let inFunction = false;
-    let functionName = '';
+    let functionName = "";
 
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
 
       // Detect async function that does queries/fetches
       const funcMatch = line.match(/async\s+function\s+(\w+)\s*\(([^)]*)\)/);
-      if (funcMatch && (content.includes('.query(') || content.includes('fetch(') || content.includes('await'))) {
+      if (
+        funcMatch &&
+        (content.includes(".query(") ||
+          content.includes("fetch(") ||
+          content.includes("await"))
+      ) {
         functionName = funcMatch[1];
         const params = funcMatch[2];
 
         // Add cache before function
         result.push(`// PERFORMANCE: Added caching layer`);
         result.push(`const ${functionName}Cache = new Map();`);
-        result.push('');
+        result.push("");
         result.push(line);
 
         // Add cache check at start of function
         if (params) {
-          const paramName = params.split(',')[0].trim();
+          const paramName = params.split(",")[0].trim();
           result.push(`  const cacheKey = ${paramName};`);
           result.push(`  if (${functionName}Cache.has(cacheKey)) {`);
           result.push(`    return ${functionName}Cache.get(cacheKey);`);
@@ -710,7 +772,7 @@ const data = ${arrayVar}.map(${itemVar} => resultsMap[${itemVar}]);`;
       }
 
       // If in cached function and we hit return, cache the result
-      if (inFunction && line.trim().startsWith('return ')) {
+      if (inFunction && line.trim().startsWith("return ")) {
         result.push(`  const result = ${line.trim().substring(7)}`);
         result.push(`  ${functionName}Cache.set(cacheKey, result);`);
         result.push(`  return result;`);
@@ -721,7 +783,7 @@ const data = ${arrayVar}.map(${itemVar} => resultsMap[${itemVar}]);`;
       result.push(line);
     }
 
-    return result.join('\n');
+    return result.join("\n");
   }
 
   /**
@@ -739,7 +801,7 @@ const data = ${arrayVar}.map(${itemVar} => resultsMap[${itemVar}]);`;
 const ${arr2}Set = new Set(${arr2});
 for (const ${var1} of ${arr1}) {
   if (${arr2}Set.has(${var1}))`;
-      }
+      },
     );
 
     // Pattern: array.includes in loop (O(n²))
@@ -750,7 +812,7 @@ for (const ${var1} of ${arr1}) {
 const ${targetArray}Set = new Set(${targetArray});
 for (const ${itemVar} of ${arrayVar}) {
   if (${targetArray}Set.has(${itemVar}))`;
-      }
+      },
     );
 
     return result;
@@ -765,11 +827,13 @@ for (const ${itemVar} of ${arrayVar}) {
    * Creates a basic test file with happy path and edge cases
    */
   generateUnitTest(content, params) {
-    const lines = content.split('\n');
-    let testContent = '';
+    const lines = content.split("\n");
+    let testContent = "";
 
     // Find exported functions
-    const functionMatches = content.matchAll(/export\s+(?:async\s+)?function\s+(\w+)\s*\(([^)]*)\)/g);
+    const functionMatches = content.matchAll(
+      /export\s+(?:async\s+)?function\s+(\w+)\s*\(([^)]*)\)/g,
+    );
 
     for (const match of functionMatches) {
       const funcName = match[1];
@@ -778,7 +842,7 @@ for (const ${itemVar} of ${arrayVar}) {
       // Generate test file content
       testContent += `// TEST: Auto-generated unit test for ${funcName}\n`;
       testContent += `describe('${funcName}', () => {\n`;
-      testContent += `  it('should ${funcName.replace(/([A-Z])/g, ' $1').toLowerCase()}', () => {\n`;
+      testContent += `  it('should ${funcName.replace(/([A-Z])/g, " $1").toLowerCase()}', () => {\n`;
       testContent += `    // TODO: Add test implementation\n`;
       testContent += `    const result = ${funcName}(/* TODO: Add params */);\n`;
       testContent += `    expect(result).toBeDefined();\n`;
@@ -795,7 +859,7 @@ for (const ${itemVar} of ${arrayVar}) {
       testContent += `});\n\n`;
     }
 
-    return testContent || '// No exported functions found to test\n' + content;
+    return testContent || "// No exported functions found to test\n" + content;
   }
 
   /**
@@ -805,38 +869,43 @@ for (const ${itemVar} of ${arrayVar}) {
     let result = content;
 
     // Find test blocks without edge cases
-    const testPattern = /describe\s*\(\s*['"`]([^'"`]+)['"`]\s*,\s*\(\)\s*=>\s*\{([\s\S]*?)\n\}\);/g;
+    const testPattern =
+      /describe\s*\(\s*['"`]([^'"`]+)['"`]\s*,\s*\(\)\s*=>\s*\{([\s\S]*?)\n\}\);/g;
 
     result = result.replace(testPattern, (match, testName, testBody) => {
       // Check if already has edge case tests
-      if (testBody.includes('null') && testBody.includes('undefined') && testBody.includes('empty')) {
+      if (
+        testBody.includes("null") &&
+        testBody.includes("undefined") &&
+        testBody.includes("empty")
+      ) {
         return match; // Already has edge cases
       }
 
       // Add edge case tests
-      let edgeCases = '';
+      let edgeCases = "";
 
-      if (!testBody.includes('null')) {
+      if (!testBody.includes("null")) {
         edgeCases += `\n  // AUTO-GENERATED: Edge case tests\n`;
         edgeCases += `  it('should handle null inputs', () => {\n`;
         edgeCases += `    expect(() => ${testName}(null)).toThrow();\n`;
         edgeCases += `  });\n`;
       }
 
-      if (!testBody.includes('undefined')) {
+      if (!testBody.includes("undefined")) {
         edgeCases += `\n  it('should handle undefined inputs', () => {\n`;
         edgeCases += `    expect(() => ${testName}(undefined)).toThrow();\n`;
         edgeCases += `  });\n`;
       }
 
-      if (!testBody.includes('empty')) {
+      if (!testBody.includes("empty")) {
         edgeCases += `\n  it('should handle empty inputs', () => {\n`;
         edgeCases += `    const result = ${testName}([]);\n`;
         edgeCases += `    expect(result).toBeDefined();\n`;
         edgeCases += `  });\n`;
       }
 
-      if (!testBody.includes('negative')) {
+      if (!testBody.includes("negative")) {
         edgeCases += `\n  it('should handle negative values', () => {\n`;
         edgeCases += `    const result = ${testName}(-1);\n`;
         edgeCases += `    expect(result).toBeDefined();\n`;
@@ -859,39 +928,39 @@ for (const ${itemVar} of ${arrayVar}) {
     // Pattern 1: toBe(true) -> toBeTruthy() or more specific
     result = result.replace(
       /expect\(Array\.isArray\(([^)]+)\)\)\.toBe\(true\)/g,
-      'expect($1).toBeInstanceOf(Array)'
+      "expect($1).toBeInstanceOf(Array)",
     );
 
     result = result.replace(
       /expect\(([^)]+)\)\.toBe\(true\)/g,
-      'expect($1).toBeTruthy()'
+      "expect($1).toBeTruthy()",
     );
 
     result = result.replace(
       /expect\(([^)]+)\)\.toBe\(false\)/g,
-      'expect($1).toBeFalsy()'
+      "expect($1).toBeFalsy()",
     );
 
     // Pattern 2: Truthy checks -> specific property checks
     result = result.replace(
       /expect\(([^.]+)\.(\w+)\)\.toBeTruthy\(\)/g,
-      'expect($1).toHaveProperty(\'$2\')'
+      "expect($1).toHaveProperty('$2')",
     );
 
     // Pattern 3: Generic toBe -> specific matchers
     result = result.replace(
       /expect\(typeof\s+([^)]+)\)\.toBe\(['"]string['"]\)/g,
-      'expect($1).toEqual(expect.any(String))'
+      "expect($1).toEqual(expect.any(String))",
     );
 
     result = result.replace(
       /expect\(typeof\s+([^)]+)\)\.toBe\(['"]number['"]\)/g,
-      'expect($1).toEqual(expect.any(Number))'
+      "expect($1).toEqual(expect.any(Number))",
     );
 
     result = result.replace(
       /expect\(typeof\s+([^)]+)\)\.toBe\(['"]object['"]\)/g,
-      'expect($1).toEqual(expect.any(Object))'
+      "expect($1).toEqual(expect.any(Object))",
     );
 
     return result;
@@ -905,7 +974,7 @@ for (const ${itemVar} of ${arrayVar}) {
     let mocksAdded = false;
 
     // Check for fetch/API calls
-    if (content.includes('fetch(') || content.includes('axios.')) {
+    if (content.includes("fetch(") || content.includes("axios.")) {
       const mockSetup = `
   // AUTO-GENERATED: Mock setup for API calls
   beforeEach(() => {
@@ -921,15 +990,12 @@ for (const ${itemVar} of ${arrayVar}) {
   });
 `;
       // Insert after first describe(
-      result = result.replace(
-        /(describe\s*\([^{]+\{)/,
-        `$1${mockSetup}`
-      );
+      result = result.replace(/(describe\s*\([^{]+\{)/, `$1${mockSetup}`);
       mocksAdded = true;
     }
 
     // Check for database calls
-    if (content.includes('db.') || content.includes('database.')) {
+    if (content.includes("db.") || content.includes("database.")) {
       const dbMock = `
   // AUTO-GENERATED: Mock setup for database calls
   const mockDb = {
@@ -940,12 +1006,16 @@ for (const ${itemVar} of ${arrayVar}) {
   };
 `;
       // Insert at top of file
-      result = dbMock + '\n' + result;
+      result = dbMock + "\n" + result;
       mocksAdded = true;
     }
 
     // Check for filesystem operations
-    if (content.includes('fs.') || content.includes('readFile') || content.includes('writeFile')) {
+    if (
+      content.includes("fs.") ||
+      content.includes("readFile") ||
+      content.includes("writeFile")
+    ) {
       const fsMock = `
   // AUTO-GENERATED: Mock setup for filesystem operations
   jest.mock('fs', () => ({
@@ -956,12 +1026,12 @@ for (const ${itemVar} of ${arrayVar}) {
   }));
 `;
       // Insert at top of file
-      result = fsMock + '\n' + result;
+      result = fsMock + "\n" + result;
       mocksAdded = true;
     }
 
     if (mocksAdded) {
-      result = '// TEST: Auto-generated mocks added\n' + result;
+      result = "// TEST: Auto-generated mocks added\n" + result;
     }
 
     return result;
@@ -975,7 +1045,7 @@ for (const ${itemVar} of ${arrayVar}) {
    * Extract magic numbers to named constants
    */
   extractConstant(content, params) {
-    const lines = content.split('\n');
+    const lines = content.split("\n");
     const constants = [];
     const seenNumbers = new Set();
 
@@ -986,15 +1056,19 @@ for (const ${itemVar} of ${arrayVar}) {
       const matches = line.matchAll(magicNumberPattern);
       for (const match of matches) {
         const num = match[1];
-        if (num !== '0' && num !== '1' && !seenNumbers.has(num)) {
+        if (num !== "0" && num !== "1" && !seenNumbers.has(num)) {
           seenNumbers.add(num);
           // Generate constant name based on context
-          const contextMatch = line.match(new RegExp(`(\\w+)\\s*[=<>]+\\s*${num}`));
-          const varName = contextMatch ? contextMatch[1].toUpperCase() : 'VALUE';
+          const contextMatch = line.match(
+            new RegExp(`(\\w+)\\s*[=<>]+\\s*${num}`),
+          );
+          const varName = contextMatch
+            ? contextMatch[1].toUpperCase()
+            : "VALUE";
           constants.push({
-            name: `${varName}_THRESHOLD_${num.replace('.', '_')}`,
+            name: `${varName}_THRESHOLD_${num.replace(".", "_")}`,
             value: num,
-            line: index
+            line: index,
           });
         }
       }
@@ -1005,14 +1079,14 @@ for (const ${itemVar} of ${arrayVar}) {
     }
 
     // Add constants at top
-    const constDeclarations = constants.map(c =>
-      `const ${c.name} = ${c.value};`
-    ).join('\n');
+    const constDeclarations = constants
+      .map((c) => `const ${c.name} = ${c.value};`)
+      .join("\n");
 
     // Replace numbers with constants in code
     let result = content;
-    constants.forEach(c => {
-      const regex = new RegExp(`\\b${c.value}\\b`, 'g');
+    constants.forEach((c) => {
+      const regex = new RegExp(`\\b${c.value}\\b`, "g");
       result = result.replace(regex, c.name);
     });
 
@@ -1027,37 +1101,31 @@ for (const ${itemVar} of ${arrayVar}) {
 
     // Pattern 1: if (x.y === true) or if (x === true) -> if (x.y) or if (x)
     // Updated to match property access (obj.prop) and simple variables
-    result = result.replace(
-      /if\s*\(\s*([\w.]+)\s*===\s*true\s*\)/g,
-      'if ($1)'
-    );
+    result = result.replace(/if\s*\(\s*([\w.]+)\s*===\s*true\s*\)/g, "if ($1)");
 
     result = result.replace(
       /if\s*\(\s*([\w.]+)\s*===\s*false\s*\)/g,
-      'if (!$1)'
+      "if (!$1)",
     );
 
     // Pattern 2: if (x == true) -> if (x)
-    result = result.replace(
-      /if\s*\(\s*([\w.]+)\s*==\s*true\s*\)/g,
-      'if ($1)'
-    );
+    result = result.replace(/if\s*\(\s*([\w.]+)\s*==\s*true\s*\)/g, "if ($1)");
 
     result = result.replace(
       /if\s*\(\s*([\w.]+)\s*==\s*false\s*\)/g,
-      'if (!$1)'
+      "if (!$1)",
     );
 
     // Pattern 3: if (!x.y === false) -> if (x.y)
     result = result.replace(
       /if\s*\(\s*!\s*([\w.]+)\s*===\s*false\s*\)/g,
-      'if ($1)'
+      "if ($1)",
     );
 
     // Pattern 4: Simplify double negatives !!(!x) -> x
     result = result.replace(
       /if\s*\(\s*!\s*!\s*\(\s*!\s*([\w.]+)\s*\)\s*\)/g,
-      'if ($1)'
+      "if ($1)",
     );
 
     return result;
@@ -1072,13 +1140,14 @@ for (const ${itemVar} of ${arrayVar}) {
     // Find repeated function patterns (simplified detection)
     // Pattern: async function getXById(id) { const x = await db.query(...) }
 
-    const functionPattern = /async function get(\w+)ById\(id\)\s*\{[\s\S]*?const \1 = await db\.query\([^;]+;[\s\S]*?if \(!(\1)\) throw new Error\([^)]+\);[\s\S]*?return \1;[\s\S]*?\}/g;
+    const functionPattern =
+      /async function get(\w+)ById\(id\)\s*\{[\s\S]*?const \1 = await db\.query\([^;]+;[\s\S]*?if \(!(\1)\) throw new Error\([^)]+\);[\s\S]*?return \1;[\s\S]*?\}/g;
 
     const matches = [...content.matchAll(functionPattern)];
 
     if (matches.length >= 2) {
       // Extract common pattern
-      const comment = '// REFACTORING: Extracted common query pattern\n';
+      const comment = "// REFACTORING: Extracted common query pattern\n";
       const genericFunction = `async function getEntityById(table, id, entityName = 'Entity') {
   const entity = await db.query(\`SELECT * FROM \${table} WHERE id = ?\`, [id]);
   if (!entity) throw new Error(\`\${entityName} not found\`);
@@ -1088,7 +1157,7 @@ for (const ${itemVar} of ${arrayVar}) {
 `;
 
       // Replace specific functions with calls to generic
-      matches.forEach(match => {
+      matches.forEach((match) => {
         const entityName = match[1];
         const replacement = `const get${entityName}ById = (id) => getEntityById('${entityName.toLowerCase()}s', id, '${entityName}');`;
         result = result.replace(match[0], replacement);
@@ -1109,11 +1178,16 @@ for (const ${itemVar} of ${arrayVar}) {
     // Simplified extraction: Look for functions with validation + logic blocks
     // Pattern: function with multiple distinct sections (validation, calculation, etc.)
 
-    const longFunctionPattern = /function (\w+)\([^)]*\)\s*\{([\s\S]{300,}?)\}/g;
+    const longFunctionPattern =
+      /function (\w+)\([^)]*\)\s*\{([\s\S]{300,}?)\}/g;
 
     result = result.replace(longFunctionPattern, (match, funcName, body) => {
       // Check if function has distinct sections
-      if (body.includes('// Validate') || body.includes('// Calculate') || body.includes('// Save')) {
+      if (
+        body.includes("// Validate") ||
+        body.includes("// Calculate") ||
+        body.includes("// Save")
+      ) {
         // Add comment suggesting extraction
         return `// REFACTORING: Consider extracting methods from ${funcName}\n// Suggested: validate${funcName}, calculate${funcName}, save${funcName}\n${match}`;
       }
@@ -1131,35 +1205,43 @@ for (const ${itemVar} of ${arrayVar}) {
    * Add JSDoc to undocumented functions
    */
   addJSDoc(content, params) {
-    const lines = content.split('\n');
+    const lines = content.split("\n");
     const result = [];
 
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
 
       // Check for export function without JSDoc
-      const funcMatch = line.match(/export\s+(?:async\s+)?function\s+(\w+)\s*\(([^)]*)\)/);
+      const funcMatch = line.match(
+        /export\s+(?:async\s+)?function\s+(\w+)\s*\(([^)]*)\)/,
+      );
 
       if (funcMatch) {
         // Check if previous lines have JSDoc
-        const prevLine = i > 0 ? lines[i - 1].trim() : '';
-        const twoPrevLine = i > 1 ? lines[i - 2].trim() : '';
+        const prevLine = i > 0 ? lines[i - 1].trim() : "";
+        const twoPrevLine = i > 1 ? lines[i - 2].trim() : "";
 
-        if (!prevLine.includes('*/') && !twoPrevLine.includes('*/')) {
+        if (!prevLine.includes("*/") && !twoPrevLine.includes("*/")) {
           // Add JSDoc
           const funcName = funcMatch[1];
           const params = funcMatch[2];
           const indent = line.match(/^\s*/)[0];
 
           result.push(`${indent}/**`);
-          result.push(`${indent} * ${funcName.replace(/([A-Z])/g, ' $1').trim()}`);
+          result.push(
+            `${indent} * ${funcName.replace(/([A-Z])/g, " $1").trim()}`,
+          );
 
           // Add @param for each parameter
           if (params.trim()) {
-            const paramList = params.split(',').map(p => p.trim().split(/\s+/)[0]);
-            paramList.forEach(param => {
-              if (param && param !== '...') {
-                result.push(`${indent} * @param {*} ${param} - Parameter description`);
+            const paramList = params
+              .split(",")
+              .map((p) => p.trim().split(/\s+/)[0]);
+            paramList.forEach((param) => {
+              if (param && param !== "...") {
+                result.push(
+                  `${indent} * @param {*} ${param} - Parameter description`,
+                );
               }
             });
           }
@@ -1172,7 +1254,7 @@ for (const ${itemVar} of ${arrayVar}) {
       result.push(line);
     }
 
-    return result.join('\n');
+    return result.join("\n");
   }
 
   /**
@@ -1182,29 +1264,38 @@ for (const ${itemVar} of ${arrayVar}) {
     let result = content;
 
     // Find functions with params but missing @param in JSDoc
-    const funcPattern = /\/\*\*([\s\S]*?)\*\/\s*(?:export\s+)?(?:async\s+)?function\s+(\w+)\s*\(([^)]+)\)/g;
+    const funcPattern =
+      /\/\*\*([\s\S]*?)\*\/\s*(?:export\s+)?(?:async\s+)?function\s+(\w+)\s*\(([^)]+)\)/g;
 
-    result = result.replace(funcPattern, (match, jsdoc, funcName, funcParams) => {
-      const paramList = funcParams.split(',').map(p => p.trim().split(/\s+/)[0]);
-      let updatedJSDoc = jsdoc;
+    result = result.replace(
+      funcPattern,
+      (match, jsdoc, funcName, funcParams) => {
+        const paramList = funcParams
+          .split(",")
+          .map((p) => p.trim().split(/\s+/)[0]);
+        let updatedJSDoc = jsdoc;
 
-      // Check which params are missing
-      paramList.forEach(param => {
-        if (param && !jsdoc.includes(`@param`) || !jsdoc.includes(param)) {
-          // Add missing @param before @returns or at end
-          const indent = match.match(/^\s*/)[0];
-          const paramDoc = `\n${indent} * @param {*} ${param} - Parameter description`;
+        // Check which params are missing
+        paramList.forEach((param) => {
+          if ((param && !jsdoc.includes(`@param`)) || !jsdoc.includes(param)) {
+            // Add missing @param before @returns or at end
+            const indent = match.match(/^\s*/)[0];
+            const paramDoc = `\n${indent} * @param {*} ${param} - Parameter description`;
 
-          if (updatedJSDoc.includes('@returns')) {
-            updatedJSDoc = updatedJSDoc.replace(/(@returns)/, `${paramDoc}\n${indent} * $1`);
-          } else {
-            updatedJSDoc += paramDoc;
+            if (updatedJSDoc.includes("@returns")) {
+              updatedJSDoc = updatedJSDoc.replace(
+                /(@returns)/,
+                `${paramDoc}\n${indent} * $1`,
+              );
+            } else {
+              updatedJSDoc += paramDoc;
+            }
           }
-        }
-      });
+        });
 
-      return `/**${updatedJSDoc}*/\nexport function ${funcName}(${funcParams})`;
-    });
+        return `/**${updatedJSDoc}*/\nexport function ${funcName}(${funcParams})`;
+      },
+    );
 
     return result;
   }
@@ -1216,19 +1307,25 @@ for (const ${itemVar} of ${arrayVar}) {
     let result = content;
 
     // Find functions with return statements but no @returns
-    const funcPattern = /\/\*\*([\s\S]*?)\*\/\s*(?:export\s+)?(?:async\s+)?function\s+(\w+)\s*\([^)]*\)\s*\{([\s\S]*?)return\s+([^;]+);/g;
+    const funcPattern =
+      /\/\*\*([\s\S]*?)\*\/\s*(?:export\s+)?(?:async\s+)?function\s+(\w+)\s*\([^)]*\)\s*\{([\s\S]*?)return\s+([^;]+);/g;
 
-    result = result.replace(funcPattern, (match, jsdoc, funcName, body, returnValue) => {
-      if (!jsdoc.includes('@returns') && !jsdoc.includes('@return')) {
-        const indent = match.match(/^\s*/)[0];
-        const isAsync = match.includes('async');
-        const returnType = isAsync ? 'Promise<*>' : '*';
+    result = result.replace(
+      funcPattern,
+      (match, jsdoc, funcName, body, returnValue) => {
+        if (!jsdoc.includes("@returns") && !jsdoc.includes("@return")) {
+          const indent = match.match(/^\s*/)[0];
+          const isAsync = match.includes("async");
+          const returnType = isAsync ? "Promise<*>" : "*";
 
-        const updatedJSDoc = jsdoc + `\n${indent} * @returns {${returnType}} Return value description`;
-        return match.replace(jsdoc, updatedJSDoc);
-      }
-      return match;
-    });
+          const updatedJSDoc =
+            jsdoc +
+            `\n${indent} * @returns {${returnType}} Return value description`;
+          return match.replace(jsdoc, updatedJSDoc);
+        }
+        return match;
+      },
+    );
 
     return result;
   }
@@ -1240,21 +1337,30 @@ for (const ${itemVar} of ${arrayVar}) {
     let result = content;
 
     // Find JSDoc without @example
-    const jsdocPattern = /\/\*\*([\s\S]*?)\*\/\s*(?:export\s+)?(?:async\s+)?function\s+(\w+)\s*\(([^)]*)\)/g;
+    const jsdocPattern =
+      /\/\*\*([\s\S]*?)\*\/\s*(?:export\s+)?(?:async\s+)?function\s+(\w+)\s*\(([^)]*)\)/g;
 
-    result = result.replace(jsdocPattern, (match, jsdoc, funcName, funcParams) => {
-      if (!jsdoc.includes('@example')) {
-        const indent = match.match(/^\s*/)[0];
+    result = result.replace(
+      jsdocPattern,
+      (match, jsdoc, funcName, funcParams) => {
+        if (!jsdoc.includes("@example")) {
+          const indent = match.match(/^\s*/)[0];
 
-        // Generate simple example
-        const paramList = funcParams ? funcParams.split(',').map((p, i) => `param${i + 1}`).join(', ') : '';
-        const example = `\n${indent} * @example\n${indent} * ${funcName}(${paramList})\n${indent} * // Returns: result`;
+          // Generate simple example
+          const paramList = funcParams
+            ? funcParams
+                .split(",")
+                .map((p, i) => `param${i + 1}`)
+                .join(", ")
+            : "";
+          const example = `\n${indent} * @example\n${indent} * ${funcName}(${paramList})\n${indent} * // Returns: result`;
 
-        const updatedJSDoc = jsdoc + example;
-        return match.replace(jsdoc, updatedJSDoc);
-      }
-      return match;
-    });
+          const updatedJSDoc = jsdoc + example;
+          return match.replace(jsdoc, updatedJSDoc);
+        }
+        return match;
+      },
+    );
 
     return result;
   }
@@ -1263,16 +1369,16 @@ for (const ${itemVar} of ${arrayVar}) {
    * Count line changes between two versions
    */
   countLineChanges(original, modified) {
-    const originalLines = original.split('\n');
-    const modifiedLines = modified.split('\n');
+    const originalLines = original.split("\n");
+    const modifiedLines = modified.split("\n");
 
     // Simple diff: count lines that are different
     const maxLength = Math.max(originalLines.length, modifiedLines.length);
     let changes = 0;
 
     for (let i = 0; i < maxLength; i++) {
-      const orig = originalLines[i] || '';
-      const mod = modifiedLines[i] || '';
+      const orig = originalLines[i] || "";
+      const mod = modifiedLines[i] || "";
       if (orig !== mod) {
         changes++;
       }
@@ -1287,9 +1393,11 @@ for (const ${itemVar} of ${arrayVar}) {
   getMetrics() {
     return {
       ...this.metrics,
-      successRate: this.metrics.refactoringsAttempted > 0
-        ? this.metrics.refactoringsSucceeded / this.metrics.refactoringsAttempted
-        : 0
+      successRate:
+        this.metrics.refactoringsAttempted > 0
+          ? this.metrics.refactoringsSucceeded /
+            this.metrics.refactoringsAttempted
+          : 0,
     };
   }
 
@@ -1298,15 +1406,33 @@ for (const ${itemVar} of ${arrayVar}) {
    */
   printMetrics() {
     const metrics = this.getMetrics();
-    console.log('\n+- AUTO-REFACTORING METRICS ---------------------------------+');
-    console.log(`| Refactorings Attempted: ${metrics.refactoringsAttempted.toString().padEnd(41)} |`);
-    console.log(`| Refactorings Succeeded: ${metrics.refactoringsSucceeded.toString().padEnd(41)} |`);
-    console.log(`| Refactorings Failed: ${metrics.refactoringsFailed.toString().padEnd(44)} |`);
-    console.log(`| Success Rate: ${(metrics.successRate * 100).toFixed(1)}%${' '.repeat(47 - (metrics.successRate * 100).toFixed(1).length)} |`);
-    console.log(`|                                                            |`);
-    console.log(`| Files Modified: ${metrics.filesModified.toString().padEnd(49)} |`);
-    console.log(`| Lines Changed: ${metrics.linesChanged.toString().padEnd(50)} |`);
-    console.log('+------------------------------------------------------------+\n');
+    console.log(
+      "\n+- AUTO-REFACTORING METRICS ---------------------------------+",
+    );
+    console.log(
+      `| Refactorings Attempted: ${metrics.refactoringsAttempted.toString().padEnd(41)} |`,
+    );
+    console.log(
+      `| Refactorings Succeeded: ${metrics.refactoringsSucceeded.toString().padEnd(41)} |`,
+    );
+    console.log(
+      `| Refactorings Failed: ${metrics.refactoringsFailed.toString().padEnd(44)} |`,
+    );
+    console.log(
+      `| Success Rate: ${(metrics.successRate * 100).toFixed(1)}%${" ".repeat(47 - (metrics.successRate * 100).toFixed(1).length)} |`,
+    );
+    console.log(
+      `|                                                            |`,
+    );
+    console.log(
+      `| Files Modified: ${metrics.filesModified.toString().padEnd(49)} |`,
+    );
+    console.log(
+      `| Lines Changed: ${metrics.linesChanged.toString().padEnd(50)} |`,
+    );
+    console.log(
+      "+------------------------------------------------------------+\n",
+    );
   }
 }
 
@@ -1317,7 +1443,7 @@ if (require.main === module) {
   async function test() {
     const engine = new AutoRefactoringEngine();
 
-    console.log('\n=== Auto-Refactoring Engine Demo ===\n');
+    console.log("\n=== Auto-Refactoring Engine Demo ===\n");
 
     // Create a test file
     const testContent = `
@@ -1331,19 +1457,21 @@ if (someCondition === true) {
 // var oldCode = 'removed';
     `.trim();
 
-    console.log('Original content:');
+    console.log("Original content:");
     console.log(testContent);
-    console.log('\n---\n');
+    console.log("\n---\n");
 
     // Test modernize var to const
-    console.log('After modernize-var-to-const:');
-    console.log(engine.performRefactoring(testContent, 'modernize-var-to-const'));
-    console.log('\n---\n');
+    console.log("After modernize-var-to-const:");
+    console.log(
+      engine.performRefactoring(testContent, "modernize-var-to-const"),
+    );
+    console.log("\n---\n");
 
     // Test remove console logs
-    console.log('After remove-console-logs:');
-    console.log(engine.performRefactoring(testContent, 'remove-console-logs'));
-    console.log('\n---\n');
+    console.log("After remove-console-logs:");
+    console.log(engine.performRefactoring(testContent, "remove-console-logs"));
+    console.log("\n---\n");
 
     engine.printMetrics();
   }

@@ -24,15 +24,16 @@
  * but gains dual-write capability when CODETITAN_SYNC_MODE is set.
  */
 
-const InsightSync = require('./insight-sync');
-const path = require('path');
+const InsightSync = require("./insight-sync");
+const path = require("path");
 
 /**
  * Create an insight store with automatic mode detection
  */
 function createInsightStore(options = {}) {
-  const sqlitePath = options.sqlitePath ||
-    path.join(process.cwd(), 'data', 'collective-insight.db');
+  const sqlitePath =
+    options.sqlitePath ||
+    path.join(process.cwd(), "data", "collective-insight.db");
 
   return new InsightSync({ sqlitePath });
 }
@@ -50,24 +51,25 @@ async function ingestAnalysisReport(report, metadata = {}) {
     const result = await insight.ingestReport(report, metadata);
 
     // Log sync results
-    if (result.mode === 'dual-write') {
-      console.log('\n[CHART] Insight stored in both SQLite and Supabase');
+    if (result.mode === "dual-write") {
+      console.log("\n[CHART] Insight stored in both SQLite and Supabase");
       if (result.supabase?.error) {
-        console.log(`   [WARNING]  Supabase write failed: ${result.supabase.error}`);
+        console.log(
+          `   [WARNING]  Supabase write failed: ${result.supabase.error}`,
+        );
       } else {
         console.log(`   [OK] SQLite run ID: ${result.sqlite.runId}`);
         console.log(`   [OK] Supabase run ID: ${result.supabase.runId}`);
       }
-    } else if (result.mode === 'supabase-only') {
-      console.log('\n[CHART] Insight stored in Supabase');
+    } else if (result.mode === "supabase-only") {
+      console.log("\n[CHART] Insight stored in Supabase");
       console.log(`   [OK] Run ID: ${result.supabase.runId}`);
     } else {
-      console.log('\n[CHART] Insight stored in SQLite');
+      console.log("\n[CHART] Insight stored in SQLite");
       console.log(`   [OK] Run ID: ${result.sqlite.runId}`);
     }
 
     return result;
-
   } finally {
     await insight.close();
   }
@@ -84,45 +86,48 @@ async function getDashboard(limit = 5) {
     const dashboard = await insight.getDashboard(limit);
 
     // Print dashboard
-    console.log('\n+=======================================================+');
-    console.log('|              CodeTitan Collective Insight              |');
-    console.log('+=======================================================+\n');
+    console.log("\n+=======================================================+");
+    console.log("|              CodeTitan Collective Insight              |");
+    console.log("+=======================================================+\n");
 
     const data = dashboard.sqlite; // Use SQLite as source of truth
 
-    console.log('[CHART] Summary');
+    console.log("[CHART] Summary");
     console.log(`   Total runs: ${data.summary.runCount}`);
     console.log(`   Findings logged: ${data.summary.findingsLogged}`);
-    console.log(`   Avg quality: ${data.summary.avgQuality?.toFixed(1) || 'N/A'}`);
-    console.log(`   Last run: ${data.summary.lastRun || 'Never'}`);
+    console.log(
+      `   Avg quality: ${data.summary.avgQuality?.toFixed(1) || "N/A"}`,
+    );
+    console.log(`   Last run: ${data.summary.lastRun || "Never"}`);
 
-    console.log('\n🔝 Top Categories');
+    console.log("\n🔝 Top Categories");
     data.topCategories.forEach((cat, i) => {
       console.log(`   ${i + 1}. ${cat.category}: ${cat.count} issues`);
     });
 
-    console.log('\n[TRENDING] Quality Trend');
+    console.log("\n[TRENDING] Quality Trend");
     if (data.qualityTrend.latest) {
       const delta = data.qualityTrend.delta;
-      const arrow = delta > 0 ? '[TRENDING]' : delta < 0 ? '📉' : '➡️';
+      const arrow = delta > 0 ? "[TRENDING]" : delta < 0 ? "📉" : "➡️";
       console.log(`   Latest: ${data.qualityTrend.latest.quality}`);
       if (delta !== null) {
-        console.log(`   Change: ${delta > 0 ? '+' : ''}${delta.toFixed(1)} ${arrow}`);
+        console.log(
+          `   Change: ${delta > 0 ? "+" : ""}${delta.toFixed(1)} ${arrow}`,
+        );
       }
     } else {
-      console.log('   No data available');
+      console.log("   No data available");
     }
 
     // Show sync stats if in dual-write mode
-    if (dashboard.mode === 'dual-write') {
-      console.log('\n🔄 Sync Stats');
+    if (dashboard.mode === "dual-write") {
+      console.log("\n🔄 Sync Stats");
       console.log(`   SQLite writes: ${dashboard.syncStats.sqliteWrites}`);
       console.log(`   Supabase writes: ${dashboard.syncStats.supabaseWrites}`);
       console.log(`   Failovers: ${dashboard.syncStats.failovers}`);
     }
 
     return dashboard;
-
   } finally {
     await insight.close();
   }
@@ -138,33 +143,40 @@ async function analyzeCommandExample(targetPath, options) {
 
   // Generate report
   const report = {
-    sessionId: 'some-session-id',
+    sessionId: "some-session-id",
     duration: 5000,
     summary: {
       totalFiles: 100,
-      totalFindings: 42
+      totalFindings: 42,
     },
     topIssues: [
-      { category: 'COMMAND_EXEC', severity: 'HIGH', file: 'index.js', line: 15 },
+      {
+        category: "COMMAND_EXEC",
+        severity: "HIGH",
+        file: "index.js",
+        line: 15,
+      },
       // ... more issues
     ],
     metrics: {
       qualityScore: 72.5,
-      healthGrade: 'B'
+      healthGrade: "B",
     },
-    fixSummary: options.applyFixes ? {
-      attempted: 10,
-      applied: 8,
-      skipped: 2,
-      filesTouched: ['file1.js', 'file2.js']
-    } : null
+    fixSummary: options.applyFixes
+      ? {
+          attempted: 10,
+          applied: 8,
+          skipped: 2,
+          filesTouched: ["file1.js", "file2.js"],
+        }
+      : null,
   };
 
   // Ingest if --ingest flag is present
   if (options.ingest) {
     await ingestAnalysisReport(report, {
       projectPath: targetPath,
-      applyFixes: options.applyFixes
+      applyFixes: options.applyFixes,
     });
   }
 
@@ -175,7 +187,7 @@ async function analyzeCommandExample(targetPath, options) {
  * Migration command example
  */
 async function migrateCommand() {
-  console.log('🔄 Migrating SQLite data to Supabase...\n');
+  console.log("🔄 Migrating SQLite data to Supabase...\n");
 
   const insight = createInsightStore();
 
@@ -183,7 +195,9 @@ async function migrateCommand() {
     await insight.init();
 
     if (!insight.supabaseReady) {
-      console.error('[ERROR] Supabase is not configured. Check environment variables.');
+      console.error(
+        "[ERROR] Supabase is not configured. Check environment variables.",
+      );
       process.exit(1);
     }
 
@@ -193,13 +207,12 @@ async function migrateCommand() {
       batchSize: 50,
       progressCallback: (progress) => {
         console.log(`   Progress: ${progress.current}/${progress.total} runs`);
-      }
+      },
     });
 
-    console.log('\n[OK] Migration complete!');
+    console.log("\n[OK] Migration complete!");
     console.log(`   Migrated ${stats.migratedRuns} runs`);
     console.log(`   Migrated ${stats.migratedFindings} findings`);
-
   } finally {
     await insight.close();
   }
@@ -209,7 +222,7 @@ async function migrateCommand() {
  * Validation command example
  */
 async function validateCommand() {
-  console.log('[SEARCH] Validating sync consistency...\n');
+  console.log("[SEARCH] Validating sync consistency...\n");
 
   const insight = createInsightStore();
 
@@ -217,20 +230,19 @@ async function validateCommand() {
     await insight.init();
 
     if (!insight.supabaseReady) {
-      console.error('[ERROR] Supabase is not configured.');
+      console.error("[ERROR] Supabase is not configured.");
       process.exit(1);
     }
 
     const validation = await insight.validateSync();
 
     if (validation.consistent) {
-      console.log('[OK] Databases are in sync!');
+      console.log("[OK] Databases are in sync!");
     } else {
-      console.log('[WARNING]  Databases are out of sync');
+      console.log("[WARNING]  Databases are out of sync");
       console.log(`   SQLite: ${validation.sqliteCount} runs`);
       console.log(`   Supabase: ${validation.supabaseCount} runs`);
     }
-
   } finally {
     await insight.close();
   }
@@ -242,5 +254,5 @@ module.exports = {
   getDashboard,
   analyzeCommandExample,
   migrateCommand,
-  validateCommand
+  validateCommand,
 };

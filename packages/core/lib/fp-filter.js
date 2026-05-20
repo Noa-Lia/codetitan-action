@@ -1,4 +1,4 @@
-'use strict';
+"use strict";
 
 /**
  * fp-filter.js — False-positive filter for CodeTitan SAST findings.
@@ -8,12 +8,12 @@
  * gracefully when @anthropic-ai/sdk is not installed or no API key is set.
  */
 
-const fs   = require('fs');
-const path = require('path');
-const os   = require('os');
+const fs = require("fs");
+const path = require("path");
+const os = require("os");
 
 function isDebugEnabled(value) {
-  return value === '1' || value === 'true';
+  return value === "1" || value === "true";
 }
 
 const SHOULD_DEBUG =
@@ -25,19 +25,21 @@ const _dbg = (...args) => {
     return;
   }
 
-  process.stderr.write(args.join(' ') + '\n');
+  process.stderr.write(args.join(" ") + "\n");
 };
 
 // Optional SDK — module still loads when the package is absent.
 let Anthropic = null;
 try {
-  Anthropic = require('@anthropic-ai/sdk');
+  Anthropic = require("@anthropic-ai/sdk");
 } catch (_e) {
-  _dbg('[fp-filter] @anthropic-ai/sdk not installed — FPFilter will be disabled.');
+  _dbg(
+    "[fp-filter] @anthropic-ai/sdk not installed — FPFilter will be disabled.",
+  );
 }
 
 /** Severity levels that are worth the API cost of FP-filtering. */
-const FILTER_SEVERITIES = new Set(['HIGH', 'CRITICAL']);
+const FILTER_SEVERITIES = new Set(["HIGH", "CRITICAL"]);
 
 /**
  * Build a deterministic cache key for a finding without any crypto dep.
@@ -47,7 +49,7 @@ const FILTER_SEVERITIES = new Set(['HIGH', 'CRITICAL']);
  * @returns {string}
  */
 function cacheKey(filePath, finding) {
-  const snippet = (finding.snippet || '').slice(0, 50);
+  const snippet = (finding.snippet || "").slice(0, 50);
   return `${filePath}|${finding.category}:${finding.line}:${snippet}`;
 }
 
@@ -62,18 +64,18 @@ function cacheKey(filePath, finding) {
  * @returns {string}
  */
 function extractContext(content, lineNo, linesAbove = 5, linesBelow = 5) {
-  if (!content) return '';
-  const lines = content.split('\n');
+  if (!content) return "";
+  const lines = content.split("\n");
   const start = Math.max(0, lineNo - 1 - linesAbove);
-  const end   = Math.min(lines.length, lineNo + linesBelow);
+  const end = Math.min(lines.length, lineNo + linesBelow);
   return lines
     .slice(start, end)
     .map((text, idx) => {
       const no = start + idx + 1;
-      const marker = no === lineNo ? '>>>' : '   ';
-      return `${marker} ${String(no).padStart(4, ' ')} | ${text}`;
+      const marker = no === lineNo ? ">>>" : "   ";
+      return `${marker} ${String(no).padStart(4, " ")} | ${text}`;
     })
-    .join('\n');
+    .join("\n");
 }
 
 /**
@@ -87,7 +89,7 @@ function extractContext(content, lineNo, linesAbove = 5, linesBelow = 5) {
 function buildPrompt(filePath, codeContext, findings) {
   const findingsList = findings
     .map((f, i) => `${i + 1}. ${JSON.stringify(f)}`)
-    .join('\n');
+    .join("\n");
 
   return `You are a security code reviewer. For each finding below, classify it as TRUE_POSITIVE (real issue), FALSE_POSITIVE (not a real issue in this context), or UNCERTAIN.
 
@@ -121,16 +123,19 @@ function parseVerdicts(text) {
   const verdicts = new Map();
   try {
     // Strip markdown fences if present.
-    const cleaned = text.replace(/```(?:json)?/gi, '').replace(/```/g, '').trim();
+    const cleaned = text
+      .replace(/```(?:json)?/gi, "")
+      .replace(/```/g, "")
+      .trim();
     const parsed = JSON.parse(cleaned);
     if (!Array.isArray(parsed)) return verdicts;
     for (const item of parsed) {
-      if (typeof item.id === 'number' && typeof item.verdict === 'string') {
+      if (typeof item.id === "number" && typeof item.verdict === "string") {
         verdicts.set(item.id, item.verdict.toUpperCase());
       }
     }
   } catch (e) {
-    _dbg('[fp-filter] Failed to parse Claude response:', e.message);
+    _dbg("[fp-filter] Failed to parse Claude response:", e.message);
   }
   return verdicts;
 }
@@ -139,9 +144,13 @@ function parseVerdicts(text) {
 // VerdictStore — persistent false-positive verdict cache backed by JSONL file
 // ---------------------------------------------------------------------------
 
-const VERDICT_STORE_PATH   = path.join(os.homedir(), '.codetitan', 'fp-verdicts.json');
-const VERDICT_STORE_MAX    = 10_000;
-const VERDICT_STORE_PRUNE  = Math.floor(VERDICT_STORE_MAX * 0.2); // oldest 20 %
+const VERDICT_STORE_PATH = path.join(
+  os.homedir(),
+  ".codetitan",
+  "fp-verdicts.json",
+);
+const VERDICT_STORE_MAX = 10_000;
+const VERDICT_STORE_PRUNE = Math.floor(VERDICT_STORE_MAX * 0.2); // oldest 20 %
 
 /**
  * Persists FP verdicts to `~/.codetitan/fp-verdicts.json` in JSONL format so
@@ -158,8 +167,8 @@ const VERDICT_STORE_PRUNE  = Math.floor(VERDICT_STORE_MAX * 0.2); // oldest 20 %
 class VerdictStore {
   constructor() {
     /** @type {Map<string, { isFP: boolean, reason?: string, ts: number }>} */
-    this._map    = new Map();
-    this._path   = VERDICT_STORE_PATH;
+    this._map = new Map();
+    this._path = VERDICT_STORE_PATH;
     this._writing = false; // simple mutex to avoid concurrent full-rewrites
     this._load();
   }
@@ -170,23 +179,23 @@ class VerdictStore {
 
   /** Synchronously load existing verdicts from disk into memory. */
   _load() {
-    if (typeof fs.readFileSync !== 'function') {
+    if (typeof fs.readFileSync !== "function") {
       return;
     }
 
     try {
-      const raw = fs.readFileSync(this._path, 'utf8');
+      const raw = fs.readFileSync(this._path, "utf8");
       let loaded = 0;
-      for (const line of raw.split('\n')) {
+      for (const line of raw.split("\n")) {
         const trimmed = line.trim();
         if (!trimmed) continue;
         try {
           const entry = JSON.parse(trimmed);
-          if (entry && typeof entry.key === 'string') {
+          if (entry && typeof entry.key === "string") {
             this._map.set(entry.key, {
-              isFP:   Boolean(entry.isFP),
+              isFP: Boolean(entry.isFP),
               reason: entry.reason,
-              ts:     entry.ts || 0,
+              ts: entry.ts || 0,
             });
             loaded++;
           }
@@ -194,10 +203,12 @@ class VerdictStore {
           // Skip malformed lines silently.
         }
       }
-      _dbg(`[VerdictStore] Loaded ${loaded} persisted verdicts from ${this._path}`);
+      _dbg(
+        `[VerdictStore] Loaded ${loaded} persisted verdicts from ${this._path}`,
+      );
     } catch (err) {
-      if (err.code !== 'ENOENT') {
-        _dbg('[VerdictStore] Could not read verdicts file:', err.message);
+      if (err.code !== "ENOENT") {
+        _dbg("[VerdictStore] Could not read verdicts file:", err.message);
       }
       // File absent — start fresh (normal on first run).
     }
@@ -212,16 +223,16 @@ class VerdictStore {
    * @param {string}  [reason]
    */
   _append(key, isFP, reason) {
-    const line = JSON.stringify({ key, isFP, reason, ts: Date.now() }) + '\n';
+    const line = JSON.stringify({ key, isFP, reason, ts: Date.now() }) + "\n";
     // Ensure directory exists (async — ignore errors if already present).
     fs.mkdir(path.dirname(this._path), { recursive: true }, (mkdirErr) => {
-      if (mkdirErr && mkdirErr.code !== 'EEXIST') {
-        _dbg('[VerdictStore] mkdir failed:', mkdirErr.message);
+      if (mkdirErr && mkdirErr.code !== "EEXIST") {
+        _dbg("[VerdictStore] mkdir failed:", mkdirErr.message);
         return;
       }
-      fs.appendFile(this._path, line, 'utf8', (appendErr) => {
+      fs.appendFile(this._path, line, "utf8", (appendErr) => {
         if (appendErr) {
-          _dbg('[VerdictStore] appendFile failed:', appendErr.message);
+          _dbg("[VerdictStore] appendFile failed:", appendErr.message);
         }
       });
     });
@@ -237,19 +248,21 @@ class VerdictStore {
 
     const lines = [];
     for (const [key, val] of this._map) {
-      lines.push(JSON.stringify({ key, isFP: val.isFP, reason: val.reason, ts: val.ts }));
+      lines.push(
+        JSON.stringify({ key, isFP: val.isFP, reason: val.reason, ts: val.ts }),
+      );
     }
-    const content = lines.join('\n') + '\n';
+    const content = lines.join("\n") + "\n";
 
     fs.mkdir(path.dirname(this._path), { recursive: true }, (mkdirErr) => {
-      if (mkdirErr && mkdirErr.code !== 'EEXIST') {
-        _dbg('[VerdictStore] mkdir failed during rewrite:', mkdirErr.message);
+      if (mkdirErr && mkdirErr.code !== "EEXIST") {
+        _dbg("[VerdictStore] mkdir failed during rewrite:", mkdirErr.message);
         this._writing = false;
         return;
       }
-      fs.writeFile(this._path, content, 'utf8', (writeErr) => {
+      fs.writeFile(this._path, content, "utf8", (writeErr) => {
         if (writeErr) {
-          _dbg('[VerdictStore] rewrite failed:', writeErr.message);
+          _dbg("[VerdictStore] rewrite failed:", writeErr.message);
         } else {
           _dbg(`[VerdictStore] Rewrote ${this._map.size} entries after prune.`);
         }
@@ -273,7 +286,9 @@ class VerdictStore {
       this._map.delete(key);
     }
 
-    _dbg(`[VerdictStore] Pruned ${toDelete.length} oldest entries (cap=${VERDICT_STORE_MAX}).`);
+    _dbg(
+      `[VerdictStore] Pruned ${toDelete.length} oldest entries (cap=${VERDICT_STORE_MAX}).`,
+    );
     this._rewrite();
   }
 
@@ -326,23 +341,23 @@ class FPFilter {
    */
   constructor(options = {}) {
     const {
-      enabled           = true,
-      model             = 'claude-haiku-4-5-20251001',
+      enabled = true,
+      model = "claude-haiku-4-5-20251001",
       maxFindingsPerCall = 5,
-      cacheEnabled      = true,
+      cacheEnabled = true,
     } = options;
 
-    this.model              = model;
+    this.model = model;
     this.maxFindingsPerCall = maxFindingsPerCall;
-    this.cacheEnabled       = cacheEnabled;
+    this.cacheEnabled = cacheEnabled;
 
     // Disable if SDK missing or no API key is configured.
     if (!Anthropic) {
       this.enabled = false;
-      _dbg('[fp-filter] Disabled — @anthropic-ai/sdk not available.');
+      _dbg("[fp-filter] Disabled — @anthropic-ai/sdk not available.");
     } else if (!process.env.ANTHROPIC_API_KEY) {
       this.enabled = false;
-      _dbg('[fp-filter] Disabled — ANTHROPIC_API_KEY not set.');
+      _dbg("[fp-filter] Disabled — ANTHROPIC_API_KEY not set.");
     } else {
       this.enabled = enabled;
       this._client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
@@ -356,11 +371,11 @@ class FPFilter {
 
     // Stats counters.
     this._stats = {
-      total:            0,
-      filtered:         0,
-      passedThrough:    0,
-      cacheHits:        0,
-      apiCallsMade:     0,
+      total: 0,
+      filtered: 0,
+      passedThrough: 0,
+      cacheHits: 0,
+      apiCallsMade: 0,
       persistedVerdicts: 0,
     };
 
@@ -398,11 +413,11 @@ class FPFilter {
     }
 
     // Split findings by whether they should be reviewed.
-    const toReview  = [];
+    const toReview = [];
     const passThrough = [];
 
     for (const f of findings) {
-      const severity = (f.severity || '').toUpperCase();
+      const severity = (f.severity || "").toUpperCase();
       if (FILTER_SEVERITIES.has(severity)) {
         toReview.push(f);
       } else {
@@ -417,10 +432,10 @@ class FPFilter {
 
     // --- Cache pass ---
     const stillNeedReview = [];
-    const cacheResults    = new Map(); // finding index -> isFP
+    const cacheResults = new Map(); // finding index -> isFP
 
     for (let i = 0; i < toReview.length; i++) {
-      const f   = toReview[i];
+      const f = toReview[i];
       const key = cacheKey(filePath, f);
 
       if (this.cacheEnabled && this._cache.has(key)) {
@@ -448,38 +463,48 @@ class FPFilter {
 
     if (stillNeedReview.length > 0) {
       const batches = [];
-      for (let i = 0; i < stillNeedReview.length; i += this.maxFindingsPerCall) {
+      for (
+        let i = 0;
+        i < stillNeedReview.length;
+        i += this.maxFindingsPerCall
+      ) {
         batches.push(stillNeedReview.slice(i, i + this.maxFindingsPerCall));
       }
 
       for (const batch of batches) {
         // Build a merged code context spanning all findings in the batch.
         const contexts = batch.map(({ finding }) =>
-          extractContext(fileContent, finding.line || 1)
+          extractContext(fileContent, finding.line || 1),
         );
-        const mergedContext = contexts.join('\n---\n');
+        const mergedContext = contexts.join("\n---\n");
 
         const batchFindings = batch.map(({ finding }) => finding);
-        const prompt        = buildPrompt(filePath, mergedContext, batchFindings);
+        const prompt = buildPrompt(filePath, mergedContext, batchFindings);
 
         let verdicts = new Map();
         try {
           this._stats.apiCallsMade++;
           const message = await this._client.messages.create({
-            model:      this.model,
+            model: this.model,
             max_tokens: 1024,
-            messages:   [{ role: 'user', content: prompt }],
+            messages: [{ role: "user", content: prompt }],
           });
 
           const responseText = message.content
-            .filter(b => b.type === 'text')
-            .map(b => b.text)
-            .join('');
+            .filter((b) => b.type === "text")
+            .map((b) => b.text)
+            .join("");
 
           verdicts = parseVerdicts(responseText);
-          _dbg(`[fp-filter] Batch of ${batch.length} findings processed. Verdicts: ${verdicts.size}`);
+          _dbg(
+            `[fp-filter] Batch of ${batch.length} findings processed. Verdicts: ${verdicts.size}`,
+          );
         } catch (err) {
-          _dbg('[fp-filter] API call failed:', err.message, '— keeping original findings.');
+          _dbg(
+            "[fp-filter] API call failed:",
+            err.message,
+            "— keeping original findings.",
+          );
           // On error: treat everything in this batch as non-FP (keep them).
           for (const { originalIdx } of batch) {
             apiResults.set(originalIdx, false);
@@ -490,8 +515,8 @@ class FPFilter {
         // Map 1-based prompt IDs back to originalIdx.
         batch.forEach(({ originalIdx, finding }, batchPos) => {
           const promptId = batchPos + 1;
-          const verdict  = verdicts.get(promptId);
-          const isFP     = verdict === 'FALSE_POSITIVE';
+          const verdict = verdicts.get(promptId);
+          const isFP = verdict === "FALSE_POSITIVE";
 
           apiResults.set(originalIdx, isFP);
 
@@ -513,11 +538,13 @@ class FPFilter {
     for (let i = 0; i < toReview.length; i++) {
       const isFP = cacheResults.has(i)
         ? cacheResults.get(i)
-        : (apiResults.get(i) || false);
+        : apiResults.get(i) || false;
 
       if (isFP) {
         this._stats.filtered++;
-        _dbg(`[fp-filter] Dropped FP: ${toReview[i].category} at line ${toReview[i].line}`);
+        _dbg(
+          `[fp-filter] Dropped FP: ${toReview[i].category} at line ${toReview[i].line}`,
+        );
       } else {
         reviewed.push(toReview[i]);
         this._stats.passedThrough++;
@@ -540,7 +567,7 @@ class FPFilter {
   async isFalsePositive(finding, codeContext) {
     if (!this.enabled) return false;
 
-    const key = cacheKey('__single__', finding);
+    const key = cacheKey("__single__", finding);
     if (this.cacheEnabled && this._cache.has(key)) {
       this._stats.cacheHits++;
       return this._cache.get(key);
@@ -557,30 +584,30 @@ class FPFilter {
     // Treat codeContext as raw file content if it contains newlines and a line
     // number is available, otherwise use it verbatim.
     let snippet = codeContext;
-    if (finding.line && codeContext && codeContext.includes('\n')) {
+    if (finding.line && codeContext && codeContext.includes("\n")) {
       snippet = extractContext(codeContext, finding.line);
     }
 
-    const prompt   = buildPrompt('(single-finding check)', snippet, [finding]);
-    let   isFP     = false;
+    const prompt = buildPrompt("(single-finding check)", snippet, [finding]);
+    let isFP = false;
 
     try {
       this._stats.apiCallsMade++;
       const message = await this._client.messages.create({
-        model:      this.model,
+        model: this.model,
         max_tokens: 256,
-        messages:   [{ role: 'user', content: prompt }],
+        messages: [{ role: "user", content: prompt }],
       });
 
       const responseText = message.content
-        .filter(b => b.type === 'text')
-        .map(b => b.text)
-        .join('');
+        .filter((b) => b.type === "text")
+        .map((b) => b.text)
+        .join("");
 
       const verdicts = parseVerdicts(responseText);
-      isFP = verdicts.get(1) === 'FALSE_POSITIVE';
+      isFP = verdicts.get(1) === "FALSE_POSITIVE";
     } catch (err) {
-      _dbg('[fp-filter] isFalsePositive API call failed:', err.message);
+      _dbg("[fp-filter] isFalsePositive API call failed:", err.message);
       isFP = false; // Conservative: keep the finding on error.
     }
 

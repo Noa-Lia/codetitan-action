@@ -13,85 +13,102 @@
  *   filePathPattern — (optional) regex that must match the file path
  */
 
-'use strict';
+"use strict";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // SECTION 1 — INJECTION PATTERNS (25 rules)
 // ─────────────────────────────────────────────────────────────────────────────
 const INJECTION_RULES = [
   {
-    id: 'LDAP_INJECTION',
-    severity: 'HIGH',
+    id: "LDAP_INJECTION",
+    severity: "HIGH",
     impact: 9,
-    pattern: /ldap(?:js|Client)?\s*\.search\s*\([^)]*(?:req\.|request\.|params\.|query\.|body\.|input)/,
-    message: 'LDAP search called with user-supplied input — escape all LDAP special characters (RFC 4515) or use a parameterized LDAP library.',
+    pattern:
+      /ldap(?:js|Client)?\s*\.search\s*\([^)]*(?:req\.|request\.|params\.|query\.|body\.|input)/,
+    message:
+      "LDAP search called with user-supplied input — escape all LDAP special characters (RFC 4515) or use a parameterized LDAP library.",
     skipTest: true,
     skipDoc: true,
   },
   {
-    id: 'XPATH_INJECTION',
-    severity: 'HIGH',
+    id: "XPATH_INJECTION",
+    severity: "HIGH",
     impact: 9,
-    pattern: /(?:evaluate|selectNodes|selectSingleNode)\s*\([^)]*(?:\+|`|\$\{)[^)]*(?:req\.|request\.|params\.|query\.|body\.|input)/,
-    message: 'XPath expression built with string concatenation or template literal from user input — use a parameterized XPath library instead.',
+    pattern:
+      /(?:evaluate|selectNodes|selectSingleNode)\s*\([^)]*(?:\+|`|\$\{)[^)]*(?:req\.|request\.|params\.|query\.|body\.|input)/,
+    message:
+      "XPath expression built with string concatenation or template literal from user input — use a parameterized XPath library instead.",
     skipTest: true,
     skipDoc: true,
   },
   {
-    id: 'NOSQL_INJECTION_WHERE',
-    severity: 'CRITICAL',
+    id: "NOSQL_INJECTION_WHERE",
+    severity: "CRITICAL",
     impact: 10,
-    pattern: /\$where\s*:\s*(?:req\.|request\.|params\.|query\.|body\.|`[^`]*\$\{)/,
-    message: 'MongoDB $where operator with user input executes arbitrary JavaScript on the server — remove $where or use a query whitelist.',
+    pattern:
+      /\$where\s*:\s*(?:req\.|request\.|params\.|query\.|body\.|`[^`]*\$\{)/,
+    message:
+      "MongoDB $where operator with user input executes arbitrary JavaScript on the server — remove $where or use a query whitelist.",
     skipTest: true,
     skipDoc: true,
   },
   {
-    id: 'NOSQL_INJECTION_MAPREDUCE',
-    severity: 'HIGH',
+    id: "NOSQL_INJECTION_MAPREDUCE",
+    severity: "HIGH",
     impact: 9,
-    pattern: /\.mapReduce\s*\([^)]*(?:req\.|request\.|params\.|query\.|body\.|input)/,
-    message: 'MongoDB mapReduce with user-controlled functions enables server-side JavaScript injection — validate and whitelist allowed operations.',
+    pattern:
+      /\.mapReduce\s*\([^)]*(?:req\.|request\.|params\.|query\.|body\.|input)/,
+    message:
+      "MongoDB mapReduce with user-controlled functions enables server-side JavaScript injection — validate and whitelist allowed operations.",
     skipTest: true,
     skipDoc: true,
   },
   {
-    id: 'TEMPLATE_INJECTION_LODASH',
-    severity: 'HIGH',
+    id: "TEMPLATE_INJECTION_LODASH",
+    severity: "HIGH",
     impact: 9,
-    pattern: /(?:_\.template|lodash\.template)\s*\([^)]*(?:req\.|request\.|params\.|query\.|body\.|\+\s*(?:req|request|params|query|body))/,
-    message: 'Lodash _.template() with user input enables server-side template injection (SSTI) — avoid compiling untrusted template strings.',
+    pattern:
+      /(?:_\.template|lodash\.template)\s*\([^)]*(?:req\.|request\.|params\.|query\.|body\.|\+\s*(?:req|request|params|query|body))/,
+    message:
+      "Lodash _.template() with user input enables server-side template injection (SSTI) — avoid compiling untrusted template strings.",
     skipTest: true,
     skipDoc: true,
   },
   {
-    id: 'TEMPLATE_INJECTION_HANDLEBARS',
-    severity: 'HIGH',
+    id: "TEMPLATE_INJECTION_HANDLEBARS",
+    severity: "HIGH",
     impact: 9,
-    pattern: /(?:handlebars|Handlebars)\.compile\s*\([^)]*(?:req\.|request\.|params\.|query\.|body\.|\+)/,
-    message: 'Handlebars.compile() called with dynamic user input — template injection can lead to RCE. Use pre-compiled, trusted templates only.',
+    pattern:
+      /(?:handlebars|Handlebars)\.compile\s*\([^)]*(?:req\.|request\.|params\.|query\.|body\.|\+)/,
+    message:
+      "Handlebars.compile() called with dynamic user input — template injection can lead to RCE. Use pre-compiled, trusted templates only.",
     skipTest: true,
     skipDoc: true,
   },
   {
-    id: 'HTTP_RESPONSE_SPLITTING',
-    severity: 'HIGH',
+    id: "HTTP_RESPONSE_SPLITTING",
+    severity: "HIGH",
     impact: 8,
-    pattern: /res\.setHeader\s*\([^)]*(?:req\.(?:headers|query|params|body)|request\.(?:headers|query|params|body)|params\.|query\.|body\.|input)[^)]*\)/,
-    message: 'User input passed to res.setHeader() — HTTP response splitting possible if newlines (\\r\\n) are not stripped. Sanitize all header values.',
+    pattern:
+      /res\.setHeader\s*\([^)]*(?:req\.(?:headers|query|params|body)|request\.(?:headers|query|params|body)|params\.|query\.|body\.|input)[^)]*\)/,
+    message:
+      "User input passed to res.setHeader() — HTTP response splitting possible if newlines (\\r\\n) are not stripped. Sanitize all header values.",
     skipTest: true,
     skipDoc: true,
   },
   {
-    id: 'EMAIL_INJECTION',
-    severity: 'HIGH',
+    id: "EMAIL_INJECTION",
+    severity: "HIGH",
     impact: 8,
-    pattern: /(?:^|[{,]\s*)(?:to|cc|bcc)\s*:\s*(?:req\.|request\.|params\.|query\.|body\.|`[^`]*\$\{)/,
+    pattern:
+      /(?:^|[{,]\s*)(?:to|cc|bcc)\s*:\s*(?:req\.|request\.|params\.|query\.|body\.|`[^`]*\$\{)/,
     // File must import a known email-sending library so we know `to:` is
     // genuinely an email-header field, not a routing/state-machine `to`.
     // Mirrors the file-context guard on HEADER_INJECTION + PERMISSIVE_CORS.
-    fileRequires: /from\s+['"](?:nodemailer|sendmail|mailgun-js|@sendgrid\/mail|postmark|resend|@aws-sdk\/client-ses|mandrill-api|emailjs|emailjs-com|@mailchimp\/mailchimp_transactional)['"]|require\s*\(\s*['"](?:nodemailer|sendmail|mailgun-js|@sendgrid\/mail|postmark|resend|@aws-sdk\/client-ses|mandrill-api|emailjs|emailjs-com|@mailchimp\/mailchimp_transactional)['"]\s*\)/i,
-    message: 'Nodemailer to/cc/bcc field populated from user input — email header injection allows spam relay. Strip newlines and validate email addresses.',
+    fileRequires:
+      /from\s+['"](?:nodemailer|sendmail|mailgun-js|@sendgrid\/mail|postmark|resend|@aws-sdk\/client-ses|mandrill-api|emailjs|emailjs-com|@mailchimp\/mailchimp_transactional)['"]|require\s*\(\s*['"](?:nodemailer|sendmail|mailgun-js|@sendgrid\/mail|postmark|resend|@aws-sdk\/client-ses|mandrill-api|emailjs|emailjs-com|@mailchimp\/mailchimp_transactional)['"]\s*\)/i,
+    message:
+      "Nodemailer to/cc/bcc field populated from user input — email header injection allows spam relay. Strip newlines and validate email addresses.",
     skipTest: true,
     skipDoc: true,
   },
@@ -102,112 +119,126 @@ const INJECTION_RULES = [
     // message can still forge multi-line entries or confuse downstream
     // parsers like Splunk). Keep it MEDIUM to match the Java log-injection
     // rule and keep it out of CRITICAL/HIGH-gated outputs.
-    id: 'LOG4J_STYLE_INJECTION',
-    severity: 'MEDIUM',
+    id: "LOG4J_STYLE_INJECTION",
+    severity: "MEDIUM",
     impact: 5,
-    pattern: /(?:logger|log|console|winston|bunyan|pino)\s*\.(?:info|warn|error|debug|trace|log)\s*\([^)]*\$\{[^}]*(?:req\.|request\.|params\.|query\.|body\.|header|userAgent|referer|x-forwarded)/i,
-    message: 'User-controlled data in a log message — can forge multi-line log entries or confuse downstream parsers. Use structured logging with separate fields.',
+    pattern:
+      /(?:logger|log|console|winston|bunyan|pino)\s*\.(?:info|warn|error|debug|trace|log)\s*\([^)]*\$\{[^}]*(?:req\.|request\.|params\.|query\.|body\.|header|userAgent|referer|x-forwarded)/i,
+    message:
+      "User-controlled data in a log message — can forge multi-line log entries or confuse downstream parsers. Use structured logging with separate fields.",
     skipTest: true,
     skipDoc: true,
   },
   {
-    id: 'GRAPHQL_INJECTION',
-    severity: 'HIGH',
+    id: "GRAPHQL_INJECTION",
+    severity: "HIGH",
     impact: 9,
-    pattern: /gql`[^`]*\$\{[^}]*(?:req\.|request\.|params\.|query\.|body\.|input)/,
-    message: 'User input interpolated into a GraphQL template literal — never build queries by string concatenation. Use variables ($var) and pass them separately.',
+    pattern:
+      /gql`[^`]*\$\{[^}]*(?:req\.|request\.|params\.|query\.|body\.|input)/,
+    message:
+      "User input interpolated into a GraphQL template literal — never build queries by string concatenation. Use variables ($var) and pass them separately.",
     skipTest: true,
     skipDoc: true,
   },
   {
-    id: 'SSRF_INTERNAL_RANGE',
-    severity: 'HIGH',
+    id: "SSRF_INTERNAL_RANGE",
+    severity: "HIGH",
     impact: 9,
-    pattern: /(?:fetch|axios|http\.get|https\.get|request)\s*\(\s*(?:`[^`]*\$\{|['"][^'"]*)\s*(?:169\.254\.|10\.\d|192\.168\.|172\.(?:1[6-9]|2\d|3[01])\.)/,
-    message: 'Request to internal/link-local IP range detected — SSRF can expose cloud metadata endpoints (169.254.169.254) or internal services. Validate and whitelist allowed hostnames.',
+    pattern:
+      /(?:fetch|axios|http\.get|https\.get|request)\s*\(\s*(?:`[^`]*\$\{|['"][^'"]*)\s*(?:169\.254\.|10\.\d|192\.168\.|172\.(?:1[6-9]|2\d|3[01])\.)/,
+    message:
+      "Request to internal/link-local IP range detected — SSRF can expose cloud metadata endpoints (169.254.169.254) or internal services. Validate and whitelist allowed hostnames.",
     skipTest: true,
     skipDoc: true,
   },
   {
-    id: 'SSRF_USER_CONTROLLED_URL',
-    severity: 'HIGH',
+    id: "SSRF_USER_CONTROLLED_URL",
+    severity: "HIGH",
     impact: 9,
-    pattern: /(?:fetch|axios\.(?:get|post|request)|http\.(?:get|request)|https\.(?:get|request)|got|superagent\.get)\s*\(\s*(?:req\.|request\.|params\.|query\.|body\.)/,
-    message: 'HTTP request made to a URL derived from user input — SSRF risk. Validate the URL against an allowlist before making the request.',
+    pattern:
+      /(?:fetch|axios\.(?:get|post|request)|http\.(?:get|request)|https\.(?:get|request)|got|superagent\.get)\s*\(\s*(?:req\.|request\.|params\.|query\.|body\.)/,
+    message:
+      "HTTP request made to a URL derived from user input — SSRF risk. Validate the URL against an allowlist before making the request.",
     skipTest: true,
     skipDoc: true,
   },
+  // HTML_INJECTION_INNERHTML and DOCUMENT_WRITE_XSS deprecated in Bundle 7
+  // (2026-05-14). These pattern-only rules duplicated the sink half of
+  // taint-analysis without the taint half: the `\`[^`]*\$\{` alternation
+  // matched ANY template literal with ANY interpolation, firing on safe
+  // library-const cases (verified on Cal.com inline.ts:37 / CC2 FP).
+  //
+  // TAINT_XSS in taint-analyzer.js owns innerHTML / outerHTML / document.write
+  // / dangerouslySetInnerHTML sinks now. It fires when a tainted variable
+  // (req.body, req.query, etc.) flows into the sink — via direct usage,
+  // alias propagation (Pass 2), function-param taint (Pass 3), or
+  // direct-source-on-sink-line (Bundle 7 fallback, Pass 5).
+  //
+  // See: docs/plans/2026-05-14-phase-2-taint-flow-design.md for the full
+  // rationale and the Bundle 7 implementation phasing.
   {
-    id: 'HTML_INJECTION_INNERHTML',
-    severity: 'HIGH',
-    impact: 8,
-    pattern: /\.innerHTML\s*(?:\+?=)\s*(?:req\.|request\.|params\.|query\.|body\.|`[^`]*\$\{)/,
-    message: 'innerHTML assigned from user-controlled data — DOM-based XSS. Use textContent, or sanitize with DOMPurify before setting innerHTML.',
-    skipTest: true,
-    skipDoc: true,
-  },
-  {
-    id: 'DOCUMENT_WRITE_XSS',
-    severity: 'HIGH',
-    impact: 8,
-    pattern: /document\.write\s*\([^)]*(?:location|document\.URL|document\.referrer|window\.name|innerHTML|outerHTML|\$\{)/,
-    message: 'document.write() with dynamic/location-derived content — XSS risk. Avoid document.write entirely; use safe DOM APIs.',
-    skipTest: true,
-    skipDoc: true,
-  },
-  {
-    id: 'PATH_TRAVERSAL_READFILE',
-    severity: 'HIGH',
+    id: "PATH_TRAVERSAL_READFILE",
+    severity: "HIGH",
     impact: 9,
     // Taint source must be a dotted HTTP-request field. The bare `input`
     // alternate (removed) over-matched CLI-flag identifiers like
     // `flags.input`, `inputFile`, `options.input`, triggering 71 FPs on
     // mitre/saf alone (all legitimate oclif flag reads).
-    pattern: /(?:fs\.readFile|fs\.readFileSync|fs\.createReadStream)\s*\([^)]*(?:req\.|request\.|params\.|query\.|body\.)/,
-    message: 'File read path derived from user input — path traversal allows access to arbitrary files (e.g., ../../../etc/passwd). Resolve and validate paths inside an allowed directory with path.resolve() + startsWith().',
+    pattern:
+      /(?:fs\.readFile|fs\.readFileSync|fs\.createReadStream)\s*\([^)]*(?:req\.|request\.|params\.|query\.|body\.)/,
+    message:
+      "File read path derived from user input — path traversal allows access to arbitrary files (e.g., ../../../etc/passwd). Resolve and validate paths inside an allowed directory with path.resolve() + startsWith().",
     skipTest: true,
     skipDoc: true,
   },
   {
-    id: 'PATH_TRAVERSAL_WRITEFILE',
-    severity: 'CRITICAL',
+    id: "PATH_TRAVERSAL_WRITEFILE",
+    severity: "CRITICAL",
     impact: 10,
     // Same `input` alternate removal as PATH_TRAVERSAL_READFILE. See that rule for the rationale.
-    pattern: /(?:fs\.writeFile|fs\.writeFileSync|fs\.createWriteStream)\s*\([^)]*(?:req\.|request\.|params\.|query\.|body\.)/,
-    message: 'File write path derived from user input — arbitrary file write vulnerability. Validate the resolved path is within an allowed directory.',
+    pattern:
+      /(?:fs\.writeFile|fs\.writeFileSync|fs\.createWriteStream)\s*\([^)]*(?:req\.|request\.|params\.|query\.|body\.)/,
+    message:
+      "File write path derived from user input — arbitrary file write vulnerability. Validate the resolved path is within an allowed directory.",
     skipTest: true,
     skipDoc: true,
   },
   {
-    id: 'OPEN_REDIRECT',
-    severity: 'HIGH',
+    id: "OPEN_REDIRECT",
+    severity: "HIGH",
     impact: 7,
-    pattern: /res\.redirect\s*\([^)]*(?:req\.|request\.|params\.|query\.|body\.)/,
-    message: 'Redirect destination derived from user input — open redirect enables phishing. Validate against an allowlist of permitted URLs or paths.',
+    pattern:
+      /res\.redirect\s*\([^)]*(?:req\.|request\.|params\.|query\.|body\.)/,
+    message:
+      "Redirect destination derived from user input — open redirect enables phishing. Validate against an allowlist of permitted URLs or paths.",
     skipTest: true,
     skipDoc: true,
   },
   {
-    id: 'SQL_INJECTION_KNEX_RAW',
-    severity: 'CRITICAL',
+    id: "SQL_INJECTION_KNEX_RAW",
+    severity: "CRITICAL",
     impact: 10,
-    pattern: /\.raw\s*\([^)]*(?:\+|`[^`]*\$\{)[^)]*(?:req\.|request\.|params\.|query\.|body\.|input)/,
-    message: 'knex/Sequelize .raw() with string concatenation or template literal from user input — SQL injection. Use parameterized bindings: .raw("SELECT ? as val", [userInput]).',
+    pattern:
+      /\.raw\s*\([^)]*(?:\+|`[^`]*\$\{)[^)]*(?:req\.|request\.|params\.|query\.|body\.|input)/,
+    message:
+      'knex/Sequelize .raw() with string concatenation or template literal from user input — SQL injection. Use parameterized bindings: .raw("SELECT ? as val", [userInput]).',
     skipTest: true,
     skipDoc: true,
   },
   {
-    id: 'SQL_INJECTION_STRING_FORMAT',
-    severity: 'CRITICAL',
+    id: "SQL_INJECTION_STRING_FORMAT",
+    severity: "CRITICAL",
     impact: 10,
-    pattern: /(?:query|execute|db\.run|db\.get|db\.all)\s*\(\s*(?:`[^`]*\$\{|["'][^"']*["']\s*\+)/,
+    pattern:
+      /(?:query|execute|db\.run|db\.get|db\.all)\s*\(\s*(?:`[^`]*\$\{|["'][^"']*["']\s*\+)/,
     // Skip DB migration files and one-shot DDL scripts — those universally
     // concat table/column names from hardcoded lists (schema introspection,
     // ALTER TABLE, etc.), which the wire protocol can't parameterize. The
     // threat model (user input → SQL) does not apply to migrations/scripts.
     // Matched as negative lookahead in positive filePathPattern, following
     // the precedent set at security-rules-extended.js:658.
-    filePathPattern: /^(?!.*(?:[\\/](?:migrations?|db-(?:download|setup|seed)|seeds?|schema-introspection)[\\/]|[\\/]scripts[\\/](?:db[\\/-]|schema|migrate|seed|drop-)|\d{3,}-[^\\/]+\.(?:sql|[jt]sx?)$))/i,
+    filePathPattern:
+      /^(?!.*(?:[\\/](?:migrations?|db-(?:download|setup|seed)|seeds?|schema-introspection)[\\/]|[\\/]scripts[\\/](?:db[\\/-]|schema|migrate|seed|drop-)|\d{3,}-[^\\/]+\.(?:sql|[jt]sx?)$))/i,
     // Suppress when EITHER (a) every interpolation passes through a known SQL
     // identifier escaper (output is guaranteed safe), OR (b) the query leads
     // with a non-parameterizable SQL verb — DDL / transaction-control
@@ -220,14 +251,16 @@ const INJECTION_RULES = [
     // literal construction. The token after the SQL verb may be either a
     // literal identifier ("SAVEPOINT foo") or an interpolation ("SAVEPOINT
     // ${name}") — both shapes are non-user-input in practice.
-    lineGuard: /\$\{\s*(?:quoteIdentifier|escapeIdentifier|escapeId|quoteId|pgIdent|mysqlIdent|knex\.raw|sql\.identifier|(?:this\.)?sanitize(?:Sql|Soql|Value|Identifier|Input|Param)[A-Za-z]*)\s*\(|(?:query|execute|db\.run|db\.get|db\.all)\s*\(\s*['"`]\s*(?:savepoint|release\b|rollback(?:\s+to)?\b|set\s+(?:transaction|session)|begin|commit|drop\s+(?:database|table|schema|index)|create\s+(?:database|table|schema|index)|alter\s+table|use\s+\w|grant|revoke)\b/i,
-    message: 'SQL query built with template literal or string concatenation — SQL injection. Use prepared statements or parameterized queries.',
+    lineGuard:
+      /\$\{\s*(?:quoteIdentifier|escapeIdentifier|escapeId|quoteId|pgIdent|mysqlIdent|knex\.raw|sql\.identifier|(?:this\.)?sanitize(?:Sql|Soql|Value|Identifier|Input|Param)[A-Za-z]*)\s*\(|(?:query|execute|db\.run|db\.get|db\.all)\s*\(\s*['"`]\s*(?:savepoint|release\b|rollback(?:\s+to)?\b|set\s+(?:transaction|session)|begin|commit|drop\s+(?:database|table|schema|index)|create\s+(?:database|table|schema|index)|alter\s+table|use\s+\w|grant|revoke)\b/i,
+    message:
+      "SQL query built with template literal or string concatenation — SQL injection. Use prepared statements or parameterized queries.",
     skipTest: true,
     skipDoc: true,
   },
   {
-    id: 'DESERIALIZATION_JSON_PARSE_EVAL',
-    severity: 'HIGH',
+    id: "DESERIALIZATION_JSON_PARSE_EVAL",
+    severity: "HIGH",
     impact: 9,
     pattern: /JSON\.parse\s*\([^)]*\)\s*(?:\.[a-zA-Z]+\s*\(|;?\s*eval\s*\()/,
     // The pattern fires whenever a `.method(` appears after any `)` that comes
@@ -239,14 +272,16 @@ const INJECTION_RULES = [
     // Suppress when the line contains these well-known serialization helpers,
     // OR when the chained method is a known-safe Array / Object operation
     // (parse-then-map / parse-then-filter is normal, not a sink).
-    lineGuard: /(?:Buffer\.from\s*\(|readFileSync\s*\(|fs\.readFileSync\s*\(|\.(?:map|filter|forEach|find|findIndex|some|every|reduce|reduceRight|flat|flatMap|join|slice|sort|reverse|concat|includes|indexOf|lastIndexOf|keys|values|entries|hasOwnProperty|toString|valueOf|length)\s*[\(\.])/,
-    message: 'JSON.parse result immediately passed to a method or eval — prototype pollution or deserialization attack possible. Validate the parsed shape before use.',
+    lineGuard:
+      /(?:Buffer\.from\s*\(|readFileSync\s*\(|fs\.readFileSync\s*\(|\.(?:map|filter|forEach|find|findIndex|some|every|reduce|reduceRight|flat|flatMap|join|slice|sort|reverse|concat|includes|indexOf|lastIndexOf|keys|values|entries|hasOwnProperty|toString|valueOf|length)\s*[\(\.])/,
+    message:
+      "JSON.parse result immediately passed to a method or eval — prototype pollution or deserialization attack possible. Validate the parsed shape before use.",
     skipTest: true,
     skipDoc: true,
   },
   {
-    id: 'SERVER_SIDE_REDIRECT_INJECTION',
-    severity: 'HIGH',
+    id: "SERVER_SIDE_REDIRECT_INJECTION",
+    severity: "HIGH",
     impact: 8,
     // Only match the capitalized HTTP header form ('Location') with word
     // boundaries to avoid firing on unrelated domain property keys like
@@ -256,46 +291,57 @@ const INJECTION_RULES = [
     // was a request source. Additionally require the surrounding file context
     // to show HTTP-response-adjacent signals (setHeader('Location', ...),
     // res.redirect, response.writeHead, or common CORS/Access-Control imports).
-    pattern: /(?:^|[{,\s(])(?:['"`]Location['"`]|\bLocation\b)\s*[:,]\s*(?:req\.|request\.|params\.|query\.|body\.|`[^`]*\$\{)/,
+    pattern:
+      /(?:^|[{,\s(])(?:['"`]Location['"`]|\bLocation\b)\s*[:,]\s*(?:req\.|request\.|params\.|query\.|body\.|`[^`]*\$\{)/,
     // File-level requirement: must have HTTP-response-header context.
-    fileRequires: /res\.(?:setHeader|writeHead|redirect)\s*\(|response\.(?:setHeader|writeHead)\s*\(|'location'|Access-Control-Allow-|httpRedirect|sendRedirect/i,
-    message: 'Location header built from user input — HTTP response splitting or open redirect. Sanitize and validate redirect targets.',
+    fileRequires:
+      /res\.(?:setHeader|writeHead|redirect)\s*\(|response\.(?:setHeader|writeHead)\s*\(|'location'|Access-Control-Allow-|httpRedirect|sendRedirect/i,
+    message:
+      "Location header built from user input — HTTP response splitting or open redirect. Sanitize and validate redirect targets.",
     skipTest: true,
     skipDoc: true,
   },
   {
-    id: 'NOSQL_INJECTION_OPERATOR',
-    severity: 'HIGH',
+    id: "NOSQL_INJECTION_OPERATOR",
+    severity: "HIGH",
     impact: 9,
-    pattern: /(?:findOne|find|updateOne|deleteOne)\s*\(\s*(?:req\.|request\.|params\.|query\.|body\.)[^)]*\)/,
-    message: 'MongoDB query built directly from request object — NoSQL operator injection ($gt, $ne, $regex) possible if input is not validated/typed. Use explicit field extraction and type coercion.',
+    pattern:
+      /(?:findOne|find|updateOne|deleteOne)\s*\(\s*(?:req\.|request\.|params\.|query\.|body\.)[^)]*\)/,
+    message:
+      "MongoDB query built directly from request object — NoSQL operator injection ($gt, $ne, $regex) possible if input is not validated/typed. Use explicit field extraction and type coercion.",
     skipTest: true,
     skipDoc: true,
   },
   {
-    id: 'XML_INJECTION_CONCAT',
-    severity: 'HIGH',
+    id: "XML_INJECTION_CONCAT",
+    severity: "HIGH",
     impact: 8,
-    pattern: /(?:xml|xmlDoc|xmlString)\s*(?:\+?=|\+=)\s*(?:`[^`]*\$\{|["'][^"']*["']\s*\+)[^;]*(?:req\.|request\.|params\.|query\.|body\.|input)/,
-    message: 'XML document built via string concatenation with user input — XML injection or XXE possible. Use a DOM builder that auto-escapes values.',
+    pattern:
+      /(?:xml|xmlDoc|xmlString)\s*(?:\+?=|\+=)\s*(?:`[^`]*\$\{|["'][^"']*["']\s*\+)[^;]*(?:req\.|request\.|params\.|query\.|body\.|input)/,
+    message:
+      "XML document built via string concatenation with user input — XML injection or XXE possible. Use a DOM builder that auto-escapes values.",
     skipTest: true,
     skipDoc: true,
   },
   {
-    id: 'HTTP_HEADER_INJECTION',
-    severity: 'HIGH',
+    id: "HTTP_HEADER_INJECTION",
+    severity: "HIGH",
     impact: 8,
-    pattern: /res\.(?:set|header|append)\s*\(\s*['"][^'"]+['"]\s*,\s*(?:req\.|request\.|params\.|query\.|body\.|input)/,
-    message: 'Response header value set from user input — HTTP header injection / response splitting possible. Strip CR/LF characters before setting headers.',
+    pattern:
+      /res\.(?:set|header|append)\s*\(\s*['"][^'"]+['"]\s*,\s*(?:req\.|request\.|params\.|query\.|body\.|input)/,
+    message:
+      "Response header value set from user input — HTTP header injection / response splitting possible. Strip CR/LF characters before setting headers.",
     skipTest: true,
     skipDoc: true,
   },
   {
-    id: 'SCRIPT_INJECTION_SRC',
-    severity: 'CRITICAL',
+    id: "SCRIPT_INJECTION_SRC",
+    severity: "CRITICAL",
     impact: 10,
-    pattern: /(?:script\.src|scriptTag\.src|\.setAttribute\s*\(\s*['"]src['"]\s*,)\s*(?:req\.|request\.|params\.|query\.|body\.|`[^`]*\$\{)/,
-    message: 'Script src attribute set from user input — remote code execution via script injection. Never assign user-controlled URLs to script src.',
+    pattern:
+      /(?:script\.src|scriptTag\.src|\.setAttribute\s*\(\s*['"]src['"]\s*,)\s*(?:req\.|request\.|params\.|query\.|body\.|`[^`]*\$\{)/,
+    message:
+      "Script src attribute set from user input — remote code execution via script injection. Never assign user-controlled URLs to script src.",
     skipTest: true,
     skipDoc: true,
   },
@@ -306,21 +352,23 @@ const INJECTION_RULES = [
 // ─────────────────────────────────────────────────────────────────────────────
 const AUTH_RULES = [
   {
-    id: 'WEAK_JWT_SECRET',
-    severity: 'CRITICAL',
+    id: "WEAK_JWT_SECRET",
+    severity: "CRITICAL",
     impact: 10,
     pattern: /(?:jwt\.sign|sign\s*\([^)]+,\s*)(?:['"`][^'"`]{1,31}['"`])/,
-    message: 'JWT signed with a short secret (< 32 characters) — brute-forceable. Use a cryptographically random secret of at least 256 bits.',
+    message:
+      "JWT signed with a short secret (< 32 characters) — brute-forceable. Use a cryptographically random secret of at least 256 bits.",
     skipTest: true,
     skipDoc: true,
   },
   {
-    id: 'JWT_NO_EXPIRY',
-    severity: 'HIGH',
+    id: "JWT_NO_EXPIRY",
+    severity: "HIGH",
     impact: 8,
     pattern: /jwt\.sign\s*\(/,
     fileGuard: /expiresIn/,
-    message: 'jwt.sign() called without an expiresIn option — tokens never expire and remain valid indefinitely if compromised. Always set a short expiry.',
+    message:
+      "jwt.sign() called without an expiresIn option — tokens never expire and remain valid indefinitely if compromised. Always set a short expiry.",
     skipTest: true,
     skipDoc: true,
   },
@@ -330,8 +378,8 @@ const AUTH_RULES = [
   // role strings (central constants module vs inline literals) belongs in a
   // linter, not a security scanner. See dogfood-self-2026-04-20.md.
   {
-    id: 'PASSWORD_IN_URL',
-    severity: 'HIGH',
+    id: "PASSWORD_IN_URL",
+    severity: "HIGH",
     impact: 8,
     // Only fire on password-shape / secret-shape query parameters. Magic-link
     // tokens, OAuth auth codes, booking-confirmation JWTs, and session
@@ -340,166 +388,200 @@ const AUTH_RULES = [
     // from the alternation because it produces FPs on every OAuth / magic-link
     // / booking flow. `password=` / `secret=` remain flagged because putting
     // a real credential in a URL is still a genuine leak.
-    pattern: /(?:url|endpoint|href|src)\s*(?:\+?=|:)\s*[^;]*(?:password|passwd|pwd|secret)\s*=/i,
-    message: 'Password or secret passed as URL query parameter — credentials appear in server logs, browser history, and referrer headers. Use POST body or Authorization header instead.',
+    pattern:
+      /(?:url|endpoint|href|src)\s*(?:\+?=|:)\s*[^;]*(?:password|passwd|pwd|secret)\s*=/i,
+    message:
+      "Password or secret passed as URL query parameter — credentials appear in server logs, browser history, and referrer headers. Use POST body or Authorization header instead.",
     skipTest: true,
     skipDoc: true,
   },
   {
-    id: 'SESSION_FIXATION',
-    severity: 'HIGH',
+    id: "SESSION_FIXATION",
+    severity: "HIGH",
     impact: 9,
-    pattern: /(?:req\.session|session)\s*(?:\[['"]id['"]\]|\.id)\s*=\s*(?:req\.|request\.|params\.|query\.|body\.|input)/,
-    message: 'Session ID set from user-supplied input — session fixation attack allows an attacker to force a known session ID. Always regenerate the session ID on login.',
+    pattern:
+      /(?:req\.session|session)\s*(?:\[['"]id['"]\]|\.id)\s*=\s*(?:req\.|request\.|params\.|query\.|body\.|input)/,
+    message:
+      "Session ID set from user-supplied input — session fixation attack allows an attacker to force a known session ID. Always regenerate the session ID on login.",
     skipTest: true,
     skipDoc: true,
   },
   {
-    id: 'INSECURE_DIRECT_OBJECT_REF',
-    severity: 'HIGH',
+    id: "INSECURE_DIRECT_OBJECT_REF",
+    severity: "HIGH",
     impact: 8,
-    pattern: /(?:findById|findByPk|findOne)\s*\(\s*req\.(?:params|query|body)\.[a-zA-Z_]+\s*\)/,
-    message: 'Database lookup directly by user-supplied ID without ownership check — IDOR allows access to any record. Verify the authenticated user owns the requested resource.',
+    pattern:
+      /(?:findById|findByPk|findOne)\s*\(\s*req\.(?:params|query|body)\.[a-zA-Z_]+\s*\)/,
+    message:
+      "Database lookup directly by user-supplied ID without ownership check — IDOR allows access to any record. Verify the authenticated user owns the requested resource.",
     skipTest: true,
     skipDoc: true,
   },
   {
-    id: 'OAUTH_STATE_MISSING',
-    severity: 'HIGH',
+    id: "OAUTH_STATE_MISSING",
+    severity: "HIGH",
     impact: 8,
-    pattern: /(?:oauth|OAuth|passport\.authenticate)\s*\([^)]*(?:github|google|facebook|twitter|microsoft|okta|auth0)[^)]*\)(?![\s\S]{0,300}state)/i,
+    pattern:
+      /(?:oauth|OAuth|passport\.authenticate)\s*\([^)]*(?:github|google|facebook|twitter|microsoft|okta|auth0)[^)]*\)(?![\s\S]{0,300}state)/i,
     // Supabase/Clerk/NextAuth/Firebase/Auth0 SDKs manage state + PKCE internally — callers are not required to pass state.
-    lineGuard: /(?:supabase[\w.]*\.auth\.signInWithOAuth|clerk\.authenticate|firebase\.auth\(\)\.signInWithPopup|firebase\.auth\(\)\.signInWithRedirect|next-auth|signIn\s*\(\s*['"`](?:github|google|facebook|twitter|microsoft|okta|auth0)['"`]\s*\)|@auth0\/auth0-spa-js|@auth0\/nextjs-auth0)/,
-    message: 'OAuth flow initiated without a `state` parameter — CSRF against the OAuth callback allows account takeover. Generate and validate a cryptographically random state value.',
+    lineGuard:
+      /(?:supabase[\w.]*\.auth\.signInWithOAuth|clerk\.authenticate|firebase\.auth\(\)\.signInWithPopup|firebase\.auth\(\)\.signInWithRedirect|next-auth|signIn\s*\(\s*['"`](?:github|google|facebook|twitter|microsoft|okta|auth0)['"`]\s*\)|@auth0\/auth0-spa-js|@auth0\/nextjs-auth0)/,
+    message:
+      "OAuth flow initiated without a `state` parameter — CSRF against the OAuth callback allows account takeover. Generate and validate a cryptographically random state value.",
     skipTest: true,
     skipDoc: true,
   },
   {
-    id: 'MISSING_AUTH_MIDDLEWARE',
-    severity: 'HIGH',
+    id: "MISSING_AUTH_MIDDLEWARE",
+    severity: "HIGH",
     impact: 8,
-    pattern: /(?:app|router)\s*\.(?:get|post|put|patch|delete)\s*\(\s*['"`][^'"`]*(?:admin|dashboard|settings|account|profile|users|billing)[^'"`]*['"`]\s*,\s*(?:async\s*)?\([^)]*\)\s*=>/,
-    fileGuard: /requireAuth|isAuthenticated|authenticate|protect|verifyToken|checkAuth|authMiddleware|passport\.authenticate|jwt\.verify|auth\s*\(|middleware\.auth/,
-    message: 'Route to a sensitive path defined without an authentication middleware as the second argument — unauthenticated access possible. Add an auth guard before the route handler.',
+    pattern:
+      /(?:app|router)\s*\.(?:get|post|put|patch|delete)\s*\(\s*['"`][^'"`]*(?:admin|dashboard|settings|account|profile|users|billing)[^'"`]*['"`]\s*,\s*(?:async\s*)?\([^)]*\)\s*=>/,
+    fileGuard:
+      /requireAuth|isAuthenticated|authenticate|protect|verifyToken|checkAuth|authMiddleware|passport\.authenticate|jwt\.verify|auth\s*\(|middleware\.auth/,
+    message:
+      "Route to a sensitive path defined without an authentication middleware as the second argument — unauthenticated access possible. Add an auth guard before the route handler.",
     skipTest: true,
     skipDoc: true,
   },
   {
-    id: 'CLEARTEXT_PASSWORD_STORAGE',
-    severity: 'CRITICAL',
+    id: "CLEARTEXT_PASSWORD_STORAGE",
+    severity: "CRITICAL",
     impact: 10,
-    pattern: /(?:password|passwd|pwd)\s*:\s*(?:req\.|request\.|params\.|body\.)[a-zA-Z_.]+(?!\s*,?\s*(?:bcrypt|argon2|pbkdf2|scrypt|hash))/,
-    message: 'Password stored or forwarded in plain text — always hash passwords with bcrypt, argon2, or scrypt before persistence.',
+    pattern:
+      /(?:password|passwd|pwd)\s*:\s*(?:req\.|request\.|params\.|body\.)[a-zA-Z_.]+(?!\s*,?\s*(?:bcrypt|argon2|pbkdf2|scrypt|hash))/,
+    message:
+      "Password stored or forwarded in plain text — always hash passwords with bcrypt, argon2, or scrypt before persistence.",
     skipTest: true,
     skipDoc: true,
   },
   {
-    id: 'INSECURE_COOKIE_NO_HTTPONLY',
-    severity: 'LOW',
+    id: "INSECURE_COOKIE_NO_HTTPONLY",
+    severity: "LOW",
     impact: 4,
     pattern: /res\.cookie\s*\([^,]+,[^)]*\{[^}]*httpOnly\s*:\s*false/,
-    message: 'Cookie explicitly set with httpOnly: false — JavaScript can access it, enabling XSS-based session theft. Set { httpOnly: true } on all session/auth cookies.',
+    message:
+      "Cookie explicitly set with httpOnly: false — JavaScript can access it, enabling XSS-based session theft. Set { httpOnly: true } on all session/auth cookies.",
     skipTest: true,
     skipDoc: true,
   },
   {
-    id: 'INSECURE_COOKIE_NO_SECURE',
-    severity: 'LOW',
+    id: "INSECURE_COOKIE_NO_SECURE",
+    severity: "LOW",
     impact: 4,
     pattern: /res\.cookie\s*\([^,]+,[^)]*\{[^}]*secure\s*:\s*false/,
-    message: 'Cookie explicitly set with secure: false — transmitted over plain HTTP. Set { secure: true } so cookies are only sent over HTTPS.',
+    message:
+      "Cookie explicitly set with secure: false — transmitted over plain HTTP. Set { secure: true } so cookies are only sent over HTTPS.",
     skipTest: true,
     skipDoc: true,
   },
   {
-    id: 'INSECURE_COOKIE_NO_SAMESITE',
-    severity: 'LOW',
+    id: "INSECURE_COOKIE_NO_SAMESITE",
+    severity: "LOW",
     impact: 3,
     pattern: /res\.cookie\s*\([^,]+,[^)]*\{[^}]*sameSite\s*:\s*['"`]none['"`]/i,
-    message: "Cookie set with sameSite: 'none' — CSRF attacks possible unless also using Secure flag with strict origin policy. Prefer { sameSite: 'strict' } or { sameSite: 'lax' }.",
+    message:
+      "Cookie set with sameSite: 'none' — CSRF attacks possible unless also using Secure flag with strict origin policy. Prefer { sameSite: 'strict' } or { sameSite: 'lax' }.",
     skipTest: true,
     skipDoc: true,
   },
   {
-    id: 'WEAK_PASSWORD_POLICY',
-    severity: 'MEDIUM',
+    id: "WEAK_PASSWORD_POLICY",
+    severity: "MEDIUM",
     impact: 6,
-    pattern: /password(?:Regex|Pattern|Rule|Validation)\s*(?:=|:)\s*\/[^/]{1,15}\//,
-    message: 'Password validation regex is very short — may allow weak passwords. Require at least 8 characters with complexity rules or use a password strength library.',
+    pattern:
+      /password(?:Regex|Pattern|Rule|Validation)\s*(?:=|:)\s*\/[^/]{1,15}\//,
+    message:
+      "Password validation regex is very short — may allow weak passwords. Require at least 8 characters with complexity rules or use a password strength library.",
     skipTest: true,
     skipDoc: true,
   },
   {
-    id: 'BEARER_TOKEN_LOGGED',
-    severity: 'HIGH',
+    id: "BEARER_TOKEN_LOGGED",
+    severity: "HIGH",
     impact: 8,
     // Require a credential-shaped identifier near the log call — either an authorization/bearer/jwt keyword,
     // OR a variable name that looks like an auth token (accessToken, idToken, refreshToken, sessionToken, apiToken, bearerToken, authToken).
-    pattern: /(?:console|logger|log)\s*\.(?:log|info|debug|warn|error)\s*\([^)]*(?:\bauthorization\b|\bbearer\b|\bjwt\b|\b(?:access|id|refresh|session|api|bearer|auth)Token\b)[^)]*\)/i,
+    pattern:
+      /(?:console|logger|log)\s*\.(?:log|info|debug|warn|error)\s*\([^)]*(?:\bauthorization\b|\bbearer\b|\bjwt\b|\b(?:access|id|refresh|session|api|bearer|auth)Token\b)[^)]*\)/i,
     // Suppress for:
     //  - LLM token-count telemetry (input/output/prompt/completion/total tokens)
     //  - Bare sentences about generating/revoking tokens
     //  - Log calls wrapping a redaction helper with a redaction-flag literal
     //    argument: e.g. `console.log(wrapParam('authToken', val, true, 'secret'))`
     //    where the helper replaces the value with '*****' before logging.
-    lineGuard: /\b(?:input|output|prompt|completion|total|remaining|used|consumed|estimated)[_\s-]?Tokens?\b|\b(?:generate|revoke|rotate|create)\s+a?\s*(?:new\s+)?(?:CLI|API|access)?\s*token\b|tokenCount\b|\b(?:console\.(?:log|info|debug|warn|error)|logger(?:\.(?:log|info|debug|warn|error|trace))?|log|info|debug|warn)\s*\(\s*[A-Za-z_$][\w$]*\s*\([^)]*,\s*['"`](?:secret|redacted|mask(?:ed)?|hidden|private|censored|sensitive|obfuscated)['"`]\s*\)/i,
-    message: 'Authorization token or Bearer credential logged — tokens in log aggregators can be stolen. Redact credentials before logging.',
+    lineGuard:
+      /\b(?:input|output|prompt|completion|total|remaining|used|consumed|estimated)[_\s-]?Tokens?\b|\b(?:generate|revoke|rotate|create)\s+a?\s*(?:new\s+)?(?:CLI|API|access)?\s*token\b|tokenCount\b|\b(?:console\.(?:log|info|debug|warn|error)|logger(?:\.(?:log|info|debug|warn|error|trace))?|log|info|debug|warn)\s*\(\s*[A-Za-z_$][\w$]*\s*\([^)]*,\s*['"`](?:secret|redacted|mask(?:ed)?|hidden|private|censored|sensitive|obfuscated)['"`]\s*\)/i,
+    message:
+      "Authorization token or Bearer credential logged — tokens in log aggregators can be stolen. Redact credentials before logging.",
     skipTest: true,
     skipDoc: true,
   },
   {
-    id: 'JWT_SECRET_HARDCODED',
-    severity: 'CRITICAL',
+    id: "JWT_SECRET_HARDCODED",
+    severity: "CRITICAL",
     impact: 10,
-    pattern: /jwt\.(?:sign|verify)\s*\([^,]+,\s*['"`][A-Za-z0-9!@#$%^&*()_\-+=]{8,}['"`]/,
-    message: 'JWT signed or verified with a hardcoded secret literal — rotate immediately and load from a secrets manager or environment variable.',
+    pattern:
+      /jwt\.(?:sign|verify)\s*\([^,]+,\s*['"`][A-Za-z0-9!@#$%^&*()_\-+=]{8,}['"`]/,
+    message:
+      "JWT signed or verified with a hardcoded secret literal — rotate immediately and load from a secrets manager or environment variable.",
     skipTest: true,
     skipDoc: true,
   },
   {
-    id: 'MASS_ASSIGNMENT',
-    severity: 'HIGH',
+    id: "MASS_ASSIGNMENT",
+    severity: "HIGH",
     impact: 8,
     pattern: /(?:new\s+\w+|\.update|\.create|\.assign)\s*\(\s*req\.body\s*\)/,
-    message: 'Entire req.body passed to a model constructor or update — mass assignment may overwrite privileged fields (e.g., isAdmin, role). Use an explicit allowlist of assignable fields.',
+    message:
+      "Entire req.body passed to a model constructor or update — mass assignment may overwrite privileged fields (e.g., isAdmin, role). Use an explicit allowlist of assignable fields.",
     skipTest: true,
     skipDoc: true,
   },
   {
-    id: 'RATE_LIMIT_MISSING',
-    severity: 'MEDIUM',
+    id: "RATE_LIMIT_MISSING",
+    severity: "MEDIUM",
     impact: 6,
-    pattern: /(?:app|router)\s*\.post\s*\(\s*['"`][^'"`]*(?:login|signin|auth|token|password|register|signup)[^'"`]*['"`]/i,
-    fileGuard: /rateLimit|rateLimiter|express-rate-limit|slowDown|limiter|throttle|bottleneck/i,
-    message: 'Authentication endpoint defined without visible rate limiting — brute force attacks possible. Apply express-rate-limit or equivalent before this route.',
+    pattern:
+      /(?:app|router)\s*\.post\s*\(\s*['"`][^'"`]*(?:login|signin|auth|token|password|register|signup)[^'"`]*['"`]/i,
+    fileGuard:
+      /rateLimit|rateLimiter|express-rate-limit|slowDown|limiter|throttle|bottleneck/i,
+    message:
+      "Authentication endpoint defined without visible rate limiting — brute force attacks possible. Apply express-rate-limit or equivalent before this route.",
     skipTest: true,
     skipDoc: true,
   },
   {
-    id: 'CSRF_PROTECTION_MISSING',
-    severity: 'LOW',
+    id: "CSRF_PROTECTION_MISSING",
+    severity: "LOW",
     impact: 3,
-    pattern: /(?:app|router)\s*\.(?:post|put|patch|delete)\s*\(\s*['"`][^'"`]+['"`]\s*,\s*(?:async\s*)?\([^)]*\)\s*=>/,
+    pattern:
+      /(?:app|router)\s*\.(?:post|put|patch|delete)\s*\(\s*['"`][^'"`]+['"`]\s*,\s*(?:async\s*)?\([^)]*\)\s*=>/,
     fileGuard: /csurf|csrf|csrfToken|_csrf|sameSite|SameSite/,
-    message: 'Mutating route handler defined without visible CSRF protection (csurf, sameSite cookie, or origin validation) — CSRF attacks possible from third-party sites.',
+    message:
+      "Mutating route handler defined without visible CSRF protection (csurf, sameSite cookie, or origin validation) — CSRF attacks possible from third-party sites.",
     skipTest: true,
     skipDoc: true,
   },
   {
-    id: 'UNSAFE_OBJECT_KEYS_AUTH',
-    severity: 'HIGH',
+    id: "UNSAFE_OBJECT_KEYS_AUTH",
+    severity: "HIGH",
     impact: 8,
-    pattern: /(?:permissions|roles|scopes|grants)\s*\[(?:req\.|request\.|params\.|query\.|body\.)[^\]]+\]/,
-    message: 'Permission/role lookup with user-controlled key — authorization bypass possible via unexpected keys or prototype chain. Use hasOwnProperty() or Object.hasOwn() and validate the key.',
+    pattern:
+      /(?:permissions|roles|scopes|grants)\s*\[(?:req\.|request\.|params\.|query\.|body\.)[^\]]+\]/,
+    message:
+      "Permission/role lookup with user-controlled key — authorization bypass possible via unexpected keys or prototype chain. Use hasOwnProperty() or Object.hasOwn() and validate the key.",
     skipTest: true,
     skipDoc: true,
   },
   {
-    id: 'TOKEN_IN_LOCALSTORAGE',
-    severity: 'MEDIUM',
+    id: "TOKEN_IN_LOCALSTORAGE",
+    severity: "MEDIUM",
     impact: 6,
-    pattern: /localStorage\.setItem\s*\([^)]*['"`](?:token|jwt|auth|session|access_token|refresh_token)['"`]/i,
-    message: 'Authentication token stored in localStorage — accessible to any JavaScript on the page (XSS). Prefer httpOnly cookies or sessionStorage with a short TTL.',
+    pattern:
+      /localStorage\.setItem\s*\([^)]*['"`](?:token|jwt|auth|session|access_token|refresh_token)['"`]/i,
+    message:
+      "Authentication token stored in localStorage — accessible to any JavaScript on the page (XSS). Prefer httpOnly cookies or sessionStorage with a short TTL.",
     skipTest: true,
     skipDoc: true,
   },
@@ -510,147 +592,172 @@ const AUTH_RULES = [
 // ─────────────────────────────────────────────────────────────────────────────
 const CRYPTO_RULES = [
   {
-    id: 'ECB_MODE_CIPHER',
-    severity: 'HIGH',
+    id: "ECB_MODE_CIPHER",
+    severity: "HIGH",
     impact: 8,
-    pattern: /(?:AES|DES|3DES|Blowfish)\s*-\s*ECB|createCipher(?:iv)?\s*\(\s*['"`][^'"`]*-ecb/i,
-    message: 'ECB cipher mode detected — ECB is deterministic and leaks patterns (penguin attack). Use AES-GCM or AES-CBC with a random IV instead.',
+    pattern:
+      /(?:AES|DES|3DES|Blowfish)\s*-\s*ECB|createCipher(?:iv)?\s*\(\s*['"`][^'"`]*-ecb/i,
+    message:
+      "ECB cipher mode detected — ECB is deterministic and leaks patterns (penguin attack). Use AES-GCM or AES-CBC with a random IV instead.",
     skipTest: true,
     skipDoc: true,
   },
   {
-    id: 'STATIC_SALT_BCRYPT',
-    severity: 'HIGH',
+    id: "STATIC_SALT_BCRYPT",
+    severity: "HIGH",
     impact: 8,
     pattern: /bcrypt\.(?:hash|hashSync)\s*\([^,]+,\s*['"`][^'"`]{1,30}['"`]/,
-    message: 'bcrypt called with a hardcoded salt string — salts must be randomly generated per-password via bcrypt.genSalt(). Hardcoded salts defeat the purpose of salting.',
+    message:
+      "bcrypt called with a hardcoded salt string — salts must be randomly generated per-password via bcrypt.genSalt(). Hardcoded salts defeat the purpose of salting.",
     skipTest: true,
     skipDoc: true,
   },
   {
-    id: 'PREDICTABLE_RANDOM_TOKEN',
-    severity: 'HIGH',
+    id: "PREDICTABLE_RANDOM_TOKEN",
+    severity: "HIGH",
     impact: 8,
     // Word-boundaries around each context keyword required. Without \b, the
     // substring matches caused FPs on Plane: `code` matched RANDOM_EMOJI_CODES,
     // `key` matched Object.keys(...).length. Word-boundary keeps real TPs
     // (Math.random() ... token / session / secret as standalone identifiers)
     // while killing the list-index FPs. Plane FP P5 from Week 2 (2026-05-12).
-    pattern: /Math\.random\s*\(\s*\)(?:[^;]*)\b(?:token|secret|key|session|nonce|salt|csrf|otp|code|password)\b/i,
-    message: 'Math.random() used in a security-sensitive context — it is not cryptographically secure. Use crypto.randomBytes() or crypto.getRandomValues() instead.',
+    pattern:
+      /Math\.random\s*\(\s*\)(?:[^;]*)\b(?:token|secret|key|session|nonce|salt|csrf|otp|code|password)\b/i,
+    message:
+      "Math.random() used in a security-sensitive context — it is not cryptographically secure. Use crypto.randomBytes() or crypto.getRandomValues() instead.",
     skipTest: true,
     skipDoc: true,
   },
   {
-    id: 'WEAK_KEY_LENGTH_RSA',
-    severity: 'HIGH',
+    id: "WEAK_KEY_LENGTH_RSA",
+    severity: "HIGH",
     impact: 8,
-    pattern: /(?:generateKeyPair|createSign|RSA)\s*[^)]*modulusLength\s*:\s*(?:[0-9]{1,3}|1[0-9]{3}|20(?:[0-3][0-9]|4[0-7]))\b/,
-    message: 'RSA key length below 2048 bits — vulnerable to factoring attacks. Use at least 2048 bits; 4096 bits recommended for new keys.',
+    pattern:
+      /(?:generateKeyPair|createSign|RSA)\s*[^)]*modulusLength\s*:\s*(?:[0-9]{1,3}|1[0-9]{3}|20(?:[0-3][0-9]|4[0-7]))\b/,
+    message:
+      "RSA key length below 2048 bits — vulnerable to factoring attacks. Use at least 2048 bits; 4096 bits recommended for new keys.",
     skipTest: true,
     skipDoc: true,
   },
   {
-    id: 'CERT_VALIDATION_DISABLED',
-    severity: 'CRITICAL',
+    id: "CERT_VALIDATION_DISABLED",
+    severity: "CRITICAL",
     impact: 10,
-    pattern: /(?:NODE_TLS_REJECT_UNAUTHORIZED\s*=\s*['"`]0['"`]|rejectUnauthorized\s*:\s*false)/,
-    message: 'TLS certificate validation disabled — MitM attacks are trivial. Remove this flag in production; if needed for testing, guard it with NODE_ENV checks.',
+    pattern:
+      /(?:NODE_TLS_REJECT_UNAUTHORIZED\s*=\s*['"`]0['"`]|rejectUnauthorized\s*:\s*false)/,
+    message:
+      "TLS certificate validation disabled — MitM attacks are trivial. Remove this flag in production; if needed for testing, guard it with NODE_ENV checks.",
     // Test mock servers legitimately disable TLS validation; flagging them as CRITICAL is noise.
     skipTest: true,
     skipDoc: true,
   },
   {
-    id: 'WEAK_HASH_SHA1',
-    severity: 'MEDIUM',
+    id: "WEAK_HASH_SHA1",
+    severity: "MEDIUM",
     impact: 6,
     pattern: /crypto\.createHash\s*\(\s*['"`]sha1['"`]\s*\)/i,
-    message: 'SHA-1 is collision-vulnerable (SHAttered). Use SHA-256 or SHA-3 for integrity checks, and bcrypt/argon2 for password hashing.',
+    message:
+      "SHA-1 is collision-vulnerable (SHAttered). Use SHA-256 or SHA-3 for integrity checks, and bcrypt/argon2 for password hashing.",
     skipTest: true,
     skipDoc: true,
   },
   {
-    id: 'WEAK_CIPHER_DES',
-    severity: 'HIGH',
+    id: "WEAK_CIPHER_DES",
+    severity: "HIGH",
     impact: 8,
-    pattern: /(?:createCipher|createCipheriv)\s*\(\s*['"`](?:des|3des|rc2|rc4|blowfish)[^'"`]*['"`]/i,
-    message: 'Deprecated cipher (DES/3DES/RC2/RC4/Blowfish) detected — use AES-256-GCM or ChaCha20-Poly1305.',
+    pattern:
+      /(?:createCipher|createCipheriv)\s*\(\s*['"`](?:des|3des|rc2|rc4|blowfish)[^'"`]*['"`]/i,
+    message:
+      "Deprecated cipher (DES/3DES/RC2/RC4/Blowfish) detected — use AES-256-GCM or ChaCha20-Poly1305.",
     skipTest: true,
     skipDoc: true,
   },
   {
-    id: 'INSUFFICIENT_KEY_DERIVATION_ROUNDS',
-    severity: 'MEDIUM',
+    id: "INSUFFICIENT_KEY_DERIVATION_ROUNDS",
+    severity: "MEDIUM",
     impact: 6,
     // Match the 3rd argument of pbkdf2(password, salt, iterations, keyLen, digest).
     // Without anchoring per-arg, `[^)]+` would greedily span past the iterations
     // arg and then match the keyLen (e.g. `, 32,`) as "iterations < 10000",
     // firing a false positive on any secure `pbkdf2Sync(pw, salt, 100000, 32, 'sha512')`.
     pattern: /(?:pbkdf2|pbkdf2Sync)\s*\(\s*[^,]+,\s*[^,]+,\s*([0-9]{1,4})\s*,/,
-    message: 'PBKDF2 called with fewer than 10,000 iterations — insufficient work factor makes offline brute force feasible. NIST recommends >= 600,000 for SHA-256.',
+    message:
+      "PBKDF2 called with fewer than 10,000 iterations — insufficient work factor makes offline brute force feasible. NIST recommends >= 600,000 for SHA-256.",
     skipTest: true,
     skipDoc: true,
   },
   {
-    id: 'HARDCODED_ENCRYPTION_KEY',
-    severity: 'CRITICAL',
+    id: "HARDCODED_ENCRYPTION_KEY",
+    severity: "CRITICAL",
     impact: 10,
-    pattern: /(?:createCipheriv|createDecipheriv)\s*\([^,]+,\s*(?:Buffer\.from\s*\(\s*)?['"`][A-Fa-f0-9]{32,}['"`]/,
-    message: 'Hardcoded encryption key passed to cipher — anyone with access to the source code can decrypt all data. Load keys from a KMS or secrets manager.',
+    pattern:
+      /(?:createCipheriv|createDecipheriv)\s*\([^,]+,\s*(?:Buffer\.from\s*\(\s*)?['"`][A-Fa-f0-9]{32,}['"`]/,
+    message:
+      "Hardcoded encryption key passed to cipher — anyone with access to the source code can decrypt all data. Load keys from a KMS or secrets manager.",
     skipTest: true,
     skipDoc: true,
   },
   {
-    id: 'RANDOM_IV_REUSE',
-    severity: 'HIGH',
+    id: "RANDOM_IV_REUSE",
+    severity: "HIGH",
     impact: 8,
-    pattern: /(?:const|let|var)\s+iv\s*=\s*(?:Buffer\.alloc\s*\(\d+\)|Buffer\.from\s*\(\s*['"`][0-9a-fA-F]{16,32}['"`])/,
-    message: 'Static or zero-initialized IV detected — IV reuse with the same key breaks confidentiality. Generate a fresh random IV for every encryption operation.',
+    pattern:
+      /(?:const|let|var)\s+iv\s*=\s*(?:Buffer\.alloc\s*\(\d+\)|Buffer\.from\s*\(\s*['"`][0-9a-fA-F]{16,32}['"`])/,
+    message:
+      "Static or zero-initialized IV detected — IV reuse with the same key breaks confidentiality. Generate a fresh random IV for every encryption operation.",
     skipTest: true,
     skipDoc: true,
   },
   {
-    id: 'INSECURE_RANDOM_SEED',
-    severity: 'MEDIUM',
+    id: "INSECURE_RANDOM_SEED",
+    severity: "MEDIUM",
     impact: 6,
-    pattern: /(?:seed|srand|setSeed)\s*\(\s*(?:Date\.now\s*\(\s*\)|new Date|Math\.random)/,
-    message: 'PRNG seeded with timestamp or Math.random() — predictable seed makes all generated values guessable. Use crypto.randomBytes() directly.',
+    pattern:
+      /(?:seed|srand|setSeed)\s*\(\s*(?:Date\.now\s*\(\s*\)|new Date|Math\.random)/,
+    message:
+      "PRNG seeded with timestamp or Math.random() — predictable seed makes all generated values guessable. Use crypto.randomBytes() directly.",
     skipTest: true,
     skipDoc: true,
   },
   {
-    id: 'WEAK_HMAC',
-    severity: 'MEDIUM',
+    id: "WEAK_HMAC",
+    severity: "MEDIUM",
     impact: 6,
     pattern: /crypto\.createHmac\s*\(\s*['"`](?:md5|sha1)['"`]/i,
-    message: 'HMAC created with MD5 or SHA-1 — use HMAC-SHA-256 or HMAC-SHA-512 for message authentication.',
+    message:
+      "HMAC created with MD5 or SHA-1 — use HMAC-SHA-256 or HMAC-SHA-512 for message authentication.",
     skipTest: true,
     skipDoc: true,
   },
   {
-    id: 'OBSOLETE_TLS_VERSION',
-    severity: 'HIGH',
+    id: "OBSOLETE_TLS_VERSION",
+    severity: "HIGH",
     impact: 8,
-    pattern: /(?:secureProtocol|minVersion)\s*:\s*['"`](?:SSLv2|SSLv3|TLSv1|TLSv1\.0|TLSv1\.1)['"`]/i,
-    message: 'Obsolete TLS/SSL version specified — SSLv2/3 and TLS 1.0/1.1 are deprecated with known vulnerabilities. Use TLS 1.2 as minimum, TLS 1.3 preferred.',
+    pattern:
+      /(?:secureProtocol|minVersion)\s*:\s*['"`](?:SSLv2|SSLv3|TLSv1|TLSv1\.0|TLSv1\.1)['"`]/i,
+    message:
+      "Obsolete TLS/SSL version specified — SSLv2/3 and TLS 1.0/1.1 are deprecated with known vulnerabilities. Use TLS 1.2 as minimum, TLS 1.3 preferred.",
     skipTest: true,
     skipDoc: true,
   },
   {
-    id: 'JWT_WEAK_ALGORITHM',
-    severity: 'HIGH',
+    id: "JWT_WEAK_ALGORITHM",
+    severity: "HIGH",
     impact: 8,
     pattern: /(?:algorithm|alg)\s*:\s*['"`](?:HS256|RS256)['"`]/,
-    message: 'HS256 uses a shared secret susceptible to brute force; consider RS256/ES256 with a key pair. Ensure your chosen algorithm meets your threat model.',
+    message:
+      "HS256 uses a shared secret susceptible to brute force; consider RS256/ES256 with a key pair. Ensure your chosen algorithm meets your threat model.",
     skipTest: true,
     skipDoc: true,
   },
   {
-    id: 'BCRYPT_LOW_ROUNDS',
-    severity: 'MEDIUM',
+    id: "BCRYPT_LOW_ROUNDS",
+    severity: "MEDIUM",
     impact: 6,
-    pattern: /bcrypt\.(?:genSalt|hash|hashSync)\s*\([^,)]*,?\s*(?:[1-9])\s*[,)]/,
-    message: 'bcrypt work factor below 10 — too fast for password hashing, enabling offline attacks. Use a cost factor of at least 10 (12+ recommended).',
+    pattern:
+      /bcrypt\.(?:genSalt|hash|hashSync)\s*\([^,)]*,?\s*(?:[1-9])\s*[,)]/,
+    message:
+      "bcrypt work factor below 10 — too fast for password hashing, enabling offline attacks. Use a cost factor of at least 10 (12+ recommended).",
     skipTest: true,
     skipDoc: true,
   },
@@ -661,49 +768,56 @@ const CRYPTO_RULES = [
 // ─────────────────────────────────────────────────────────────────────────────
 const MISCONFIG_RULES = [
   {
-    id: 'DIRECTORY_LISTING_ENABLED',
-    severity: 'MEDIUM',
+    id: "DIRECTORY_LISTING_ENABLED",
+    severity: "MEDIUM",
     impact: 5,
     pattern: /express\.static\s*\([^)]*dotfiles\s*:\s*['"`]allow['"`]/,
-    message: "express.static with dotfiles: 'allow' exposes hidden files (.env, .git). Set dotfiles: 'ignore' and disable directory listing.",
+    message:
+      "express.static with dotfiles: 'allow' exposes hidden files (.env, .git). Set dotfiles: 'ignore' and disable directory listing.",
     skipTest: true,
     skipDoc: true,
   },
   {
-    id: 'DEBUG_MODE_ENABLED',
-    severity: 'MEDIUM',
+    id: "DEBUG_MODE_ENABLED",
+    severity: "MEDIUM",
     impact: 6,
     pattern: /(?:debug|debugMode|DEBUG)\s*:\s*true/,
     // Suppress in demo/playground/example directories and in code-generator
     // output (codegen*.ts). These files exist to exercise the library surface
     // with debug enabled — they are not production config. Firing 30+
     // findings on a single `playground/` dir is classic FP noise.
-    filePathPattern: /^(?!.*(?:[\\/](?:playground|playgrounds|demos?|examples?|fixtures?|sandbox)[\\/]|[\\/]codegen[^\\/]*\.[jt]sx?$))/i,
-    message: 'Debug mode enabled in code — may expose stack traces, verbose errors, or internal state in production. Gate behind NODE_ENV === "development" check.',
+    filePathPattern:
+      /^(?!.*(?:[\\/](?:playground|playgrounds|demos?|examples?|fixtures?|sandbox)[\\/]|[\\/]codegen[^\\/]*\.[jt]sx?$))/i,
+    message:
+      'Debug mode enabled in code — may expose stack traces, verbose errors, or internal state in production. Gate behind NODE_ENV === "development" check.',
     skipTest: true,
     skipDoc: true,
   },
   {
-    id: 'VERBOSE_ERROR_EXPOSURE',
-    severity: 'HIGH',
+    id: "VERBOSE_ERROR_EXPOSURE",
+    severity: "HIGH",
     impact: 7,
-    pattern: /res\.(?:json|send)\s*\(\s*(?:err|error|e|ex|exception)(?:\.stack|\.message)?\s*\)/,
-    message: 'Error object or stack trace sent directly in HTTP response — leaks internal paths, library versions, and logic. Return a generic error message to the client.',
+    pattern:
+      /res\.(?:json|send)\s*\(\s*(?:err|error|e|ex|exception)(?:\.stack|\.message)?\s*\)/,
+    message:
+      "Error object or stack trace sent directly in HTTP response — leaks internal paths, library versions, and logic. Return a generic error message to the client.",
     skipTest: true,
     skipDoc: true,
   },
   {
-    id: 'CONTENT_TYPE_SNIFFING',
-    severity: 'LOW',
+    id: "CONTENT_TYPE_SNIFFING",
+    severity: "LOW",
     impact: 4,
-    pattern: /res\.setHeader\s*\([^)]*Content-Type[^)]*\)(?![\s\S]{0,200}X-Content-Type-Options)/,
-    message: 'Content-Type header set without X-Content-Type-Options: nosniff — browsers may MIME-sniff the response and execute scripts. Add the nosniff header.',
+    pattern:
+      /res\.setHeader\s*\([^)]*Content-Type[^)]*\)(?![\s\S]{0,200}X-Content-Type-Options)/,
+    message:
+      "Content-Type header set without X-Content-Type-Options: nosniff — browsers may MIME-sniff the response and execute scripts. Add the nosniff header.",
     skipTest: true,
     skipDoc: true,
   },
   {
-    id: 'PERMISSIVE_CORS_WITH_CREDENTIALS',
-    severity: 'CRITICAL',
+    id: "PERMISSIVE_CORS_WITH_CREDENTIALS",
+    severity: "CRITICAL",
     impact: 10,
     // Require a positive CORS-context signal. `credentials: true` on its own
     // is ambiguous — it also appears in Prisma `include: { credentials: true }`
@@ -715,119 +829,139 @@ const MISCONFIG_RULES = [
     // fileRequires: file MUST contain at least one CORS-context signal
     // (cors import, Access-Control header, cors middleware name) for the rule
     // to even be eligible.
-    fileRequires: /\bcors\b|from\s+['"](?:cors|@koa\/cors|@fastify\/cors|hono\/cors)['"]|require\s*\(\s*['"](?:cors|@koa\/cors|@fastify\/cors|hono\/cors)['"]\s*\)|Access-Control-Allow-[A-Za-z-]+|res\.setHeader\s*\(\s*['"]access-control-/i,
+    fileRequires:
+      /\bcors\b|from\s+['"](?:cors|@koa\/cors|@fastify\/cors|hono\/cors)['"]|require\s*\(\s*['"](?:cors|@koa\/cors|@fastify\/cors|hono\/cors)['"]\s*\)|Access-Control-Allow-[A-Za-z-]+|res\.setHeader\s*\(\s*['"]access-control-/i,
     // Then suppress when a dynamic origin allowlist IS configured in the same file.
-    fileGuard: /origin\s*:\s*(?:req\.|function|allowedOrigins|\[[^\]]+\])|allowedOrigins|allowList|whitelist/i,
-    message: "CORS credentials: true without a dynamic origin whitelist effectively allows any origin to make authenticated cross-origin requests — CSRF amplification. Set origin to a specific allowlist, never '*'.",
+    fileGuard:
+      /origin\s*:\s*(?:req\.|function|allowedOrigins|\[[^\]]+\])|allowedOrigins|allowList|whitelist/i,
+    message:
+      "CORS credentials: true without a dynamic origin whitelist effectively allows any origin to make authenticated cross-origin requests — CSRF amplification. Set origin to a specific allowlist, never '*'.",
     skipTest: true,
     skipDoc: true,
   },
   {
-    id: 'HELMET_MISSING',
-    severity: 'MEDIUM',
+    id: "HELMET_MISSING",
+    severity: "MEDIUM",
     impact: 6,
     pattern: /(?:const|let|var)\s+app\s*=\s*express\s*\(\s*\)/,
     fileGuard: /helmet/,
-    message: 'Express app created without helmet() — many security headers (CSP, HSTS, X-Frame-Options, etc.) will be absent. Add helmet() as the first middleware.',
+    message:
+      "Express app created without helmet() — many security headers (CSP, HSTS, X-Frame-Options, etc.) will be absent. Add helmet() as the first middleware.",
     skipTest: true,
     skipDoc: true,
   },
   {
-    id: 'MORGAN_IN_PRODUCTION',
-    severity: 'LOW',
+    id: "MORGAN_IN_PRODUCTION",
+    severity: "LOW",
     impact: 3,
-    pattern: /morgan\s*\(\s*['"`]combined['"`]\s*\)(?![\s\S]{0,200}(?:development|dev|NODE_ENV))/,
-    message: "Morgan 'combined' logger active without an environment guard — verbose HTTP logs in production can leak request bodies, tokens, and PII. Gate logging level behind NODE_ENV.",
+    pattern:
+      /morgan\s*\(\s*['"`]combined['"`]\s*\)(?![\s\S]{0,200}(?:development|dev|NODE_ENV))/,
+    message:
+      "Morgan 'combined' logger active without an environment guard — verbose HTTP logs in production can leak request bodies, tokens, and PII. Gate logging level behind NODE_ENV.",
     skipTest: true,
     skipDoc: true,
   },
   {
-    id: 'EXPOSE_STACK_TRACE_MIDDLEWARE',
-    severity: 'HIGH',
+    id: "EXPOSE_STACK_TRACE_MIDDLEWARE",
+    severity: "HIGH",
     impact: 7,
-    pattern: /app\.use\s*\(\s*(?:function|async function|\([^)]*\)\s*=>)\s*\([^)]*err[^)]*\)[^{]*\{[^}]*(?:res\.json|res\.send)\s*\(\s*(?:err|error)/,
-    message: 'Express error-handling middleware sends raw error to client — stack traces reveal internals. Respond with a sanitized error code and log the full error server-side.',
+    pattern:
+      /app\.use\s*\(\s*(?:function|async function|\([^)]*\)\s*=>)\s*\([^)]*err[^)]*\)[^{]*\{[^}]*(?:res\.json|res\.send)\s*\(\s*(?:err|error)/,
+    message:
+      "Express error-handling middleware sends raw error to client — stack traces reveal internals. Respond with a sanitized error code and log the full error server-side.",
     skipTest: true,
     skipDoc: true,
   },
   {
-    id: 'SWAGGER_UI_EXPOSED_PRODUCTION',
-    severity: 'MEDIUM',
+    id: "SWAGGER_UI_EXPOSED_PRODUCTION",
+    severity: "MEDIUM",
     impact: 5,
     pattern: /(?:swagger-ui-express|swaggerUi\.setup|swaggerUi\.serve)\s*\(/,
-    message: 'Swagger UI middleware registered — ensure it is disabled or access-restricted in production. Exposed API docs aid attacker reconnaissance.',
+    message:
+      "Swagger UI middleware registered — ensure it is disabled or access-restricted in production. Exposed API docs aid attacker reconnaissance.",
     skipTest: true,
     skipDoc: true,
   },
   {
-    id: 'CORS_ALL_METHODS',
-    severity: 'MEDIUM',
+    id: "CORS_ALL_METHODS",
+    severity: "MEDIUM",
     impact: 5,
     pattern: /methods\s*:\s*['"`]\*['"`]/,
-    message: "CORS methods set to '*' — restricts nothing. Enumerate only the HTTP methods your API actually uses.",
+    message:
+      "CORS methods set to '*' — restricts nothing. Enumerate only the HTTP methods your API actually uses.",
     skipTest: true,
     skipDoc: true,
   },
   {
-    id: 'CORS_ALL_HEADERS',
-    severity: 'LOW',
+    id: "CORS_ALL_HEADERS",
+    severity: "LOW",
     impact: 4,
     pattern: /allowedHeaders\s*:\s*['"`]\*['"`]/,
-    message: "CORS allowedHeaders set to '*' — explicitly list the headers your API expects to reduce attack surface.",
+    message:
+      "CORS allowedHeaders set to '*' — explicitly list the headers your API expects to reduce attack surface.",
     skipTest: true,
     skipDoc: true,
   },
   {
-    id: 'SENSITIVE_DATA_IN_GET',
-    severity: 'HIGH',
+    id: "SENSITIVE_DATA_IN_GET",
+    severity: "HIGH",
     impact: 7,
-    pattern: /(?:router|app)\.get\s*\(\s*['"`][^'"`]*(?:password|token|secret|apiKey|api_key|ssn|creditCard)[^'"`]*['"`]\s*,/i,
-    message: 'Sensitive parameter name in GET route path — sensitive data in URLs ends up in logs, browser history, and Referer headers. Use POST with body parameters.',
+    pattern:
+      /(?:router|app)\.get\s*\(\s*['"`][^'"`]*(?:password|token|secret|apiKey|api_key|ssn|creditCard)[^'"`]*['"`]\s*,/i,
+    message:
+      "Sensitive parameter name in GET route path — sensitive data in URLs ends up in logs, browser history, and Referer headers. Use POST with body parameters.",
     skipTest: true,
     skipDoc: true,
   },
   {
-    id: 'BODY_PARSER_LIMIT_MISSING',
-    severity: 'MEDIUM',
+    id: "BODY_PARSER_LIMIT_MISSING",
+    severity: "MEDIUM",
     impact: 5,
     pattern: /express\.json\s*\(\s*\)|bodyParser\.json\s*\(\s*\)/,
-    message: 'Body parser configured without a size limit — ReDoS or memory exhaustion via oversized payloads. Set a limit: express.json({ limit: "100kb" }).',
+    message:
+      'Body parser configured without a size limit — ReDoS or memory exhaustion via oversized payloads. Set a limit: express.json({ limit: "100kb" }).',
     skipTest: true,
     skipDoc: true,
   },
   {
-    id: 'TRUST_PROXY_WILDCARD',
-    severity: 'MEDIUM',
+    id: "TRUST_PROXY_WILDCARD",
+    severity: "MEDIUM",
     impact: 5,
     pattern: /app\.set\s*\(\s*['"`]trust proxy['"`]\s*,\s*true\s*\)/,
-    message: "app.set('trust proxy', true) trusts all X-Forwarded-* headers — spoofable by any client. Specify the exact number of proxy hops or an IP range.",
+    message:
+      "app.set('trust proxy', true) trusts all X-Forwarded-* headers — spoofable by any client. Specify the exact number of proxy hops or an IP range.",
     skipTest: true,
     skipDoc: true,
   },
   {
-    id: 'GRAPHQL_INTROSPECTION_ENABLED',
-    severity: 'MEDIUM',
+    id: "GRAPHQL_INTROSPECTION_ENABLED",
+    severity: "MEDIUM",
     impact: 5,
     pattern: /introspection\s*:\s*true/,
-    message: 'GraphQL introspection enabled — exposes your full schema to attackers. Disable in production: introspection: process.env.NODE_ENV !== "production".',
+    message:
+      'GraphQL introspection enabled — exposes your full schema to attackers. Disable in production: introspection: process.env.NODE_ENV !== "production".',
     skipTest: true,
     skipDoc: true,
   },
   {
-    id: 'GRAPHQL_DEPTH_LIMIT_MISSING',
-    severity: 'MEDIUM',
+    id: "GRAPHQL_DEPTH_LIMIT_MISSING",
+    severity: "MEDIUM",
     impact: 5,
-    pattern: /(?:ApolloServer|graphqlHTTP|createHandler)\s*\([^)]*(?:schema|typeDefs)[^)]*\)(?![\s\S]{0,400}(?:depthLimit|depth_limit|validationRules))/,
-    message: 'GraphQL server configured without depth limiting — deeply nested queries can cause CPU/memory DoS. Add graphql-depth-limit or equivalent.',
+    pattern:
+      /(?:ApolloServer|graphqlHTTP|createHandler)\s*\([^)]*(?:schema|typeDefs)[^)]*\)(?![\s\S]{0,400}(?:depthLimit|depth_limit|validationRules))/,
+    message:
+      "GraphQL server configured without depth limiting — deeply nested queries can cause CPU/memory DoS. Add graphql-depth-limit or equivalent.",
     skipTest: true,
     skipDoc: true,
   },
   {
-    id: 'UPLOADED_FILE_NO_VALIDATION',
-    severity: 'HIGH',
+    id: "UPLOADED_FILE_NO_VALIDATION",
+    severity: "HIGH",
     impact: 8,
-    pattern: /(?:multer|formidable|busboy|multiparty)\s*\([^)]*\)(?![\s\S]{0,400}(?:fileFilter|mimetype|allowedTypes|fileSize))/,
-    message: 'File upload handler configured without MIME type validation or file size limits — arbitrary file upload and DoS possible. Add fileFilter and limits options.',
+    pattern:
+      /(?:multer|formidable|busboy|multiparty)\s*\([^)]*\)(?![\s\S]{0,400}(?:fileFilter|mimetype|allowedTypes|fileSize))/,
+    message:
+      "File upload handler configured without MIME type validation or file size limits — arbitrary file upload and DoS possible. Add fileFilter and limits options.",
     skipTest: true,
     skipDoc: true,
   },
@@ -842,73 +976,84 @@ const MISCONFIG_RULES = [
 // ─────────────────────────────────────────────────────────────────────────────
 const CLIENT_RULES = [
   {
-    id: 'POSTMESSAGE_NO_ORIGIN_CHECK',
-    severity: 'HIGH',
+    id: "POSTMESSAGE_NO_ORIGIN_CHECK",
+    severity: "HIGH",
     impact: 8,
     // Restrict to window-like receivers (window, top, parent, self, frames, contentWindow, or bare addEventListener at module/global scope).
     // Excludes WebSocket/EventSource/Worker/MessagePort/server receivers — those don't use window.postMessage and enforce origin at the HTTP/handshake layer.
-    pattern: /\b(?:window|top|parent|self|frames|contentWindow)\s*\.\s*addEventListener\s*\(\s*['"`]message['"`][^)]+\)(?![\s\S]{0,300}(?:event\.origin|origin\s*===|trustedOrigins))/,
-    message: "postMessage listener without origin validation — any origin can send crafted messages. Always verify event.origin against a trusted allowlist before processing data.",
+    pattern:
+      /\b(?:window|top|parent|self|frames|contentWindow)\s*\.\s*addEventListener\s*\(\s*['"`]message['"`][^)]+\)(?![\s\S]{0,300}(?:event\.origin|origin\s*===|trustedOrigins))/,
+    message:
+      "postMessage listener without origin validation — any origin can send crafted messages. Always verify event.origin against a trusted allowlist before processing data.",
     skipTest: true,
     skipDoc: true,
   },
   {
-    id: 'LOCALSTORAGE_SENSITIVE_DATA',
-    severity: 'MEDIUM',
+    id: "LOCALSTORAGE_SENSITIVE_DATA",
+    severity: "MEDIUM",
     impact: 6,
-    pattern: /localStorage\.setItem\s*\([^)]*['"`](?:password|passwd|pwd|secret|ssn|creditCard|cvv|pin|dob)[^)]*\)/i,
-    message: 'Sensitive personal data stored in localStorage — accessible to any same-origin script (XSS risk) and persists after session end. Use httpOnly cookies or ephemeral in-memory storage.',
+    pattern:
+      /localStorage\.setItem\s*\([^)]*['"`](?:password|passwd|pwd|secret|ssn|creditCard|cvv|pin|dob)[^)]*\)/i,
+    message:
+      "Sensitive personal data stored in localStorage — accessible to any same-origin script (XSS risk) and persists after session end. Use httpOnly cookies or ephemeral in-memory storage.",
     skipTest: true,
     skipDoc: true,
   },
   {
-    id: 'EVAL_IN_TIMEOUT',
-    severity: 'HIGH',
+    id: "EVAL_IN_TIMEOUT",
+    severity: "HIGH",
     impact: 8,
     pattern: /(?:setTimeout|setInterval)\s*\(\s*(?:`[^`]+`|['"][^'"]+['"])\s*,/,
-    message: 'String or variable passed to setTimeout/setInterval is evaluated like eval() — code injection risk. Pass a function reference instead.',
+    message:
+      "String or variable passed to setTimeout/setInterval is evaluated like eval() — code injection risk. Pass a function reference instead.",
     skipTest: false,
     skipDoc: true,
   },
   {
-    id: 'DOCUMENT_DOMAIN_MANIPULATION',
-    severity: 'HIGH',
+    id: "DOCUMENT_DOMAIN_MANIPULATION",
+    severity: "HIGH",
     impact: 8,
     pattern: /document\.domain\s*=/,
-    message: "Assignment to document.domain relaxes the same-origin policy — legacy technique that enables XSS across subdomains. Use postMessage for cross-subdomain communication instead.",
+    message:
+      "Assignment to document.domain relaxes the same-origin policy — legacy technique that enables XSS across subdomains. Use postMessage for cross-subdomain communication instead.",
     skipTest: true,
     skipDoc: true,
   },
   {
-    id: 'OPEN_REDIRECT_WINDOW_LOCATION',
-    severity: 'HIGH',
+    id: "OPEN_REDIRECT_WINDOW_LOCATION",
+    severity: "HIGH",
     impact: 7,
-    pattern: /window\.location(?:\.href)?\s*=\s*(?:location\.|document\.|.*?(?:search|hash|query|param|input|user))/,
-    message: 'window.location set from URL fragment, query string, or user input — open redirect / DOM-based XSS. Validate destinations against an allowlist before assignment.',
+    pattern:
+      /window\.location(?:\.href)?\s*=\s*(?:location\.|document\.|.*?(?:search|hash|query|param|input|user))/,
+    message:
+      "window.location set from URL fragment, query string, or user input — open redirect / DOM-based XSS. Validate destinations against an allowlist before assignment.",
     skipTest: true,
     skipDoc: true,
   },
   {
-    id: 'CSS_INJECTION',
-    severity: 'MEDIUM',
+    id: "CSS_INJECTION",
+    severity: "MEDIUM",
     impact: 6,
-    pattern: /\.style\.(?:cssText|background|backgroundImage|content)\s*=\s*(?:req\.|request\.|params\.|query\.|body\.|`[^`]*\$\{)/,
-    message: 'CSS property set from user input — CSS injection can exfiltrate data via attribute selectors or load attacker-controlled resources. Sanitize or use a whitelist for allowed values.',
+    pattern:
+      /\.style\.(?:cssText|background|backgroundImage|content)\s*=\s*(?:req\.|request\.|params\.|query\.|body\.|`[^`]*\$\{)/,
+    message:
+      "CSS property set from user input — CSS injection can exfiltrate data via attribute selectors or load attacker-controlled resources. Sanitize or use a whitelist for allowed values.",
     skipTest: true,
     skipDoc: true,
   },
   {
-    id: 'REACT_HREF_JAVASCRIPT',
-    severity: 'HIGH',
+    id: "REACT_HREF_JAVASCRIPT",
+    severity: "HIGH",
     impact: 8,
     pattern: /href\s*=\s*\{[^}]*(?:javascript:|data:text\/html|vbscript:)/i,
-    message: "React href with javascript:, data:, or vbscript: URI — XSS via anchor click. Validate href values and reject non-http(s) schemes.",
+    message:
+      "React href with javascript:, data:, or vbscript: URI — XSS via anchor click. Validate href values and reject non-http(s) schemes.",
     skipTest: true,
     skipDoc: true,
   },
   {
-    id: 'WINDOW_OPEN_NOOPENER',
-    severity: 'MEDIUM',
+    id: "WINDOW_OPEN_NOOPENER",
+    severity: "MEDIUM",
     impact: 5,
     pattern: /window\.open\s*\(/,
     // Suppress when `noopener` appears anywhere on the line — covers the
@@ -920,49 +1065,57 @@ const CLIENT_RULES = [
     // `_self` / `_parent` / `_top` (same browsing context — no separate window
     // that could access window.opener, so the tabnabbing risk doesn't apply).
     lineGuard: /\bnoopener\b|,\s*['"`](?:_self|_parent|_top)['"`]/,
-    message: "window.open() without 'noopener' in the features string — the opened window can access window.opener and redirect the parent (reverse tabnapping). Add 'noopener,noreferrer'.",
+    message:
+      "window.open() without 'noopener' in the features string — the opened window can access window.opener and redirect the parent (reverse tabnapping). Add 'noopener,noreferrer'.",
     skipTest: true,
     skipDoc: true,
   },
   {
-    id: 'SRCDOC_XSS',
-    severity: 'HIGH',
+    id: "SRCDOC_XSS",
+    severity: "HIGH",
     impact: 8,
-    pattern: /(?:iframe\.srcdoc|\.setAttribute\s*\(\s*['"]srcdoc['"])\s*(?:=|\+?=)\s*(?:req\.|request\.|params\.|query\.|body\.|`[^`]*\$\{)/,
-    message: 'iframe srcdoc set from user input — direct script injection in the embedded document. Sanitize HTML before embedding or use a sandboxed iframe without allow-scripts.',
+    pattern:
+      /(?:iframe\.srcdoc|\.setAttribute\s*\(\s*['"]srcdoc['"])\s*(?:=|\+?=)\s*(?:req\.|request\.|params\.|query\.|body\.|`[^`]*\$\{)/,
+    message:
+      "iframe srcdoc set from user input — direct script injection in the embedded document. Sanitize HTML before embedding or use a sandboxed iframe without allow-scripts.",
     skipTest: true,
     skipDoc: true,
   },
   {
-    id: 'JSONP_CALLBACK',
-    severity: 'HIGH',
+    id: "JSONP_CALLBACK",
+    severity: "HIGH",
     impact: 7,
     pattern: /(?:callback|jsonp)\s*=\s*(?:req\.|request\.|query\.)[a-zA-Z_.]+/,
-    message: 'JSONP callback name derived from user input — reflected XSS via callback parameter (e.g., ?callback=alert(1)). Use CORS instead of JSONP; if JSONP is required, whitelist callback names.',
+    message:
+      "JSONP callback name derived from user input — reflected XSS via callback parameter (e.g., ?callback=alert(1)). Use CORS instead of JSONP; if JSONP is required, whitelist callback names.",
     skipTest: true,
     skipDoc: true,
   },
   {
-    id: 'UNSAFE_TARGET_BLANK',
-    severity: 'LOW',
+    id: "UNSAFE_TARGET_BLANK",
+    severity: "LOW",
     impact: 3,
-    pattern: /target\s*=\s*['"`]_blank['"`](?![\s\S]{0,80}(?:noopener|noreferrer))/,
-    message: "Anchor/link with target='_blank' without rel='noopener noreferrer' — reverse tabnapping attack possible. Add rel='noopener noreferrer'.",
+    pattern:
+      /target\s*=\s*['"`]_blank['"`](?![\s\S]{0,80}(?:noopener|noreferrer))/,
+    message:
+      "Anchor/link with target='_blank' without rel='noopener noreferrer' — reverse tabnapping attack possible. Add rel='noopener noreferrer'.",
     skipTest: true,
     skipDoc: true,
   },
   {
-    id: 'PROTOTYPE_POLLUTION_MERGE',
-    severity: 'HIGH',
+    id: "PROTOTYPE_POLLUTION_MERGE",
+    severity: "HIGH",
     impact: 9,
-    pattern: /(?:Object\.assign|merge|deepMerge|extend|_.merge|_.extend)\s*\(\s*(?:\{\}|target|obj|result)\s*,\s*(?:req\.|request\.|params\.|query\.|body\.)/,
-    message: 'Deep merge / Object.assign with user-supplied object — prototype pollution if input contains __proto__ or constructor.prototype keys. Sanitize input keys or use Object.create(null) targets.',
+    pattern:
+      /(?:Object\.assign|merge|deepMerge|extend|_.merge|_.extend)\s*\(\s*(?:\{\}|target|obj|result)\s*,\s*(?:req\.|request\.|params\.|query\.|body\.)/,
+    message:
+      "Deep merge / Object.assign with user-supplied object — prototype pollution if input contains __proto__ or constructor.prototype keys. Sanitize input keys or use Object.create(null) targets.",
     skipTest: true,
     skipDoc: true,
   },
   {
-    id: 'DANGEROUSLY_SET_INNER_HTML',
-    severity: 'HIGH',
+    id: "DANGEROUSLY_SET_INNER_HTML",
+    severity: "HIGH",
     impact: 8,
     pattern: /dangerouslySetInnerHTML\s*=\s*\{\s*\{[^}]*__html\s*:/,
     // Suppress when the __html value comes from a clearly-named sanitizer —
@@ -971,71 +1124,86 @@ const CLIENT_RULES = [
     // (props.safeBio, sanitizedContent, cleanHtml). Naming-convention
     // suppression is fuzzy but correct in practice — reviewers already rely
     // on these naming cues to approve the pattern in code review.
-    lineGuard: /__html\s*:\s*(?:[A-Za-z_$][\w$]*\s*)?(?:[A-Za-z_$][\w$]*\.)*(?:safe|sanitiz|purif|escape|clean)[A-Za-z_$][\w$]*(?:\s*\(|[\s,)}])/i,
-    message: 'React dangerouslySetInnerHTML in use — ensure the value is sanitized with DOMPurify before rendering. Any unsanitized HTML causes XSS.',
+    lineGuard:
+      /__html\s*:\s*(?:[A-Za-z_$][\w$]*\s*)?(?:[A-Za-z_$][\w$]*\.)*(?:safe|sanitiz|purif|escape|clean)[A-Za-z_$][\w$]*(?:\s*\(|[\s,)}])/i,
+    message:
+      "React dangerouslySetInnerHTML in use — ensure the value is sanitized with DOMPurify before rendering. Any unsanitized HTML causes XSS.",
     skipTest: true,
     skipDoc: true,
   },
   {
-    id: 'SENSITIVE_DATA_CONSOLE_LOG',
-    severity: 'MEDIUM',
+    id: "SENSITIVE_DATA_CONSOLE_LOG",
+    severity: "MEDIUM",
     impact: 6,
-    pattern: /console\.(?:log|info|debug)\s*\([^)]*(?:password|passwd|ssn|creditCard|cvv|privateKey|secret|authToken)[^)]*\)/i,
-    message: 'Sensitive data printed to console — may appear in browser DevTools, log aggregators, or CI output. Remove all debug logging of credentials/PII.',
+    pattern:
+      /console\.(?:log|info|debug)\s*\([^)]*(?:password|passwd|ssn|creditCard|cvv|privateKey|secret|authToken)[^)]*\)/i,
+    message:
+      "Sensitive data printed to console — may appear in browser DevTools, log aggregators, or CI output. Remove all debug logging of credentials/PII.",
     skipTest: true,
     skipDoc: true,
   },
   {
-    id: 'INSECURE_IFRAME_SANDBOX',
-    severity: 'MEDIUM',
+    id: "INSECURE_IFRAME_SANDBOX",
+    severity: "MEDIUM",
     impact: 5,
-    pattern: /(?:<iframe|createElement\s*\(\s*['"]iframe['"])[^>]*sandbox\s*=\s*['"][^'"]*allow-scripts[^'"]*allow-same-origin/i,
-    message: "iframe with both allow-scripts and allow-same-origin in sandbox — this combination effectively disables the sandbox entirely. Remove allow-same-origin when allow-scripts is set.",
+    pattern:
+      /(?:<iframe|createElement\s*\(\s*['"]iframe['"])[^>]*sandbox\s*=\s*['"][^'"]*allow-scripts[^'"]*allow-same-origin/i,
+    message:
+      "iframe with both allow-scripts and allow-same-origin in sandbox — this combination effectively disables the sandbox entirely. Remove allow-same-origin when allow-scripts is set.",
     skipTest: true,
     skipDoc: true,
   },
   {
-    id: 'DOM_CLOBBERING',
-    severity: 'MEDIUM',
+    id: "DOM_CLOBBERING",
+    severity: "MEDIUM",
     impact: 6,
-    pattern: /(?:document|window)\s*\[\s*(?:req\.|request\.|params\.|query\.|body\.|userInput)/,
-    message: 'User-controlled key used to access document/window property — DOM clobbering allows overwriting built-in browser APIs. Validate and sanitize property names.',
+    pattern:
+      /(?:document|window)\s*\[\s*(?:req\.|request\.|params\.|query\.|body\.|userInput)/,
+    message:
+      "User-controlled key used to access document/window property — DOM clobbering allows overwriting built-in browser APIs. Validate and sanitize property names.",
     skipTest: true,
     skipDoc: true,
   },
   {
-    id: 'REACT_REF_INNER_HTML',
-    severity: 'HIGH',
+    id: "REACT_REF_INNER_HTML",
+    severity: "HIGH",
     impact: 8,
     pattern: /(?:ref\.current|myRef\.current|inputRef\.current)\.innerHTML\s*=/,
-    message: 'Directly assigning innerHTML via React ref bypasses React XSS protections. Use textContent or sanitize with DOMPurify before assigning.',
+    message:
+      "Directly assigning innerHTML via React ref bypasses React XSS protections. Use textContent or sanitize with DOMPurify before assigning.",
     skipTest: true,
     skipDoc: true,
   },
   {
-    id: 'CLIPBOARD_WRITE_SENSITIVE',
-    severity: 'LOW',
+    id: "CLIPBOARD_WRITE_SENSITIVE",
+    severity: "LOW",
     impact: 3,
-    pattern: /navigator\.clipboard\.writeText\s*\([^)]*(?:password|secret|token|apiKey|key)[^)]*\)/i,
-    message: 'Sensitive value written to the system clipboard — accessible by other applications. Ensure this is intentional and limit clipboard access to explicit user actions.',
+    pattern:
+      /navigator\.clipboard\.writeText\s*\([^)]*(?:password|secret|token|apiKey|key)[^)]*\)/i,
+    message:
+      "Sensitive value written to the system clipboard — accessible by other applications. Ensure this is intentional and limit clipboard access to explicit user actions.",
     skipTest: true,
     skipDoc: true,
   },
   {
-    id: 'STORAGE_EVENT_INJECTION',
-    severity: 'MEDIUM',
+    id: "STORAGE_EVENT_INJECTION",
+    severity: "MEDIUM",
     impact: 6,
-    pattern: /window\.addEventListener\s*\(\s*['"`]storage['"`][^)]+\)(?![\s\S]{0,300}(?:validate|sanitize|parse|JSON\.parse|whitelist|allowlist))/,
-    message: 'localStorage storage event handler without input validation — cross-tab data injection possible from compromised same-origin tabs. Validate all values received via storage events.',
+    pattern:
+      /window\.addEventListener\s*\(\s*['"`]storage['"`][^)]+\)(?![\s\S]{0,300}(?:validate|sanitize|parse|JSON\.parse|whitelist|allowlist))/,
+    message:
+      "localStorage storage event handler without input validation — cross-tab data injection possible from compromised same-origin tabs. Validate all values received via storage events.",
     skipTest: true,
     skipDoc: true,
   },
   {
-    id: 'WEBWORKER_IMPORTSCRIPTS_DYNAMIC',
-    severity: 'HIGH',
+    id: "WEBWORKER_IMPORTSCRIPTS_DYNAMIC",
+    severity: "HIGH",
     impact: 8,
-    pattern: /importScripts\s*\([^)]*(?:req\.|request\.|params\.|query\.|body\.|`[^`]*\$\{)/,
-    message: 'importScripts() called with a user-controlled URL in a Web Worker — arbitrary script execution. Use only hardcoded, trusted script URLs.',
+    pattern:
+      /importScripts\s*\([^)]*(?:req\.|request\.|params\.|query\.|body\.|`[^`]*\$\{)/,
+    message:
+      "importScripts() called with a user-controlled URL in a Web Worker — arbitrary script execution. Use only hardcoded, trusted script URLs.",
     skipTest: true,
     skipDoc: true,
   },
@@ -1046,26 +1214,29 @@ const CLIENT_RULES = [
 // ─────────────────────────────────────────────────────────────────────────────
 const INFRA_RULES = [
   {
-    id: 'SEMVER_WILDCARD',
-    severity: 'HIGH',
+    id: "SEMVER_WILDCARD",
+    severity: "HIGH",
     impact: 8,
-    pattern: /"(?:dependencies|devDependencies|peerDependencies)"\s*:\s*\{[^}]*"\*"/,
-    message: 'Wildcard ("*") version in package.json — installs the latest major version on every install, including breaking or malicious releases. Pin to a specific version range.',
+    pattern:
+      /"(?:dependencies|devDependencies|peerDependencies)"\s*:\s*\{[^}]*"\*"/,
+    message:
+      'Wildcard ("*") version in package.json — installs the latest major version on every install, including breaking or malicious releases. Pin to a specific version range.',
     skipTest: false,
     skipDoc: true,
   },
   {
-    id: 'NPM_PREINSTALL_SCRIPT',
-    severity: 'HIGH',
+    id: "NPM_PREINSTALL_SCRIPT",
+    severity: "HIGH",
     impact: 9,
     pattern: /"preinstall"\s*:\s*"/,
-    message: 'preinstall lifecycle script in package.json — runs arbitrary code when the package is installed as a dependency. Malicious packages abuse this for supply-chain attacks. Remove if not strictly necessary.',
+    message:
+      "preinstall lifecycle script in package.json — runs arbitrary code when the package is installed as a dependency. Malicious packages abuse this for supply-chain attacks. Remove if not strictly necessary.",
     skipTest: false,
     skipDoc: true,
   },
   {
-    id: 'DOCKER_PRIVILEGED_FLAG',
-    severity: 'CRITICAL',
+    id: "DOCKER_PRIVILEGED_FLAG",
+    severity: "CRITICAL",
     impact: 10,
     // Require docker context on the same line. Without this, the rule fires
     // on permissions-registry object literals like
@@ -1074,165 +1245,187 @@ const INFRA_RULES = [
     // not using it). Real invocations always co-occur with `docker` or a
     // subprocess-spawn call referencing docker.
     pattern: /(?:\bdocker\b[^\n]*--privileged|--privileged[^\n]*\bdocker\b)/,
-    message: '--privileged Docker flag grants full host device access — container escape to host OS possible. Run with the minimum required capabilities using --cap-add instead.',
+    message:
+      "--privileged Docker flag grants full host device access — container escape to host OS possible. Run with the minimum required capabilities using --cap-add instead.",
     skipTest: true,
     skipDoc: true,
   },
   {
-    id: 'DOCKERFILE_ROOT_USER',
-    severity: 'HIGH',
+    id: "DOCKERFILE_ROOT_USER",
+    severity: "HIGH",
     impact: 8,
     pattern: /^\s*USER\s+root\b/m,
-    message: 'Dockerfile explicitly runs as root — process escape allows full host access. Use a non-root UID before CMD/ENTRYPOINT.',
+    message:
+      "Dockerfile explicitly runs as root — process escape allows full host access. Use a non-root UID before CMD/ENTRYPOINT.",
     filePathPattern: /(^|[\\/])(dockerfile|containerfile)(\.[^\\/]+)?$/i,
     skipTest: true,
     skipDoc: true,
   },
   {
-    id: 'AWS_IMDS_V1',
-    severity: 'HIGH',
+    id: "AWS_IMDS_V1",
+    severity: "HIGH",
     impact: 8,
     pattern: /169\.254\.169\.254(?![\s\S]{0,200}X-aws-ec2-metadata-token)/,
-    message: 'IMDSv1 endpoint accessed without the X-aws-ec2-metadata-token header — SSRF against IMDSv1 leaks IAM credentials. Enforce IMDSv2 by requiring the token header.',
+    message:
+      "IMDSv1 endpoint accessed without the X-aws-ec2-metadata-token header — SSRF against IMDSv1 leaks IAM credentials. Enforce IMDSv2 by requiring the token header.",
     skipTest: true,
     skipDoc: true,
   },
   {
-    id: 'KUBERNETES_PRIVILEGED_CONTAINER',
-    severity: 'CRITICAL',
+    id: "KUBERNETES_PRIVILEGED_CONTAINER",
+    severity: "CRITICAL",
     impact: 10,
     pattern: /privileged\s*:\s*true/,
-    message: 'Kubernetes pod/container configured with privileged: true — equivalent to root on the host. Remove this flag; use securityContext with specific capabilities only.',
+    message:
+      "Kubernetes pod/container configured with privileged: true — equivalent to root on the host. Remove this flag; use securityContext with specific capabilities only.",
     skipTest: true,
     skipDoc: true,
   },
   {
-    id: 'K8S_HOST_NETWORK',
-    severity: 'HIGH',
+    id: "K8S_HOST_NETWORK",
+    severity: "HIGH",
     impact: 8,
     pattern: /hostNetwork\s*:\s*true/,
-    message: 'Kubernetes pod using hostNetwork: true — shares the node network namespace, exposing all host services to the pod. Use a dedicated network policy and disable hostNetwork.',
+    message:
+      "Kubernetes pod using hostNetwork: true — shares the node network namespace, exposing all host services to the pod. Use a dedicated network policy and disable hostNetwork.",
     skipTest: true,
     skipDoc: true,
   },
   {
-    id: 'K8S_HOST_PID',
-    severity: 'HIGH',
+    id: "K8S_HOST_PID",
+    severity: "HIGH",
     impact: 8,
     pattern: /hostPID\s*:\s*true/,
-    message: 'Kubernetes pod using hostPID: true — can inspect and signal all host processes. Disable unless strictly required for a system-level daemon.',
+    message:
+      "Kubernetes pod using hostPID: true — can inspect and signal all host processes. Disable unless strictly required for a system-level daemon.",
     skipTest: true,
     skipDoc: true,
   },
   {
-    id: 'K8S_ALLOW_PRIVILEGE_ESCALATION',
-    severity: 'HIGH',
+    id: "K8S_ALLOW_PRIVILEGE_ESCALATION",
+    severity: "HIGH",
     impact: 8,
     pattern: /allowPrivilegeEscalation\s*:\s*true/,
-    message: 'allowPrivilegeEscalation: true permits setuid binaries to gain elevated privileges. Set to false in securityContext for all containers.',
+    message:
+      "allowPrivilegeEscalation: true permits setuid binaries to gain elevated privileges. Set to false in securityContext for all containers.",
     skipTest: true,
     skipDoc: true,
   },
   {
-    id: 'K8S_CAPABILITIES_ALL',
-    severity: 'CRITICAL',
+    id: "K8S_CAPABILITIES_ALL",
+    severity: "CRITICAL",
     impact: 10,
     pattern: /capabilities\s*:\s*\{[^}]*add\s*:\s*\[[^\]]*ALL[^\]]*\]/,
-    message: 'Kubernetes container granted ALL capabilities — grants full Linux kernel access. Drop ALL capabilities and add only those explicitly needed.',
+    message:
+      "Kubernetes container granted ALL capabilities — grants full Linux kernel access. Drop ALL capabilities and add only those explicitly needed.",
     skipTest: true,
     skipDoc: true,
   },
   {
-    id: 'DOCKER_ADD_REMOTE_URL',
-    severity: 'HIGH',
+    id: "DOCKER_ADD_REMOTE_URL",
+    severity: "HIGH",
     impact: 8,
     pattern: /^ADD\s+https?:\/\//m,
-    message: 'Dockerfile ADD with a remote URL fetches content at build time without integrity verification — supply chain attack vector. Use curl + sha256sum verification, or COPY a pre-verified file.',
+    message:
+      "Dockerfile ADD with a remote URL fetches content at build time without integrity verification — supply chain attack vector. Use curl + sha256sum verification, or COPY a pre-verified file.",
     skipTest: true,
     skipDoc: true,
   },
   {
-    id: 'DOCKER_LATEST_TAG',
-    severity: 'MEDIUM',
+    id: "DOCKER_LATEST_TAG",
+    severity: "MEDIUM",
     impact: 5,
     pattern: /^FROM\s+[^\s:]+:latest\b/m,
-    message: "Dockerfile FROM uses ':latest' tag — non-deterministic builds; a compromised or breaking upstream image will be silently adopted. Pin to a specific digest or version tag.",
+    message:
+      "Dockerfile FROM uses ':latest' tag — non-deterministic builds; a compromised or breaking upstream image will be silently adopted. Pin to a specific digest or version tag.",
     skipTest: false,
     skipDoc: true,
   },
   {
-    id: 'GITHUB_ACTIONS_SCRIPT_INJECTION',
-    severity: 'CRITICAL',
+    id: "GITHUB_ACTIONS_SCRIPT_INJECTION",
+    severity: "CRITICAL",
     impact: 10,
-    pattern: /\$\{\{\s*github\.event\.(?:issue|pull_request|comment|head_commit)\.(?:title|body|message)\s*\}\}/,
-    message: 'GitHub Actions workflow interpolates untrusted event data directly into a run: script — command injection in the runner. Use an intermediate env var and reference $VAR_NAME in the script body.',
+    pattern:
+      /\$\{\{\s*github\.event\.(?:issue|pull_request|comment|head_commit)\.(?:title|body|message)\s*\}\}/,
+    message:
+      "GitHub Actions workflow interpolates untrusted event data directly into a run: script — command injection in the runner. Use an intermediate env var and reference $VAR_NAME in the script body.",
     skipTest: false,
     skipDoc: true,
   },
   {
-    id: 'GITHUB_ACTIONS_UNPINNED_ACTION',
-    severity: 'MEDIUM',
+    id: "GITHUB_ACTIONS_UNPINNED_ACTION",
+    severity: "MEDIUM",
     impact: 6,
     // Only match inside actual workflow YAML files, not JSX/MD snippets that render `uses: ...` as literal text.
     filePathPattern: /(?:^|[\\/])\.github[\\/]workflows[\\/].+\.ya?ml$/i,
-    pattern: /uses\s*:\s*[a-zA-Z0-9_-]+\/[a-zA-Z0-9_-]+@(?:main|master|latest|v\d+\s*$)/m,
-    message: 'GitHub Actions step uses a mutable ref (main/master/latest or floating major tag) — a compromised upstream action will run in your pipeline. Pin to a full commit SHA.',
+    pattern:
+      /uses\s*:\s*[a-zA-Z0-9_-]+\/[a-zA-Z0-9_-]+@(?:main|master|latest|v\d+\s*$)/m,
+    message:
+      "GitHub Actions step uses a mutable ref (main/master/latest or floating major tag) — a compromised upstream action will run in your pipeline. Pin to a full commit SHA.",
     skipTest: false,
     skipDoc: true,
   },
   {
-    id: 'ENV_FILE_COMMITTED',
-    severity: 'CRITICAL',
+    id: "ENV_FILE_COMMITTED",
+    severity: "CRITICAL",
     impact: 10,
     // Must match an actual committed `.env*` file (the filename), not a `.env`
     // string literal that happens to appear inside source code (e.g. a
     // `.gitignore` template that embeds the string `.env` in a scaffolder).
-    filePathPattern: /(?:^|[\\/])\.env(?:\.local|\.production|\.staging|\.development)?$/,
+    filePathPattern:
+      /(?:^|[\\/])\.env(?:\.local|\.production|\.staging|\.development)?$/,
     pattern: /.+/,
-    message: '.env file committed to source control — secrets exposed to anyone with repository access. Add .env* to .gitignore and use a secrets manager.',
+    message:
+      ".env file committed to source control — secrets exposed to anyone with repository access. Add .env* to .gitignore and use a secrets manager.",
     skipTest: false,
     skipDoc: false,
   },
   {
-    id: 'TERRAFORM_PLAINTEXT_SECRET',
-    severity: 'CRITICAL',
+    id: "TERRAFORM_PLAINTEXT_SECRET",
+    severity: "CRITICAL",
     impact: 10,
-    pattern: /(?:password|secret|access_key|secret_key)\s*=\s*["'][^"'${}]{8,}["']/,
+    pattern:
+      /(?:password|secret|access_key|secret_key)\s*=\s*["'][^"'${}]{8,}["']/,
     filePathPattern: /\.(?:tf|tfvars|hcl)$/i,
-    message: 'Terraform resource defined with a plaintext secret value — exposed in state files and version control. Use variable references or a secrets backend (Vault, AWS Secrets Manager).',
+    message:
+      "Terraform resource defined with a plaintext secret value — exposed in state files and version control. Use variable references or a secrets backend (Vault, AWS Secrets Manager).",
     skipTest: true,
     skipDoc: true,
   },
   {
-    id: 'NPM_INSTALL_UNSAFE',
-    severity: 'MEDIUM',
+    id: "NPM_INSTALL_UNSAFE",
+    severity: "MEDIUM",
     impact: 6,
     pattern: /npm\s+install\s+--(?:unsafe-perm|allow-root)/,
-    message: 'npm install run with --unsafe-perm or --allow-root — lifecycle scripts execute as root. Run npm as a non-root user instead.',
+    message:
+      "npm install run with --unsafe-perm or --allow-root — lifecycle scripts execute as root. Run npm as a non-root user instead.",
     skipTest: true,
     skipDoc: true,
   },
   {
-    id: 'DOCKER_SECRETS_IN_ENV',
-    severity: 'HIGH',
+    id: "DOCKER_SECRETS_IN_ENV",
+    severity: "HIGH",
     impact: 8,
     pattern: /^ENV\s+[A-Z_]*(?:SECRET|PASSWORD|KEY|TOKEN|API_KEY)[A-Z_]*\s*=/m,
-    message: 'Secret baked into Dockerfile ENV instruction — visible in docker history and image layers. Pass secrets at runtime via --secret or a secrets manager, not ENV.',
+    message:
+      "Secret baked into Dockerfile ENV instruction — visible in docker history and image layers. Pass secrets at runtime via --secret or a secrets manager, not ENV.",
     skipTest: true,
     skipDoc: true,
   },
   {
-    id: 'KUBERNETES_NO_RESOURCE_LIMITS',
-    severity: 'MEDIUM',
+    id: "KUBERNETES_NO_RESOURCE_LIMITS",
+    severity: "MEDIUM",
     impact: 5,
-    pattern: /(?:containers|initContainers)\s*:\s*\[(?![\s\S]{0,600}resources\s*:)/,
-    message: 'Kubernetes container defined without resource requests/limits — noisy-neighbour and DoS possible when a container consumes unbounded CPU or memory. Add resources.requests and resources.limits.',
+    pattern:
+      /(?:containers|initContainers)\s*:\s*\[(?![\s\S]{0,600}resources\s*:)/,
+    message:
+      "Kubernetes container defined without resource requests/limits — noisy-neighbour and DoS possible when a container consumes unbounded CPU or memory. Add resources.requests and resources.limits.",
     skipTest: true,
     skipDoc: true,
   },
   {
-    id: 'CI_SECRET_IN_PLAINTEXT',
-    severity: 'CRITICAL',
+    id: "CI_SECRET_IN_PLAINTEXT",
+    severity: "CRITICAL",
     impact: 10,
     // Line-guard skips obvious mock tokens in any file. Pattern still fires
     // on literal assignments that look like real tokens. Test files are now
@@ -1245,8 +1438,10 @@ const INFRA_RULES = [
     // (e.g. `{ GITHUB_TOKEN: githubToken }` forwarding an env value into a
     // K8s Secret object), not a hardcoded secret. Real leaked secrets in
     // YAML/JSON/TS assignments are universally quoted.
-    pattern: /(?:GITHUB_TOKEN|CI_JOB_TOKEN|NPM_TOKEN|REGISTRY_PASSWORD|DEPLOY_KEY)\s*:\s*['"`](?!(?:gh-token|mock-|stub-|fake-|test-|placeholder))[^'"`\s$][^'"`]{6,}['"`]/,
-    message: 'CI/CD secret hardcoded in pipeline configuration — immediately visible to anyone with read access to the repository. Store in your CI secret store and reference with ${{ secrets.NAME }}.',
+    pattern:
+      /(?:GITHUB_TOKEN|CI_JOB_TOKEN|NPM_TOKEN|REGISTRY_PASSWORD|DEPLOY_KEY)\s*:\s*['"`](?!(?:gh-token|mock-|stub-|fake-|test-|placeholder))[^'"`\s$][^'"`]{6,}['"`]/,
+    message:
+      "CI/CD secret hardcoded in pipeline configuration — immediately visible to anyone with read access to the repository. Store in your CI secret store and reference with ${{ secrets.NAME }}.",
     skipTest: true,
     skipDoc: true,
   },
@@ -1256,12 +1451,12 @@ const INFRA_RULES = [
 // COMBINED EXPORT
 // ─────────────────────────────────────────────────────────────────────────────
 const EXTENDED_SECURITY_RULES = [
-  ...INJECTION_RULES,      // 25 rules
-  ...AUTH_RULES,           // 20 rules
-  ...CRYPTO_RULES,         // 15 rules
-  ...MISCONFIG_RULES,      // 20 rules
-  ...CLIENT_RULES,         // 20 rules
-  ...INFRA_RULES,          // 20 rules
-];                         // total: 120 rules
+  ...INJECTION_RULES, // 25 rules
+  ...AUTH_RULES, // 20 rules
+  ...CRYPTO_RULES, // 15 rules
+  ...MISCONFIG_RULES, // 20 rules
+  ...CLIENT_RULES, // 20 rules
+  ...INFRA_RULES, // 20 rules
+]; // total: 120 rules
 
 module.exports = { EXTENDED_SECURITY_RULES };

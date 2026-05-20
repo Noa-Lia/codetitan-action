@@ -1,8 +1,8 @@
-'use strict';
+"use strict";
 
-const crypto = require('crypto');
-const path = require('path');
-const fs = require('fs').promises;
+const crypto = require("crypto");
+const path = require("path");
+const fs = require("fs").promises;
 
 /**
  * RuleGenerator — generates new CodeTitan rules from recurring incident patterns.
@@ -18,11 +18,17 @@ class RuleGenerator {
       ruleThreshold: config.ruleThreshold || 3,
       autoApproveThreshold: config.autoApproveThreshold || 0.95,
       autoApprove: config.autoApprove || false,
-      proposedRulesDir: config.proposedRulesDir ||
-        path.join(config.projectRoot || process.cwd(), '.codetitan', 'proposed-rules'),
-      activeRulesDir: config.activeRulesDir ||
-        path.join(config.projectRoot || process.cwd(), '.codetitan', 'rules'),
-      ...config
+      proposedRulesDir:
+        config.proposedRulesDir ||
+        path.join(
+          config.projectRoot || process.cwd(),
+          ".codetitan",
+          "proposed-rules",
+        ),
+      activeRulesDir:
+        config.activeRulesDir ||
+        path.join(config.projectRoot || process.cwd(), ".codetitan", "rules"),
+      ...config,
     };
   }
 
@@ -54,9 +60,10 @@ class RuleGenerator {
       rules.push(rule);
     }
 
-    const avgConfidence = rules.length > 0
-      ? rules.reduce((s, r) => s + r.confidence, 0) / rules.length
-      : 0;
+    const avgConfidence =
+      rules.length > 0
+        ? rules.reduce((s, r) => s + r.confidence, 0) / rules.length
+        : 0;
 
     return { rules, confidence: avgConfidence };
   }
@@ -69,15 +76,21 @@ class RuleGenerator {
    * @returns {Object} Rule compatible with domain-analyzers.js
    */
   generateRule(pattern, incidents = [], confidence = 0.5) {
-    const ruleId = 'AUTO-' + crypto.createHash('sha256')
-      .update(JSON.stringify(pattern)).digest('hex').slice(0, 8).toUpperCase();
+    const ruleId =
+      "AUTO-" +
+      crypto
+        .createHash("sha256")
+        .update(JSON.stringify(pattern))
+        .digest("hex")
+        .slice(0, 8)
+        .toUpperCase();
 
     const category = this._inferCategory(pattern);
     const severity = this._inferSeverity(pattern, incidents);
 
     return {
       id: ruleId,
-      name: `Auto-detected: ${pattern.errorType || 'Unknown'} in ${pattern.filePattern || 'unknown file'}`,
+      name: `Auto-detected: ${pattern.errorType || "Unknown"} in ${pattern.filePattern || "unknown file"}`,
       category,
       severity,
       description: this._buildDescription(pattern, incidents),
@@ -91,7 +104,7 @@ class RuleGenerator {
   // Auto-generated from ${incidents.length} production incident(s)
   // Pattern: ${JSON.stringify(pattern)}
   return [];
-}`
+}`,
     };
   }
 
@@ -105,10 +118,13 @@ class RuleGenerator {
     await fs.mkdir(this.config.proposedRulesDir, { recursive: true });
 
     const filePath = path.join(this.config.proposedRulesDir, `${rule.id}.json`);
-    await fs.writeFile(filePath, JSON.stringify(rule, null, 2), 'utf-8');
+    await fs.writeFile(filePath, JSON.stringify(rule, null, 2), "utf-8");
 
     // Auto-approve if confidence is high enough and configured
-    if (this.config.autoApprove && rule.confidence >= this.config.autoApproveThreshold) {
+    if (
+      this.config.autoApprove &&
+      rule.confidence >= this.config.autoApproveThreshold
+    ) {
       await this._activateRule(rule);
     }
 
@@ -124,13 +140,18 @@ class RuleGenerator {
       const files = await fs.readdir(this.config.proposedRulesDir);
       const rules = await Promise.all(
         files
-          .filter(f => f.endsWith('.json'))
-          .map(async f => {
+          .filter((f) => f.endsWith(".json"))
+          .map(async (f) => {
             try {
-              const content = await fs.readFile(path.join(this.config.proposedRulesDir, f), 'utf-8');
+              const content = await fs.readFile(
+                path.join(this.config.proposedRulesDir, f),
+                "utf-8",
+              );
               return JSON.parse(content);
-            } catch { return null; }
-          })
+            } catch {
+              return null;
+            }
+          }),
       );
       return rules.filter(Boolean);
     } catch {
@@ -144,9 +165,12 @@ class RuleGenerator {
    * @returns {Promise<boolean>}
    */
   async approveRule(ruleId) {
-    const proposedPath = path.join(this.config.proposedRulesDir, `${ruleId}.json`);
+    const proposedPath = path.join(
+      this.config.proposedRulesDir,
+      `${ruleId}.json`,
+    );
     try {
-      const content = await fs.readFile(proposedPath, 'utf-8');
+      const content = await fs.readFile(proposedPath, "utf-8");
       const rule = JSON.parse(content);
       await this._activateRule(rule);
       return true;
@@ -169,18 +193,26 @@ class RuleGenerator {
   }
 
   _extractPattern(incident) {
-    const errorMsg = incident.error_message || incident.error || incident.message || '';
-    const errorTypeMatch = errorMsg.match(/^([A-Za-z]+(?:Error|Exception|Fault|Panic))/);
-    const errorType = errorTypeMatch ? errorTypeMatch[1] : 'UnknownError';
+    const errorMsg =
+      incident.error_message || incident.error || incident.message || "";
+    const errorTypeMatch = errorMsg.match(
+      /^([A-Za-z]+(?:Error|Exception|Fault|Panic))/,
+    );
+    const errorType = errorTypeMatch ? errorTypeMatch[1] : "UnknownError";
 
-    const filePath = incident.file_path || incident.file || '';
-    const filePattern = filePath
-      .replace(/\/[a-f0-9]{8,}/g, '/<hash>')
-      .split('/')
-      .slice(-2)
-      .join('/') || 'unknown';
+    const filePath = incident.file_path || incident.file || "";
+    const filePattern =
+      filePath
+        .replace(/\/[a-f0-9]{8,}/g, "/<hash>")
+        .split("/")
+        .slice(-2)
+        .join("/") || "unknown";
 
-    return { errorType, filePattern, severity: (incident.severity || 'HIGH').toUpperCase() };
+    return {
+      errorType,
+      filePattern,
+      severity: (incident.severity || "HIGH").toUpperCase(),
+    };
   }
 
   _calculateConfidence(cluster) {
@@ -191,32 +223,44 @@ class RuleGenerator {
 
   _inferCategory(pattern) {
     const { errorType } = pattern;
-    if (/sql|database|query/i.test(errorType)) return 'DATABASE';
-    if (/auth|permission|forbidden|unauthorized/i.test(errorType)) return 'SECURITY';
-    if (/null|undefined|reference|type/i.test(errorType)) return 'RELIABILITY';
-    if (/timeout|connection|network/i.test(errorType)) return 'PERFORMANCE';
-    if (/memory|heap|stack/i.test(errorType)) return 'PERFORMANCE';
-    return 'RELIABILITY';
+    if (/sql|database|query/i.test(errorType)) return "DATABASE";
+    if (/auth|permission|forbidden|unauthorized/i.test(errorType))
+      return "SECURITY";
+    if (/null|undefined|reference|type/i.test(errorType)) return "RELIABILITY";
+    if (/timeout|connection|network/i.test(errorType)) return "PERFORMANCE";
+    if (/memory|heap|stack/i.test(errorType)) return "PERFORMANCE";
+    return "RELIABILITY";
   }
 
   _inferSeverity(pattern, incidents) {
-    const severities = incidents.map(i => (i.severity || 'HIGH').toUpperCase());
-    if (severities.includes('CRITICAL')) return 'CRITICAL';
-    if (severities.includes('HIGH')) return 'HIGH';
-    if (severities.every(s => s === 'LOW')) return 'LOW';
-    return 'MEDIUM';
+    const severities = incidents.map((i) =>
+      (i.severity || "HIGH").toUpperCase(),
+    );
+    if (severities.includes("CRITICAL")) return "CRITICAL";
+    if (severities.includes("HIGH")) return "HIGH";
+    if (severities.every((s) => s === "LOW")) return "LOW";
+    return "MEDIUM";
   }
 
   _buildDescription(pattern, incidents) {
-    return `Auto-generated rule: ${pattern.errorType} errors have been observed ` +
-           `${incidents.length} time(s) in ${pattern.filePattern}. ` +
-           `Review and harden the affected code path.`;
+    return (
+      `Auto-generated rule: ${pattern.errorType} errors have been observed ` +
+      `${incidents.length} time(s) in ${pattern.filePattern}. ` +
+      `Review and harden the affected code path.`
+    );
   }
 
   async _activateRule(rule) {
     await fs.mkdir(this.config.activeRulesDir, { recursive: true });
     const dest = path.join(this.config.activeRulesDir, `${rule.id}.json`);
-    await fs.writeFile(dest, JSON.stringify({ ...rule, approved: true, activatedAt: new Date().toISOString() }, null, 2));
+    await fs.writeFile(
+      dest,
+      JSON.stringify(
+        { ...rule, approved: true, activatedAt: new Date().toISOString() },
+        null,
+        2,
+      ),
+    );
   }
 }
 

@@ -12,15 +12,16 @@
  * - Atomic operations (all-or-nothing)
  */
 
-const fs = require('fs').promises;
-const path = require('path');
-const crypto = require('crypto');
+const fs = require("fs").promises;
+const path = require("path");
+const crypto = require("crypto");
 
 class BaseFixer {
   constructor(options = {}) {
     this.name = this.constructor.name;
     this.dryRun = options.dryRun || false;
-    this.backupDir = options.backupDir || path.join(process.cwd(), '.codetitan', 'backups');
+    this.backupDir =
+      options.backupDir || path.join(process.cwd(), ".codetitan", "backups");
     this.minConfidence = options.minConfidence || 75;
 
     // Statistics
@@ -29,7 +30,7 @@ class BaseFixer {
       successful: 0,
       failed: 0,
       skipped: 0,
-      totalConfidence: 0
+      totalConfidence: 0,
     };
 
     // Backup tracking
@@ -47,7 +48,7 @@ class BaseFixer {
       fixed: [],
       skipped: [],
       failed: [],
-      backups: []
+      backups: [],
     };
 
     // Group findings by file
@@ -56,7 +57,7 @@ class BaseFixer {
     for (const [filePath, fileFindings] of Object.entries(fileGroups)) {
       try {
         // Read file content
-        const content = await fs.readFile(filePath, 'utf8');
+        const content = await fs.readFile(filePath, "utf8");
 
         // Create backup
         const backupPath = await this.createBackup(filePath, content);
@@ -68,7 +69,7 @@ class BaseFixer {
         if (fixResult.success) {
           // Write fixed content (unless dry-run)
           if (!this.dryRun) {
-            await fs.writeFile(filePath, fixResult.content, 'utf8');
+            await fs.writeFile(filePath, fixResult.content, "utf8");
           }
 
           results.fixed.push(...fixResult.fixed);
@@ -80,12 +81,14 @@ class BaseFixer {
 
         results.skipped.push(...(fixResult.skipped || []));
         this.stats.skipped += (fixResult.skipped || []).length;
-
       } catch (error) {
-        console.error(`[${this.name}] Error fixing ${filePath}:`, error.message);
+        console.error(
+          `[${this.name}] Error fixing ${filePath}:`,
+          error.message,
+        );
         results.failed.push({
           file: filePath,
-          error: error.message
+          error: error.message,
         });
         this.stats.failed++;
       }
@@ -104,7 +107,7 @@ class BaseFixer {
    * @returns {Promise<Object>} Fix result
    */
   async fixFile(filePath, content, findings) {
-    throw new Error('fixFile() must be implemented by subclass');
+    throw new Error("fixFile() must be implemented by subclass");
   }
 
   /**
@@ -129,7 +132,11 @@ class BaseFixer {
     }
 
     // Higher confidence for specific categories
-    const highConfidenceCategories = ['SYNC_IO', 'COMMAND_EXEC', 'MISSING_HEADER'];
+    const highConfidenceCategories = [
+      "SYNC_IO",
+      "COMMAND_EXEC",
+      "MISSING_HEADER",
+    ];
     if (highConfidenceCategories.includes(finding.category)) {
       confidence += 15;
     }
@@ -146,8 +153,12 @@ class BaseFixer {
    */
   async createBackup(filePath, content) {
     // Generate backup filename with timestamp and hash
-    const timestamp = new Date().toISOString().replace(/:/g, '-').split('.')[0];
-    const hash = crypto.createHash('md5').update(content).digest('hex').substr(0, 8);
+    const timestamp = new Date().toISOString().replace(/:/g, "-").split(".")[0];
+    const hash = crypto
+      .createHash("md5")
+      .update(content)
+      .digest("hex")
+      .substr(0, 8);
     const basename = path.basename(filePath);
     const backupName = `${basename}.${timestamp}.${hash}.bak`;
     const backupPath = path.join(this.backupDir, backupName);
@@ -156,7 +167,7 @@ class BaseFixer {
     await fs.mkdir(this.backupDir, { recursive: true });
 
     // Write backup
-    await fs.writeFile(backupPath, content, 'utf8');
+    await fs.writeFile(backupPath, content, "utf8");
 
     // Track backup
     this.backups.set(filePath, backupPath);
@@ -178,11 +189,14 @@ class BaseFixer {
     }
 
     try {
-      const backupContent = await fs.readFile(backupPath, 'utf8');
-      await fs.writeFile(filePath, backupContent, 'utf8');
+      const backupContent = await fs.readFile(backupPath, "utf8");
+      await fs.writeFile(filePath, backupContent, "utf8");
       return true;
     } catch (error) {
-      console.error(`[${this.name}] Rollback failed for ${filePath}:`, error.message);
+      console.error(
+        `[${this.name}] Rollback failed for ${filePath}:`,
+        error.message,
+      );
       return false;
     }
   }
@@ -195,7 +209,7 @@ class BaseFixer {
   async rollbackAll() {
     const results = {
       successful: [],
-      failed: []
+      failed: [],
     };
 
     for (const [filePath, backupPath] of this.backups.entries()) {
@@ -205,7 +219,7 @@ class BaseFixer {
       } catch (error) {
         results.failed.push({
           file: filePath,
-          error: error.message
+          error: error.message,
         });
       }
     }
@@ -255,16 +269,18 @@ class BaseFixer {
    * @returns {Object} Statistics
    */
   getStats() {
-    const avgConfidence = this.stats.attempted > 0
-      ? Math.round(this.stats.totalConfidence / this.stats.attempted)
-      : 0;
+    const avgConfidence =
+      this.stats.attempted > 0
+        ? Math.round(this.stats.totalConfidence / this.stats.attempted)
+        : 0;
 
     return {
       ...this.stats,
       avgConfidence,
-      successRate: this.stats.attempted > 0
-        ? Math.round((this.stats.successful / this.stats.attempted) * 100)
-        : 0
+      successRate:
+        this.stats.attempted > 0
+          ? Math.round((this.stats.successful / this.stats.attempted) * 100)
+          : 0,
     };
   }
 
@@ -274,7 +290,8 @@ class BaseFixer {
    * @param {number} maxAge - Max age in milliseconds
    * @returns {Promise<number>} Number of backups cleaned
    */
-  async cleanupBackups(maxAge = 86400000) { // 24 hours default
+  async cleanupBackups(maxAge = 86400000) {
+    // 24 hours default
     try {
       const files = await fs.readdir(this.backupDir);
       const now = Date.now();

@@ -1,69 +1,92 @@
-'use strict';
+"use strict";
 
-const fs = require('fs');
-const os = require('os');
-const path = require('path');
-const crypto = require('crypto');
-const { execFileSync } = require('child_process');
+const fs = require("fs");
+const os = require("os");
+const path = require("path");
+const crypto = require("crypto");
+const { execFileSync } = require("child_process");
 
 const SUPPORTED_AI_TOOLS = [
   {
-    id: 'github_copilot',
-    name: 'GitHub Copilot',
+    id: "github_copilot",
+    name: "GitHub Copilot",
     signals: [
-      { label: 'copilot', regex: /\bcopilot\b/i, weight: 6 },
-      { label: 'github-copilot', regex: /\bgithub[\s_-]*copilot\b/i, weight: 7 },
-      { label: 'copilot-author', regex: /copilot/i, weight: 5, fields: ['authorName', 'authorEmail'] }
-    ]
+      { label: "copilot", regex: /\bcopilot\b/i, weight: 6 },
+      {
+        label: "github-copilot",
+        regex: /\bgithub[\s_-]*copilot\b/i,
+        weight: 7,
+      },
+      {
+        label: "copilot-author",
+        regex: /copilot/i,
+        weight: 5,
+        fields: ["authorName", "authorEmail"],
+      },
+    ],
   },
   {
-    id: 'cursor',
-    name: 'Cursor',
+    id: "cursor",
+    name: "Cursor",
     signals: [
-      { label: 'cursor', regex: /\bcursor\b/i, weight: 6 },
-      { label: 'cursor-agent', regex: /\bcursor\s+(agent|composer)\b/i, weight: 7 }
-    ]
+      { label: "cursor", regex: /\bcursor\b/i, weight: 6 },
+      {
+        label: "cursor-agent",
+        regex: /\bcursor\s+(agent|composer)\b/i,
+        weight: 7,
+      },
+    ],
   },
   {
-    id: 'claude_code',
-    name: 'Claude Code',
+    id: "claude_code",
+    name: "Claude Code",
     signals: [
-      { label: 'claude-code', regex: /\bclaude\s+code\b/i, weight: 8 },
-      { label: 'anthropic-claude', regex: /\banthropic\b.*\bclaude\b|\bclaude\b.*\banthropic\b/i, weight: 5 },
-      { label: 'claude-cli', regex: /\bclaude\b/i, weight: 3 }
-    ]
+      { label: "claude-code", regex: /\bclaude\s+code\b/i, weight: 8 },
+      {
+        label: "anthropic-claude",
+        regex: /\banthropic\b.*\bclaude\b|\bclaude\b.*\banthropic\b/i,
+        weight: 5,
+      },
+      { label: "claude-cli", regex: /\bclaude\b/i, weight: 3 },
+    ],
   },
   {
-    id: 'aider',
-    name: 'Aider',
+    id: "aider",
+    name: "Aider",
     signals: [
-      { label: 'aider', regex: /\baider\b/i, weight: 8 },
-      { label: 'aider-coauthor', regex: /co-authored-by:.*\baider\b/i, weight: 8 }
-    ]
+      { label: "aider", regex: /\baider\b/i, weight: 8 },
+      {
+        label: "aider-coauthor",
+        regex: /co-authored-by:.*\baider\b/i,
+        weight: 8,
+      },
+    ],
   },
   {
-    id: 'chatgpt',
-    name: 'ChatGPT',
+    id: "chatgpt",
+    name: "ChatGPT",
     signals: [
-      { label: 'chatgpt', regex: /\bchatgpt\b/i, weight: 8 },
-      { label: 'openai-gpt', regex: /\bopenai\b|\bgpt-4(\.\d+)?\b|\bgpt-4o\b|\bgpt-5(\.\d+)?\b/i, weight: 5 }
-    ]
+      { label: "chatgpt", regex: /\bchatgpt\b/i, weight: 8 },
+      {
+        label: "openai-gpt",
+        regex: /\bopenai\b|\bgpt-4(\.\d+)?\b|\bgpt-4o\b|\bgpt-5(\.\d+)?\b/i,
+        weight: 5,
+      },
+    ],
   },
   {
-    id: 'cline',
-    name: 'Cline',
-    signals: [
-      { label: 'cline', regex: /\bcline\b/i, weight: 8 }
-    ]
+    id: "cline",
+    name: "Cline",
+    signals: [{ label: "cline", regex: /\bcline\b/i, weight: 8 }],
   },
   {
-    id: 'windsurf',
-    name: 'Windsurf',
+    id: "windsurf",
+    name: "Windsurf",
     signals: [
-      { label: 'windsurf', regex: /\bwindsurf\b/i, weight: 8 },
-      { label: 'codeium', regex: /\bcodeium\b/i, weight: 5 }
-    ]
-  }
+      { label: "windsurf", regex: /\bwindsurf\b/i, weight: 8 },
+      { label: "codeium", regex: /\bcodeium\b/i, weight: 5 },
+    ],
+  },
 ];
 
 function clamp(value, min, max) {
@@ -75,14 +98,14 @@ function toPercent(value, digits = 1) {
 }
 
 function severityWeight(severity) {
-  switch (String(severity || '').toUpperCase()) {
-    case 'CRITICAL':
+  switch (String(severity || "").toUpperCase()) {
+    case "CRITICAL":
       return 8;
-    case 'HIGH':
+    case "HIGH":
       return 5;
-    case 'MEDIUM':
+    case "MEDIUM":
       return 3;
-    case 'LOW':
+    case "LOW":
       return 1;
     default:
       return 0;
@@ -90,9 +113,9 @@ function severityWeight(severity) {
 }
 
 function classifyQuality(score) {
-  if (score >= 85) return 'strong';
-  if (score >= 70) return 'watch';
-  return 'risky';
+  if (score >= 85) return "strong";
+  if (score >= 70) return "watch";
+  return "risky";
 }
 
 function buildEmptyCommitAttribution(timeRange, reason = null) {
@@ -105,12 +128,19 @@ function buildEmptyCommitAttribution(timeRange, reason = null) {
     unattributedCommits: 0,
     detectedToolsCount: 0,
     coverage: 0,
-    supportedTools: SUPPORTED_AI_TOOLS.map(tool => ({ id: tool.id, name: tool.name })),
-    tools: []
+    supportedTools: SUPPORTED_AI_TOOLS.map((tool) => ({
+      id: tool.id,
+      name: tool.name,
+    })),
+    tools: [],
   };
 }
 
-function buildEmptyFindingAttribution(runId = null, totalFindings = 0, reason = null) {
+function buildEmptyFindingAttribution(
+  runId = null,
+  totalFindings = 0,
+  reason = null,
+) {
   return {
     available: false,
     reason,
@@ -119,7 +149,7 @@ function buildEmptyFindingAttribution(runId = null, totalFindings = 0, reason = 
     attributedFindings: 0,
     unattributedFindings: totalFindings,
     coverage: 0,
-    tools: []
+    tools: [],
   };
 }
 
@@ -134,17 +164,22 @@ class AIAttribution {
 
   runGit(args, { allowFailure = false } = {}) {
     try {
-      const output = this.execFileSync('git', ['-C', this.projectRoot, ...args], {
-        encoding: 'utf8',
-        stdio: ['ignore', 'pipe', 'pipe']
-      });
-      return String(output || '').replace(/\r\n/g, '\n');
+      const output = this.execFileSync(
+        "git",
+        ["-C", this.projectRoot, ...args],
+        {
+          encoding: "utf8",
+          stdio: ["ignore", "pipe", "pipe"],
+        },
+      );
+      return String(output || "").replace(/\r\n/g, "\n");
     } catch (error) {
       if (allowFailure) {
-        return '';
+        return "";
       }
-      const stderr = error && typeof error.stderr === 'string' ? error.stderr.trim() : '';
-      throw new Error(stderr || error.message || 'git command failed');
+      const stderr =
+        error && typeof error.stderr === "string" ? error.stderr.trim() : "";
+      throw new Error(stderr || error.message || "git command failed");
     }
   }
 
@@ -153,28 +188,41 @@ class AIAttribution {
       return this.repoRoot;
     }
 
-    const resolved = this.runGit(['rev-parse', '--show-toplevel'], { allowFailure: true }).trim();
+    const resolved = this.runGit(["rev-parse", "--show-toplevel"], {
+      allowFailure: true,
+    }).trim();
     this.repoRoot = resolved || null;
     return this.repoRoot;
   }
 
   projectHash(projectPath) {
-    const normalized = path.resolve(projectPath).toLowerCase().replace(/\\/g, '/');
-    return crypto.createHash('sha1').update(normalized).digest('hex').slice(0, 12);
+    const normalized = path
+      .resolve(projectPath)
+      .toLowerCase()
+      .replace(/\\/g, "/");
+    return crypto
+      .createHash("sha1")
+      .update(normalized)
+      .digest("hex")
+      .slice(0, 12);
   }
 
   historyRoot() {
-    return path.join(os.homedir(), '.codetitan', 'history');
+    return path.join(os.homedir(), ".codetitan", "history");
   }
 
   loadLatestHistoryRun() {
-    const historyDir = path.join(this.historyRoot(), this.projectHash(this.projectRoot));
+    const historyDir = path.join(
+      this.historyRoot(),
+      this.projectHash(this.projectRoot),
+    );
     if (!fs.existsSync(historyDir)) {
       return null;
     }
 
-    const runFile = fs.readdirSync(historyDir)
-      .filter(file => file.endsWith('.json') && file !== 'meta.json')
+    const runFile = fs
+      .readdirSync(historyDir)
+      .filter((file) => file.endsWith(".json") && file !== "meta.json")
       .sort()
       .reverse()[0];
 
@@ -183,14 +231,14 @@ class AIAttribution {
     }
 
     try {
-      const raw = fs.readFileSync(path.join(historyDir, runFile), 'utf8');
+      const raw = fs.readFileSync(path.join(historyDir, runFile), "utf8");
       return JSON.parse(raw);
     } catch (_) {
       return null;
     }
   }
 
-  parseTimeRange(range = '30d') {
+  parseTimeRange(range = "30d") {
     const match = String(range).match(/^(\d+)([dhm])$/i);
     if (!match) {
       return 30 * 24 * 60 * 60 * 1000;
@@ -202,50 +250,56 @@ class AIAttribution {
     return amount * (units[unit] || units.d);
   }
 
-  getSinceIso(timeRange = '30d') {
+  getSinceIso(timeRange = "30d") {
     const windowMs = this.parseTimeRange(timeRange);
     return new Date(Date.now() - windowMs).toISOString();
   }
 
   parseCommitLog(output) {
-    return String(output || '')
-      .split('\x1e')
-      .map(entry => entry.trim())
+    return String(output || "")
+      .split("\x1e")
+      .map((entry) => entry.trim())
       .filter(Boolean)
-      .map(entry => {
-        const [sha, authoredAt, authorName, authorEmail, subject, body] = entry.split('\x1f');
+      .map((entry) => {
+        const [sha, authoredAt, authorName, authorEmail, subject, body] =
+          entry.split("\x1f");
         return {
-          sha: (sha || '').trim(),
-          authoredAt: (authoredAt || '').trim(),
-          authorName: (authorName || '').trim(),
-          authorEmail: (authorEmail || '').trim(),
-          subject: (subject || '').trim(),
-          body: (body || '').trim()
+          sha: (sha || "").trim(),
+          authoredAt: (authoredAt || "").trim(),
+          authorName: (authorName || "").trim(),
+          authorEmail: (authorEmail || "").trim(),
+          subject: (subject || "").trim(),
+          body: (body || "").trim(),
         };
       })
-      .filter(entry => entry.sha);
+      .filter((entry) => entry.sha);
   }
 
   scoreTool(commit = {}) {
     let best = null;
     const fields = {
-      all: [commit.subject, commit.body, commit.authorName, commit.authorEmail].filter(Boolean).join('\n'),
-      authorName: commit.authorName || '',
-      authorEmail: commit.authorEmail || '',
-      subject: commit.subject || '',
-      body: commit.body || ''
+      all: [commit.subject, commit.body, commit.authorName, commit.authorEmail]
+        .filter(Boolean)
+        .join("\n"),
+      authorName: commit.authorName || "",
+      authorEmail: commit.authorEmail || "",
+      subject: commit.subject || "",
+      body: commit.body || "",
     };
 
-    SUPPORTED_AI_TOOLS.forEach(tool => {
+    SUPPORTED_AI_TOOLS.forEach((tool) => {
       let score = 0;
       const matchedSignals = [];
 
-      tool.signals.forEach(signal => {
-        const signalFields = Array.isArray(signal.fields) && signal.fields.length > 0
-          ? signal.fields
-          : ['all'];
+      tool.signals.forEach((signal) => {
+        const signalFields =
+          Array.isArray(signal.fields) && signal.fields.length > 0
+            ? signal.fields
+            : ["all"];
 
-        const matched = signalFields.some(field => signal.regex.test(fields[field] || ''));
+        const matched = signalFields.some((field) =>
+          signal.regex.test(fields[field] || ""),
+        );
         if (matched) {
           score += signal.weight;
           matchedSignals.push(signal.label);
@@ -265,7 +319,7 @@ class AIAttribution {
       toolId: best.tool.id,
       tool: best.tool.name,
       confidence: clamp(Number((best.score / 12).toFixed(2)), 0.34, 0.99),
-      matchedSignals: best.matchedSignals
+      matchedSignals: best.matchedSignals,
     };
   }
 
@@ -278,13 +332,16 @@ class AIAttribution {
       return this.commitCache.get(sha);
     }
 
-    const raw = this.runGit([
-      'show',
-      '-s',
-      '--date=iso-strict',
-      '--format=%H%x1f%aI%x1f%an%x1f%ae%x1f%s%x1f%b',
-      sha
-    ], { allowFailure: true }).trim();
+    const raw = this.runGit(
+      [
+        "show",
+        "-s",
+        "--date=iso-strict",
+        "--format=%H%x1f%aI%x1f%an%x1f%ae%x1f%s%x1f%b",
+        sha,
+      ],
+      { allowFailure: true },
+    ).trim();
 
     if (!raw) {
       this.commitCache.set(sha, null);
@@ -297,34 +354,40 @@ class AIAttribution {
   }
 
   collectCommitAttribution(options = {}) {
-    const timeRange = options.timeRange || '30d';
+    const timeRange = options.timeRange || "30d";
     const repoRoot = this.resolveRepoRoot();
 
     if (!repoRoot) {
-      return buildEmptyCommitAttribution(timeRange, 'No git repository available for attribution.');
+      return buildEmptyCommitAttribution(
+        timeRange,
+        "No git repository available for attribution.",
+      );
     }
 
-    const raw = this.runGit([
-      'log',
-      `--since=${this.getSinceIso(timeRange)}`,
-      `--max-count=${Math.max(1, Math.min(Number(options.limit) || 250, 1000))}`,
-      '--date=iso-strict',
-      '--format=%H%x1f%aI%x1f%an%x1f%ae%x1f%s%x1f%b%x1e'
-    ], { allowFailure: true });
+    const raw = this.runGit(
+      [
+        "log",
+        `--since=${this.getSinceIso(timeRange)}`,
+        `--max-count=${Math.max(1, Math.min(Number(options.limit) || 250, 1000))}`,
+        "--date=iso-strict",
+        "--format=%H%x1f%aI%x1f%an%x1f%ae%x1f%s%x1f%b%x1e",
+      ],
+      { allowFailure: true },
+    );
 
     const commits = this.parseCommitLog(raw);
     if (commits.length === 0) {
       return {
         ...buildEmptyCommitAttribution(timeRange, null),
         available: true,
-        reason: null
+        reason: null,
       };
     }
 
     const byTool = new Map();
     let attributedCommits = 0;
 
-    commits.forEach(commit => {
+    commits.forEach((commit) => {
       const match = this.scoreTool(commit);
       if (!match) {
         return;
@@ -336,7 +399,7 @@ class AIAttribution {
         tool: match.tool,
         commitCount: 0,
         averageConfidence: 0,
-        sampleCommits: []
+        sampleCommits: [],
       };
 
       current.commitCount += 1;
@@ -346,7 +409,7 @@ class AIAttribution {
           sha: commit.sha,
           subject: commit.subject,
           authoredAt: commit.authoredAt,
-          confidence: match.confidence
+          confidence: match.confidence,
         });
       }
 
@@ -354,13 +417,19 @@ class AIAttribution {
     });
 
     const tools = Array.from(byTool.values())
-      .map(tool => ({
+      .map((tool) => ({
         ...tool,
-        averageConfidence: Number((tool.averageConfidence / tool.commitCount).toFixed(2)),
+        averageConfidence: Number(
+          (tool.averageConfidence / tool.commitCount).toFixed(2),
+        ),
         coverage: toPercent(tool.commitCount / commits.length),
-        attributedCommits: tool.commitCount
+        attributedCommits: tool.commitCount,
       }))
-      .sort((left, right) => right.commitCount - left.commitCount || right.averageConfidence - left.averageConfidence);
+      .sort(
+        (left, right) =>
+          right.commitCount - left.commitCount ||
+          right.averageConfidence - left.averageConfidence,
+      );
 
     return {
       available: true,
@@ -371,16 +440,23 @@ class AIAttribution {
       attributedCommits,
       unattributedCommits: commits.length - attributedCommits,
       detectedToolsCount: tools.length,
-      coverage: commits.length > 0 ? toPercent(attributedCommits / commits.length) : 0,
-      supportedTools: SUPPORTED_AI_TOOLS.map(tool => ({ id: tool.id, name: tool.name })),
-      tools
+      coverage:
+        commits.length > 0 ? toPercent(attributedCommits / commits.length) : 0,
+      supportedTools: SUPPORTED_AI_TOOLS.map((tool) => ({
+        id: tool.id,
+        name: tool.name,
+      })),
+      tools,
     };
   }
 
   normalizeFinding(finding = {}) {
-    const filePath = finding.file_path || finding.filePath || finding.file || null;
-    const lineNumber = Number(finding.line_number || finding.lineNumber || finding.line || 0);
-    const severity = String(finding.severity || '').toUpperCase();
+    const filePath =
+      finding.file_path || finding.filePath || finding.file || null;
+    const lineNumber = Number(
+      finding.line_number || finding.lineNumber || finding.line || 0,
+    );
+    const severity = String(finding.severity || "").toUpperCase();
 
     if (!filePath || !lineNumber) {
       return null;
@@ -390,7 +466,7 @@ class AIAttribution {
       filePath,
       lineNumber,
       severity,
-      category: finding.category || null
+      category: finding.category || null,
     };
   }
 
@@ -405,11 +481,11 @@ class AIAttribution {
       : path.resolve(this.projectRoot, filePath);
     const relative = path.relative(repoRoot, absolute);
 
-    if (!relative || relative.startsWith('..') || path.isAbsolute(relative)) {
+    if (!relative || relative.startsWith("..") || path.isAbsolute(relative)) {
       return null;
     }
 
-    return relative.replace(/\\/g, '/');
+    return relative.replace(/\\/g, "/");
   }
 
   blameFindingLine(relativePath, lineNumber) {
@@ -418,22 +494,25 @@ class AIAttribution {
       return this.blameCache.get(cacheKey);
     }
 
-    const raw = this.runGit([
-      'blame',
-      '--porcelain',
-      '-L',
-      `${lineNumber},${lineNumber}`,
-      '--',
-      relativePath
-    ], { allowFailure: true });
+    const raw = this.runGit(
+      [
+        "blame",
+        "--porcelain",
+        "-L",
+        `${lineNumber},${lineNumber}`,
+        "--",
+        relativePath,
+      ],
+      { allowFailure: true },
+    );
 
     if (!raw) {
       this.blameCache.set(cacheKey, null);
       return null;
     }
 
-    const lines = raw.split('\n');
-    const header = lines[0] || '';
+    const lines = raw.split("\n");
+    const header = lines[0] || "";
     const match = header.match(/^([0-9a-f]{8,40}|0{40})\s/);
     const sha = match ? match[1] : null;
     if (!sha || /^0+$/.test(sha)) {
@@ -452,7 +531,11 @@ class AIAttribution {
     const runId = options.runId || null;
 
     if (!repoRoot) {
-      return buildEmptyFindingAttribution(runId, totalFindings, 'No git repository available for blame attribution.');
+      return buildEmptyFindingAttribution(
+        runId,
+        totalFindings,
+        "No git repository available for blame attribution.",
+      );
     }
 
     const byTool = new Map();
@@ -489,9 +572,9 @@ class AIAttribution {
           critical: 0,
           high: 0,
           medium: 0,
-          low: 0
+          low: 0,
         },
-        sampleFindings: []
+        sampleFindings: [],
       };
 
       current.findingCount += 1;
@@ -505,7 +588,7 @@ class AIAttribution {
           file: relativePath,
           line: normalized.lineNumber,
           severity: normalized.severity,
-          category: normalized.category
+          category: normalized.category,
         });
       }
 
@@ -513,11 +596,16 @@ class AIAttribution {
     }
 
     const tools = Array.from(byTool.values())
-      .map(tool => ({
+      .map((tool) => ({
         ...tool,
-        coverage: totalFindings > 0 ? toPercent(tool.findingCount / totalFindings) : 0
+        coverage:
+          totalFindings > 0 ? toPercent(tool.findingCount / totalFindings) : 0,
       }))
-      .sort((left, right) => right.weightedFindings - left.weightedFindings || right.findingCount - left.findingCount);
+      .sort(
+        (left, right) =>
+          right.weightedFindings - left.weightedFindings ||
+          right.findingCount - left.findingCount,
+      );
 
     return {
       available: true,
@@ -527,15 +615,19 @@ class AIAttribution {
       totalFindings,
       attributedFindings,
       unattributedFindings: Math.max(0, totalFindings - attributedFindings),
-      coverage: totalFindings > 0 ? toPercent(attributedFindings / totalFindings) : 0,
-      tools
+      coverage:
+        totalFindings > 0 ? toPercent(attributedFindings / totalFindings) : 0,
+      tools,
     };
   }
 
   computeToolQuality(commitAttribution = {}, findingAttribution = {}) {
     const tools = new Map();
 
-    (Array.isArray(commitAttribution.tools) ? commitAttribution.tools : []).forEach(entry => {
+    (Array.isArray(commitAttribution.tools)
+      ? commitAttribution.tools
+      : []
+    ).forEach((entry) => {
       tools.set(entry.toolId, {
         toolId: entry.toolId,
         tool: entry.tool,
@@ -546,12 +638,15 @@ class AIAttribution {
           critical: 0,
           high: 0,
           medium: 0,
-          low: 0
-        }
+          low: 0,
+        },
       });
     });
 
-    (Array.isArray(findingAttribution.tools) ? findingAttribution.tools : []).forEach(entry => {
+    (Array.isArray(findingAttribution.tools)
+      ? findingAttribution.tools
+      : []
+    ).forEach((entry) => {
       const current = tools.get(entry.toolId) || {
         toolId: entry.toolId,
         tool: entry.tool,
@@ -562,8 +657,8 @@ class AIAttribution {
           critical: 0,
           high: 0,
           medium: 0,
-          low: 0
-        }
+          low: 0,
+        },
       };
 
       current.findingCount = entry.findingCount || 0;
@@ -572,20 +667,28 @@ class AIAttribution {
         critical: entry.severity?.critical || 0,
         high: entry.severity?.high || 0,
         medium: entry.severity?.medium || 0,
-        low: entry.severity?.low || 0
+        low: entry.severity?.low || 0,
       };
 
       tools.set(entry.toolId, current);
     });
 
     return Array.from(tools.values())
-      .map(entry => {
-        const defectRate = entry.commitCount > 0
-          ? Number((entry.weightedFindings / entry.commitCount).toFixed(2))
-          : null;
-        const rawScore = entry.commitCount > 0
-          ? clamp(100 - (entry.weightedFindings * 6) - Math.max(0, entry.commitCount < 3 ? 8 : 0), 0, 100)
-          : 100;
+      .map((entry) => {
+        const defectRate =
+          entry.commitCount > 0
+            ? Number((entry.weightedFindings / entry.commitCount).toFixed(2))
+            : null;
+        const rawScore =
+          entry.commitCount > 0
+            ? clamp(
+                100 -
+                  entry.weightedFindings * 6 -
+                  Math.max(0, entry.commitCount < 3 ? 8 : 0),
+                0,
+                100,
+              )
+            : 100;
         const qualityScore = Number(rawScore.toFixed(1));
 
         return {
@@ -598,10 +701,19 @@ class AIAttribution {
           defectRate,
           qualityScore,
           qualityBand: classifyQuality(qualityScore),
-          signalStrength: entry.commitCount >= 10 ? 'high' : entry.commitCount >= 3 ? 'medium' : 'low'
+          signalStrength:
+            entry.commitCount >= 10
+              ? "high"
+              : entry.commitCount >= 3
+                ? "medium"
+                : "low",
         };
       })
-      .sort((left, right) => left.qualityScore - right.qualityScore || right.commitCount - left.commitCount);
+      .sort(
+        (left, right) =>
+          left.qualityScore - right.qualityScore ||
+          right.commitCount - left.commitCount,
+      );
   }
 
   buildTeamRecommendations(commitAttribution = {}, toolQualityScores = []) {
@@ -609,40 +721,45 @@ class AIAttribution {
     if (attributedCommits < 50) {
       return [
         {
-          type: 'sample_size',
-          message: `Need at least 50 attributed commits for stable team-level recommendations. Current sample: ${attributedCommits}.`
-        }
+          type: "sample_size",
+          message: `Need at least 50 attributed commits for stable team-level recommendations. Current sample: ${attributedCommits}.`,
+        },
       ];
     }
 
-    const sufficientlySampled = toolQualityScores.filter(tool => tool.commitCount >= 5);
+    const sufficientlySampled = toolQualityScores.filter(
+      (tool) => tool.commitCount >= 5,
+    );
     if (sufficientlySampled.length === 0) {
       return [
         {
-          type: 'sample_size',
-          message: 'Attributed commit volume exists, but no single tool has at least 5 commits of stable signal yet.'
-        }
+          type: "sample_size",
+          message:
+            "Attributed commit volume exists, but no single tool has at least 5 commits of stable signal yet.",
+        },
       ];
     }
 
-    const ordered = [...sufficientlySampled].sort((left, right) => right.qualityScore - left.qualityScore);
+    const ordered = [...sufficientlySampled].sort(
+      (left, right) => right.qualityScore - left.qualityScore,
+    );
     const best = ordered[0];
     const worst = ordered[ordered.length - 1];
     const recommendations = [];
 
     recommendations.push({
-      type: 'prefer_tool',
+      type: "prefer_tool",
       toolId: best.toolId,
       tool: best.tool,
-      message: `${best.tool} currently has the strongest quality score (${best.qualityScore}) across ${best.commitCount} attributed commits.`
+      message: `${best.tool} currently has the strongest quality score (${best.qualityScore}) across ${best.commitCount} attributed commits.`,
     });
 
     if (worst && worst.toolId !== best.toolId && worst.qualityScore <= 70) {
       recommendations.push({
-        type: 'review_tool',
+        type: "review_tool",
         toolId: worst.toolId,
         tool: worst.tool,
-        message: `${worst.tool} is producing the weakest quality score (${worst.qualityScore}); require extra review on its diffs until defect density drops.`
+        message: `${worst.tool} is producing the weakest quality score (${worst.qualityScore}); require extra review on its diffs until defect density drops.`,
       });
     }
 
@@ -656,5 +773,5 @@ module.exports = {
   severityWeight,
   classifyQuality,
   buildEmptyCommitAttribution,
-  buildEmptyFindingAttribution
+  buildEmptyFindingAttribution,
 };

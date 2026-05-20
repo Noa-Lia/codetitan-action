@@ -12,16 +12,17 @@
  * - Fix success tracking
  */
 
-const { createClient } = require('@supabase/supabase-js');
+const { createClient } = require("@supabase/supabase-js");
 
 class SupabaseCollectiveInsight {
   constructor(options = {}) {
     this.supabaseUrl = options.supabaseUrl || process.env.SUPABASE_URL;
-    this.supabaseKey = options.supabaseKey || process.env.SUPABASE_SERVICE_ROLE_KEY;
+    this.supabaseKey =
+      options.supabaseKey || process.env.SUPABASE_SERVICE_ROLE_KEY;
 
     if (!this.supabaseUrl || !this.supabaseKey) {
       throw new Error(
-        'Supabase credentials required. Set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY environment variables.'
+        "Supabase credentials required. Set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY environment variables.",
       );
     }
 
@@ -29,8 +30,8 @@ class SupabaseCollectiveInsight {
     this.supabase = createClient(this.supabaseUrl, this.supabaseKey, {
       auth: {
         autoRefreshToken: false,
-        persistSession: false
-      }
+        persistSession: false,
+      },
     });
 
     this.userId = options.userId || null;
@@ -47,15 +48,15 @@ class SupabaseCollectiveInsight {
       repositoryUrl = null,
       languages = null,
       framework = null,
-      tags = []
+      tags = [],
     } = projectInfo;
 
     // Try to find existing project
     const { data: existing, error: findError } = await this.supabase
-      .from('godmode_projects')
-      .select('*')
-      .eq('project_path', projectPath)
-      .eq('team_id', this.teamId)
+      .from("godmode_projects")
+      .select("*")
+      .eq("project_path", projectPath)
+      .eq("team_id", this.teamId)
       .single();
 
     if (existing && !findError) {
@@ -64,7 +65,7 @@ class SupabaseCollectiveInsight {
 
     // Create new project
     const { data: project, error: createError } = await this.supabase
-      .from('godmode_projects')
+      .from("godmode_projects")
       .insert({
         project_name: projectName,
         project_path: projectPath,
@@ -73,7 +74,7 @@ class SupabaseCollectiveInsight {
         owner_id: this.userId,
         languages,
         framework,
-        tags
+        tags,
       })
       .select()
       .single();
@@ -91,16 +92,16 @@ class SupabaseCollectiveInsight {
   async ingestReport(report, metadata = {}) {
     const {
       projectPath,
-      projectName = 'Unknown Project',
+      projectName = "Unknown Project",
       repositoryUrl = null,
-      applyFixes = false
+      applyFixes = false,
     } = metadata;
 
     // Ensure project exists
     const project = await this.ensureProject({
       projectName,
       projectPath,
-      repositoryUrl
+      repositoryUrl,
     });
 
     const runInfo = report.summary || {};
@@ -123,19 +124,25 @@ class SupabaseCollectiveInsight {
       test_coverage_score: metrics.testCoverageScore || null,
       godmode_level: metadata.godmodeLevel || null,
       quick_mode: metadata.quickMode || false,
-      raw_report: report
+      raw_report: report,
     };
 
     // Calculate findings by severity
     const findings = report.topIssues || [];
-    runData.critical_findings = findings.filter(f => f.severity === 'critical').length;
-    runData.high_findings = findings.filter(f => f.severity === 'high').length;
-    runData.medium_findings = findings.filter(f => f.severity === 'medium').length;
-    runData.low_findings = findings.filter(f => f.severity === 'low').length;
+    runData.critical_findings = findings.filter(
+      (f) => f.severity === "critical",
+    ).length;
+    runData.high_findings = findings.filter(
+      (f) => f.severity === "high",
+    ).length;
+    runData.medium_findings = findings.filter(
+      (f) => f.severity === "medium",
+    ).length;
+    runData.low_findings = findings.filter((f) => f.severity === "low").length;
 
     // Insert run
     const { data: run, error: runError } = await this.supabase
-      .from('godmode_runs')
+      .from("godmode_runs")
       .insert(runData)
       .select()
       .single();
@@ -145,28 +152,28 @@ class SupabaseCollectiveInsight {
     }
 
     // Insert findings
-    const findingInserts = findings.map(issue => ({
+    const findingInserts = findings.map((issue) => ({
       run_id: run.id,
       project_id: project.id,
-      domain: issue.domainName || issue.domain || 'unknown',
-      category: issue.category || 'UNCATEGORIZED',
-      severity: issue.severity || 'info',
-      message: issue.message || '',
+      domain: issue.domainName || issue.domain || "unknown",
+      category: issue.category || "UNCATEGORIZED",
+      severity: issue.severity || "info",
+      message: issue.message || "",
       description: issue.description || null,
       recommendation: issue.recommendation || null,
       file_path: issue.file || null,
       line_number: issue.line || null,
       code_snippet: issue.snippet || null,
-      has_auto_fix: issue.hasAutoFix || false
+      has_auto_fix: issue.hasAutoFix || false,
     }));
 
     if (findingInserts.length > 0) {
       const { error: findingsError } = await this.supabase
-        .from('godmode_findings')
+        .from("godmode_findings")
         .insert(findingInserts);
 
       if (findingsError) {
-        console.error('Failed to insert findings:', findingsError.message);
+        console.error("Failed to insert findings:", findingsError.message);
       }
     }
 
@@ -174,7 +181,7 @@ class SupabaseCollectiveInsight {
     if (applyFixes && report.fixSummary) {
       const fixSummary = report.fixSummary;
       const { error: fixError } = await this.supabase
-        .from('godmode_fix_summaries')
+        .from("godmode_fix_summaries")
         .insert({
           run_id: run.id,
           project_id: project.id,
@@ -186,13 +193,14 @@ class SupabaseCollectiveInsight {
           files_touched_count: (fixSummary.filesTouched || []).length,
           fixes_by_category: fixSummary.byCategory || null,
           fixes_by_severity: fixSummary.bySeverity || null,
-          success_rate: fixSummary.applied > 0
-            ? (fixSummary.applied / fixSummary.attempted * 100)
-            : 0
+          success_rate:
+            fixSummary.applied > 0
+              ? (fixSummary.applied / fixSummary.attempted) * 100
+              : 0,
         });
 
       if (fixError) {
-        console.error('Failed to insert fix summary:', fixError.message);
+        console.error("Failed to insert fix summary:", fixError.message);
       }
     }
 
@@ -203,7 +211,7 @@ class SupabaseCollectiveInsight {
       runId: run.id,
       projectId: project.id,
       findingsCount: findingInserts.length,
-      applyFixes
+      applyFixes,
     };
   }
 
@@ -211,10 +219,10 @@ class SupabaseCollectiveInsight {
    * Create a quality snapshot for trend tracking
    */
   async createQualitySnapshot(projectId, runId, runData) {
-    const today = new Date().toISOString().split('T')[0];
+    const today = new Date().toISOString().split("T")[0];
 
     const { error } = await this.supabase
-      .from('godmode_quality_snapshots')
+      .from("godmode_quality_snapshots")
       .insert({
         project_id: projectId,
         run_id: runId,
@@ -230,13 +238,13 @@ class SupabaseCollectiveInsight {
         critical_findings: runData.critical_findings,
         high_findings: runData.high_findings,
         medium_findings: runData.medium_findings,
-        low_findings: runData.low_findings
+        low_findings: runData.low_findings,
       })
-      .onConflict('project_id,snapshot_date')
+      .onConflict("project_id,snapshot_date")
       .ignoreDuplicates();
 
     if (error) {
-      console.error('Failed to create quality snapshot:', error.message);
+      console.error("Failed to create quality snapshot:", error.message);
     }
   }
 
@@ -245,10 +253,12 @@ class SupabaseCollectiveInsight {
    */
   async getProjectSummary(projectPath) {
     const { data: project } = await this.supabase
-      .from('godmode_projects')
-      .select('id, project_name, current_health_grade, current_quality_score, last_analyzed_at')
-      .eq('project_path', projectPath)
-      .eq('team_id', this.teamId)
+      .from("godmode_projects")
+      .select(
+        "id, project_name, current_health_grade, current_quality_score, last_analyzed_at",
+      )
+      .eq("project_path", projectPath)
+      .eq("team_id", this.teamId)
       .single();
 
     if (!project) {
@@ -256,15 +266,15 @@ class SupabaseCollectiveInsight {
     }
 
     const { data: runs } = await this.supabase
-      .from('godmode_runs')
-      .select('quality_score, total_findings, started_at')
-      .eq('project_id', project.id)
-      .order('started_at', { ascending: false });
+      .from("godmode_runs")
+      .select("quality_score, total_findings, started_at")
+      .eq("project_id", project.id)
+      .order("started_at", { ascending: false });
 
     const { data: findingsCount } = await this.supabase
-      .from('godmode_findings')
-      .select('id', { count: 'exact', head: true })
-      .eq('project_id', project.id);
+      .from("godmode_findings")
+      .select("id", { count: "exact", head: true })
+      .eq("project_id", project.id);
 
     return {
       project: project.project_name,
@@ -273,7 +283,7 @@ class SupabaseCollectiveInsight {
       lastAnalyzed: project.last_analyzed_at,
       totalRuns: runs?.length || 0,
       totalFindings: findingsCount?.count || 0,
-      recentRuns: runs?.slice(0, 10) || []
+      recentRuns: runs?.slice(0, 10) || [],
     };
   }
 
@@ -281,9 +291,7 @@ class SupabaseCollectiveInsight {
    * Get top finding categories across all projects or a specific project
    */
   async getTopCategories(limit = 10, projectPath = null) {
-    let query = this.supabase
-      .from('godmode_findings')
-      .select(`
+    let query = this.supabase.from("godmode_findings").select(`
         category,
         domain,
         severity,
@@ -292,14 +300,14 @@ class SupabaseCollectiveInsight {
 
     if (projectPath) {
       const { data: project } = await this.supabase
-        .from('godmode_projects')
-        .select('id')
-        .eq('project_path', projectPath)
-        .eq('team_id', this.teamId)
+        .from("godmode_projects")
+        .select("id")
+        .eq("project_path", projectPath)
+        .eq("team_id", this.teamId)
         .single();
 
       if (project) {
-        query = query.eq('project_id', project.id);
+        query = query.eq("project_id", project.id);
       }
     }
 
@@ -311,14 +319,14 @@ class SupabaseCollectiveInsight {
 
     // Aggregate by category
     const categoryMap = new Map();
-    findings.forEach(finding => {
+    findings.forEach((finding) => {
       const key = finding.category;
       if (!categoryMap.has(key)) {
         categoryMap.set(key, {
           category: finding.category,
           domain: finding.domain,
           count: 0,
-          projects: new Set()
+          projects: new Set(),
         });
       }
       const cat = categoryMap.get(key);
@@ -328,11 +336,11 @@ class SupabaseCollectiveInsight {
 
     // Convert to array and sort
     const categories = Array.from(categoryMap.values())
-      .map(cat => ({
+      .map((cat) => ({
         category: cat.category,
         domain: cat.domain,
         count: cat.count,
-        projectCount: cat.projects.size
+        projectCount: cat.projects.size,
       }))
       .sort((a, b) => b.count - a.count)
       .slice(0, limit);
@@ -345,10 +353,10 @@ class SupabaseCollectiveInsight {
    */
   async getQualityTrend(projectPath, days = 30) {
     const { data: project } = await this.supabase
-      .from('godmode_projects')
-      .select('id')
-      .eq('project_path', projectPath)
-      .eq('team_id', this.teamId)
+      .from("godmode_projects")
+      .select("id")
+      .eq("project_path", projectPath)
+      .eq("team_id", this.teamId)
       .single();
 
     if (!project) {
@@ -359,25 +367,28 @@ class SupabaseCollectiveInsight {
     cutoffDate.setDate(cutoffDate.getDate() - days);
 
     const { data: snapshots } = await this.supabase
-      .from('godmode_quality_snapshots')
-      .select('*')
-      .eq('project_id', project.id)
-      .gte('snapshot_date', cutoffDate.toISOString().split('T')[0])
-      .order('snapshot_date', { ascending: true });
+      .from("godmode_quality_snapshots")
+      .select("*")
+      .eq("project_id", project.id)
+      .gte("snapshot_date", cutoffDate.toISOString().split("T")[0])
+      .order("snapshot_date", { ascending: true });
 
     if (!snapshots || snapshots.length === 0) {
       return { trend: [], latest: null, delta: null };
     }
 
     const latest = snapshots[snapshots.length - 1];
-    const previous = snapshots.length > 1 ? snapshots[snapshots.length - 2] : null;
-    const delta = previous ? latest.quality_score - previous.quality_score : null;
+    const previous =
+      snapshots.length > 1 ? snapshots[snapshots.length - 2] : null;
+    const delta = previous
+      ? latest.quality_score - previous.quality_score
+      : null;
 
     return {
       trend: snapshots,
       latest,
       previous,
-      delta
+      delta,
     };
   }
 
@@ -391,7 +402,10 @@ class SupabaseCollectiveInsight {
       ? await this.getProjectSummary(projectPath)
       : await this.getAllProjectsSummary();
 
-    const topCategories = await this.getTopCategories(topCategoriesLimit, projectPath);
+    const topCategories = await this.getTopCategories(
+      topCategoriesLimit,
+      projectPath,
+    );
 
     const qualityTrend = projectPath
       ? await this.getQualityTrend(projectPath)
@@ -400,7 +414,7 @@ class SupabaseCollectiveInsight {
     return {
       summary,
       topCategories,
-      qualityTrend
+      qualityTrend,
     };
   }
 
@@ -409,30 +423,32 @@ class SupabaseCollectiveInsight {
    */
   async getAllProjectsSummary() {
     const { data: projects, count: projectCount } = await this.supabase
-      .from('godmode_projects')
-      .select('*', { count: 'exact' })
-      .eq('team_id', this.teamId);
+      .from("godmode_projects")
+      .select("*", { count: "exact" })
+      .eq("team_id", this.teamId);
 
     const { data: runs, count: runCount } = await this.supabase
-      .from('godmode_runs')
-      .select('quality_score, total_findings', { count: 'exact' });
+      .from("godmode_runs")
+      .select("quality_score, total_findings", { count: "exact" });
 
     const { count: findingsCount } = await this.supabase
-      .from('godmode_findings')
-      .select('id', { count: 'exact', head: true });
+      .from("godmode_findings")
+      .select("id", { count: "exact", head: true });
 
-    const avgQuality = runs?.length > 0
-      ? runs.reduce((sum, r) => sum + (r.quality_score || 0), 0) / runs.length
-      : null;
+    const avgQuality =
+      runs?.length > 0
+        ? runs.reduce((sum, r) => sum + (r.quality_score || 0), 0) / runs.length
+        : null;
 
-    const totalFindings = runs?.reduce((sum, r) => sum + (r.total_findings || 0), 0) || 0;
+    const totalFindings =
+      runs?.reduce((sum, r) => sum + (r.total_findings || 0), 0) || 0;
 
     return {
       totalProjects: projectCount || 0,
       totalRuns: runCount || 0,
       totalFindings: findingsCount || 0,
       avgQualityScore: avgQuality ? avgQuality.toFixed(2) : null,
-      projects: projects || []
+      projects: projects || [],
     };
   }
 
@@ -441,9 +457,9 @@ class SupabaseCollectiveInsight {
    */
   async getCrossProjectInsights(limit = 10) {
     const { data: insights } = await this.supabase
-      .from('godmode_cross_project_insights')
-      .select('*')
-      .order('project_count', { ascending: false })
+      .from("godmode_cross_project_insights")
+      .select("*")
+      .order("project_count", { ascending: false })
       .limit(limit);
 
     return insights || [];
@@ -453,12 +469,12 @@ class SupabaseCollectiveInsight {
    * Refresh materialized views (call periodically for updated analytics)
    */
   async refreshAnalytics() {
-    await this.supabase.rpc('refresh_materialized_view', {
-      view_name: 'godmode_top_categories'
+    await this.supabase.rpc("refresh_materialized_view", {
+      view_name: "godmode_top_categories",
     });
 
-    await this.supabase.rpc('refresh_materialized_view', {
-      view_name: 'godmode_project_health_summary'
+    await this.supabase.rpc("refresh_materialized_view", {
+      view_name: "godmode_project_health_summary",
     });
   }
 
@@ -469,17 +485,19 @@ class SupabaseCollectiveInsight {
     const { projectPath = null, limit = 50 } = options;
 
     let query = this.supabase
-      .from('godmode_findings')
-      .select(`
+      .from("godmode_findings")
+      .select(
+        `
         *,
         godmode_runs!inner(project_id),
         godmode_projects!inner(project_name, project_path)
-      `)
-      .textSearch('message', searchText)
+      `,
+      )
+      .textSearch("message", searchText)
       .limit(limit);
 
     if (projectPath) {
-      query = query.eq('godmode_projects.project_path', projectPath);
+      query = query.eq("godmode_projects.project_path", projectPath);
     }
 
     const { data: findings } = await query;
@@ -491,20 +509,18 @@ class SupabaseCollectiveInsight {
    * Get fix success metrics
    */
   async getFixSuccessMetrics(projectPath = null) {
-    let query = this.supabase
-      .from('godmode_fix_summaries')
-      .select('*');
+    let query = this.supabase.from("godmode_fix_summaries").select("*");
 
     if (projectPath) {
       const { data: project } = await this.supabase
-        .from('godmode_projects')
-        .select('id')
-        .eq('project_path', projectPath)
-        .eq('team_id', this.teamId)
+        .from("godmode_projects")
+        .select("id")
+        .eq("project_path", projectPath)
+        .eq("team_id", this.teamId)
         .single();
 
       if (project) {
-        query = query.eq('project_id', project.id);
+        query = query.eq("project_id", project.id);
       }
     }
 
@@ -517,30 +533,34 @@ class SupabaseCollectiveInsight {
         totalSkipped: 0,
         totalFailed: 0,
         avgSuccessRate: 0,
-        fixesByCategory: {}
+        fixesByCategory: {},
       };
     }
 
-    const metrics = summaries.reduce((acc, s) => {
-      acc.totalAttempted += s.attempted || 0;
-      acc.totalApplied += s.applied || 0;
-      acc.totalSkipped += s.skipped || 0;
-      acc.totalFailed += s.failed || 0;
-      return acc;
-    }, {
-      totalAttempted: 0,
-      totalApplied: 0,
-      totalSkipped: 0,
-      totalFailed: 0
-    });
+    const metrics = summaries.reduce(
+      (acc, s) => {
+        acc.totalAttempted += s.attempted || 0;
+        acc.totalApplied += s.applied || 0;
+        acc.totalSkipped += s.skipped || 0;
+        acc.totalFailed += s.failed || 0;
+        return acc;
+      },
+      {
+        totalAttempted: 0,
+        totalApplied: 0,
+        totalSkipped: 0,
+        totalFailed: 0,
+      },
+    );
 
-    metrics.avgSuccessRate = metrics.totalAttempted > 0
-      ? (metrics.totalApplied / metrics.totalAttempted * 100).toFixed(2)
-      : 0;
+    metrics.avgSuccessRate =
+      metrics.totalAttempted > 0
+        ? ((metrics.totalApplied / metrics.totalAttempted) * 100).toFixed(2)
+        : 0;
 
     // Aggregate fixes by category
     const fixesByCategory = {};
-    summaries.forEach(s => {
+    summaries.forEach((s) => {
       if (s.fixes_by_category) {
         Object.entries(s.fixes_by_category).forEach(([cat, count]) => {
           fixesByCategory[cat] = (fixesByCategory[cat] || 0) + count;

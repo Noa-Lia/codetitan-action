@@ -21,20 +21,20 @@ class EnsembleAnalyzer {
 
       // Provider weights (higher = more trusted)
       providerWeights: {
-        'claude': 1.0,          // Best overall quality
-        'gpt-5-codex': 0.95,    // Excellent for code
-        'gemini': 0.85,         // Fast but slightly less accurate
-        'heuristic': 0.5,       // Pattern matching only
-        ...config.providerWeights
+        claude: 1.0, // Best overall quality
+        "gpt-5-codex": 0.95, // Excellent for code
+        gemini: 0.85, // Fast but slightly less accurate
+        heuristic: 0.5, // Pattern matching only
+        ...config.providerWeights,
       },
 
       // Enable cost optimization (skip ensemble for low-risk files)
       costOptimization: config.costOptimization !== false,
 
       // Maximum cost per ensemble analysis
-      maxCostPerFile: config.maxCostPerFile || 0.10,
+      maxCostPerFile: config.maxCostPerFile || 0.1,
 
-      ...config
+      ...config,
     };
 
     // Track ensemble performance
@@ -42,7 +42,7 @@ class EnsembleAnalyzer {
       totalRuns: 0,
       agreementRate: 0,
       costSavings: 0,
-      qualityImprovement: 0
+      qualityImprovement: 0,
     };
   }
 
@@ -56,22 +56,41 @@ class EnsembleAnalyzer {
    * @param {Object} options - Ensemble options
    * @returns {Promise<Object>} Ensemble analysis result
    */
-  async analyzeWithEnsemble(domain, filePath, content, projectRoot, options = {}) {
+  async analyzeWithEnsemble(
+    domain,
+    filePath,
+    content,
+    projectRoot,
+    options = {},
+  ) {
     const start = Date.now();
 
     // Get available providers for this domain
     const availableProviders = await this.getAvailableProviders(domain);
 
     if (availableProviders.length < this.config.minProviders) {
-      console.warn(`[Ensemble] Not enough providers for ensemble (need ${this.config.minProviders}, have ${availableProviders.length})`);
+      console.warn(
+        `[Ensemble] Not enough providers for ensemble (need ${this.config.minProviders}, have ${availableProviders.length})`,
+      );
       // Fall back to single best provider
-      return this.manager.analyze(domain, filePath, content, projectRoot, options);
+      return this.manager.analyze(
+        domain,
+        filePath,
+        content,
+        projectRoot,
+        options,
+      );
     }
 
     // Select providers for ensemble (limit to top 3 for cost efficiency)
-    const selectedProviders = this.selectProvidersForEnsemble(availableProviders, domain);
+    const selectedProviders = this.selectProvidersForEnsemble(
+      availableProviders,
+      domain,
+    );
 
-    console.log(`[Ensemble] Running ${selectedProviders.length} providers: ${selectedProviders.join(', ')}`);
+    console.log(
+      `[Ensemble] Running ${selectedProviders.length} providers: ${selectedProviders.join(", ")}`,
+    );
 
     // Run all providers in parallel
     const providerResults = await Promise.allSettled(
@@ -82,44 +101,54 @@ class EnsembleAnalyzer {
             filePath,
             content,
             projectRoot,
-            { ...options, preferredProvider: providerName }
+            { ...options, preferredProvider: providerName },
           );
           return {
             provider: providerName,
             success: true,
             issues: result.issues || [],
-            metadata: result.metadata || {}
+            metadata: result.metadata || {},
           };
         } catch (error) {
-          console.error(`[Ensemble] Provider ${providerName} failed:`, error.message);
+          console.error(
+            `[Ensemble] Provider ${providerName} failed:`,
+            error.message,
+          );
           return {
             provider: providerName,
             success: false,
             error: error.message,
-            issues: []
+            issues: [],
           };
         }
-      })
+      }),
     );
 
     // Extract successful results
     const successfulResults = providerResults
-      .filter(r => r.status === 'fulfilled' && r.value.success)
-      .map(r => r.value);
+      .filter((r) => r.status === "fulfilled" && r.value.success)
+      .map((r) => r.value);
 
     if (successfulResults.length === 0) {
-      throw new Error('All ensemble providers failed');
+      throw new Error("All ensemble providers failed");
     }
 
     // Combine results using consensus algorithm
     const consensus = this.buildConsensus(successfulResults, domain);
 
     // Calculate ensemble metadata
-    const metadata = this.buildEnsembleMetadata(successfulResults, consensus, start);
+    const metadata = this.buildEnsembleMetadata(
+      successfulResults,
+      consensus,
+      start,
+    );
 
     // Track stats
     this.stats.totalRuns++;
-    this.stats.agreementRate = (this.stats.agreementRate * (this.stats.totalRuns - 1) + consensus.agreementRate) / this.stats.totalRuns;
+    this.stats.agreementRate =
+      (this.stats.agreementRate * (this.stats.totalRuns - 1) +
+        consensus.agreementRate) /
+      this.stats.totalRuns;
 
     return {
       issues: consensus.findings,
@@ -129,8 +158,8 @@ class EnsembleAnalyzer {
         providersUsed: selectedProviders,
         agreementRate: consensus.agreementRate,
         highConfidenceCount: consensus.highConfidence.length,
-        disputedCount: consensus.disputed.length
-      }
+        disputedCount: consensus.disputed.length,
+      },
     };
   }
 
@@ -139,7 +168,7 @@ class EnsembleAnalyzer {
    */
   async getAvailableProviders(domain) {
     const available = await this.manager.getAvailableProviders();
-    return available.map(p => p.name);
+    return available.map((p) => p.name);
   }
 
   /**
@@ -148,17 +177,19 @@ class EnsembleAnalyzer {
    */
   selectProvidersForEnsemble(availableProviders, domain) {
     // Score each provider for this domain
-    const scored = availableProviders.map(name => ({
+    const scored = availableProviders.map((name) => ({
       name,
       weight: this.config.providerWeights[name] || 0.5,
-      qualityScore: this.getProviderQualityScore(name, domain)
+      qualityScore: this.getProviderQualityScore(name, domain),
     }));
 
     // Sort by quality (weight * domain score)
-    scored.sort((a, b) => (b.weight * b.qualityScore) - (a.weight * a.qualityScore));
+    scored.sort(
+      (a, b) => b.weight * b.qualityScore - a.weight * a.qualityScore,
+    );
 
     // Take top 3 for ensemble (balance quality vs cost)
-    return scored.slice(0, 3).map(s => s.name);
+    return scored.slice(0, 3).map((s) => s.name);
   }
 
   /**
@@ -167,36 +198,36 @@ class EnsembleAnalyzer {
   getProviderQualityScore(providerName, domain) {
     // Domain-specific quality scores based on benchmarks
     const qualityMatrix = {
-      'security-god': {
-        'claude': 10,
-        'gpt-5-codex': 9,
-        'gemini': 8,
-        'heuristic': 6
+      "security-god": {
+        claude: 10,
+        "gpt-5-codex": 9,
+        gemini: 8,
+        heuristic: 6,
       },
-      'performance-god': {
-        'gemini': 10,
-        'gpt-5-codex': 9,
-        'claude': 9,
-        'heuristic': 5
+      "performance-god": {
+        gemini: 10,
+        "gpt-5-codex": 9,
+        claude: 9,
+        heuristic: 5,
       },
-      'test-god': {
-        'gpt-5-codex': 10,
-        'claude': 9,
-        'gemini': 8,
-        'heuristic': 4
+      "test-god": {
+        "gpt-5-codex": 10,
+        claude: 9,
+        gemini: 8,
+        heuristic: 4,
       },
-      'refactoring-god': {
-        'gpt-5-codex': 10,
-        'claude': 9,
-        'gemini': 8,
-        'heuristic': 5
+      "refactoring-god": {
+        "gpt-5-codex": 10,
+        claude: 9,
+        gemini: 8,
+        heuristic: 5,
       },
-      'documentation-god': {
-        'gpt-5-codex': 10,
-        'claude': 9,
-        'gemini': 8,
-        'heuristic': 6
-      }
+      "documentation-god": {
+        "gpt-5-codex": 10,
+        claude: 9,
+        gemini: 8,
+        heuristic: 6,
+      },
     };
 
     return qualityMatrix[domain]?.[providerName] || 5;
@@ -214,7 +245,7 @@ class EnsembleAnalyzer {
         allIssues.push({
           ...issue,
           sourceProvider: result.provider,
-          weight: this.config.providerWeights[result.provider] || 0.5
+          weight: this.config.providerWeights[result.provider] || 0.5,
         });
       }
     }
@@ -231,7 +262,7 @@ class EnsembleAnalyzer {
     let agreedWeight = 0;
 
     for (const group of groupedIssues) {
-      const providers = [...new Set(group.map(i => i.sourceProvider))];
+      const providers = [...new Set(group.map((i) => i.sourceProvider))];
       const providerCount = providers.length;
       const totalProviders = results.length;
 
@@ -251,7 +282,7 @@ class EnsembleAnalyzer {
         confidence: agreementScore,
         supportingProviders: providers,
         providerCount,
-        disputeLevel: 1 - agreementScore
+        disputeLevel: 1 - agreementScore,
       };
 
       consensusFindings.push(consensusIssue);
@@ -271,7 +302,7 @@ class EnsembleAnalyzer {
       findings: consensusFindings,
       highConfidence,
       disputed,
-      agreementRate
+      agreementRate,
     };
   }
 
@@ -291,7 +322,8 @@ class EnsembleAnalyzer {
 
         // Same file, nearby line (±3), same category
         if (
-          this.normalizePath(issue.file_path) === this.normalizePath(sample.file_path) &&
+          this.normalizePath(issue.file_path) ===
+            this.normalizePath(sample.file_path) &&
           Math.abs((issue.line_number || 0) - (sample.line_number || 0)) <= 3 &&
           issue.category === sample.category
         ) {
@@ -313,29 +345,41 @@ class EnsembleAnalyzer {
    * Normalize file path for comparison
    */
   normalizePath(filePath) {
-    if (!filePath) return '';
-    return filePath.replace(/\\/g, '/').toLowerCase();
+    if (!filePath) return "";
+    return filePath.replace(/\\/g, "/").toLowerCase();
   }
 
   /**
    * Build ensemble metadata
    */
   buildEnsembleMetadata(results, consensus, startTime) {
-    const totalCost = results.reduce((sum, r) => sum + (r.metadata.costUSD || 0), 0);
+    const totalCost = results.reduce(
+      (sum, r) => sum + (r.metadata.costUSD || 0),
+      0,
+    );
     const totalTokens = {
-      input: results.reduce((sum, r) => sum + (r.metadata.tokensUsed?.input || 0), 0),
-      output: results.reduce((sum, r) => sum + (r.metadata.tokensUsed?.output || 0), 0),
-      cached: results.reduce((sum, r) => sum + (r.metadata.tokensUsed?.cached || 0), 0)
+      input: results.reduce(
+        (sum, r) => sum + (r.metadata.tokensUsed?.input || 0),
+        0,
+      ),
+      output: results.reduce(
+        (sum, r) => sum + (r.metadata.tokensUsed?.output || 0),
+        0,
+      ),
+      cached: results.reduce(
+        (sum, r) => sum + (r.metadata.tokensUsed?.cached || 0),
+        0,
+      ),
     };
 
     return {
-      provider: 'ensemble',
-      model: results.map(r => `${r.provider}:${r.metadata.model}`).join('+'),
+      provider: "ensemble",
+      model: results.map((r) => `${r.provider}:${r.metadata.model}`).join("+"),
       providersUsed: results.length,
       costUSD: totalCost,
       tokensUsed: totalTokens,
       duration: Date.now() - startTime,
-      confidence: consensus.agreementRate
+      confidence: consensus.agreementRate,
     };
   }
 
@@ -345,7 +389,7 @@ class EnsembleAnalyzer {
   getStats() {
     return {
       ...this.stats,
-      averageAgreementRate: this.stats.agreementRate
+      averageAgreementRate: this.stats.agreementRate,
     };
   }
 
@@ -357,7 +401,7 @@ class EnsembleAnalyzer {
       totalRuns: 0,
       agreementRate: 0,
       costSavings: 0,
-      qualityImprovement: 0
+      qualityImprovement: 0,
     };
   }
 }

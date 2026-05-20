@@ -16,26 +16,26 @@
  * @module titanmode/level7-collective
  */
 
-const { AIProviderManager, EnsembleAnalyzer } = require('../ai-providers');
-const { FixGenerator, FixApplier } = require('../ai-fixers');
-const TitanFix = require('./titan-fix');
+const { AIProviderManager, EnsembleAnalyzer } = require("../ai-providers");
+const { FixGenerator, FixApplier } = require("../ai-fixers");
+const TitanFix = require("./titan-fix");
 
 class Level7AutonomousOptimizer {
   constructor(config = {}) {
     this.config = {
       // Optimization sprint schedule (cron format)
-      schedule: config.schedule || '0 2 * * 0', // Sunday 2am
+      schedule: config.schedule || "0 2 * * 0", // Sunday 2am
 
       // Sprint Budget (max time in minutes)
       maxSprintDuration: config.maxSprintDuration || 30,
 
       // Domains to optimize
       domains: config.domains || [
-        'security-god',
-        'performance-god',
-        'test-god',
-        'refactoring-god',
-        'documentation-god'
+        "security-god",
+        "performance-god",
+        "test-god",
+        "refactoring-god",
+        "documentation-god",
       ],
 
       // Maximum improvements per sprint
@@ -46,14 +46,14 @@ class Level7AutonomousOptimizer {
 
       // Deployment windows (ISO 8601 format)
       deploymentWindows: config.deploymentWindows || [
-        { day: 'Sunday', start: '02:00', end: '06:00' },
-        { day: 'Wednesday', start: '14:00', end: '16:00' }
+        { day: "Sunday", start: "02:00", end: "06:00" },
+        { day: "Wednesday", start: "14:00", end: "16:00" },
       ],
 
       // Telemetry validation after deployment
       validateTelemetry: config.validateTelemetry !== false,
 
-      ...config
+      ...config,
     };
 
     this.aiManager = new AIProviderManager();
@@ -62,12 +62,14 @@ class Level7AutonomousOptimizer {
 
     // Check if Titan Insight (Level 6) is available
     try {
-      const TitanInsight = require('./titan-insight');
+      const TitanInsight = require("./titan-insight");
       this.titanInsight = new TitanInsight();
       this.useInsight = true;
     } catch (e) {
       this.useInsight = false;
-      console.log('[Titan Optimize] Titan Insight not available, running standalone.');
+      console.log(
+        "[Titan Optimize] Titan Insight not available, running standalone.",
+      );
     }
 
     this.improvementQueue = [];
@@ -78,45 +80,56 @@ class Level7AutonomousOptimizer {
    * Run autonomous optimization sprint
    */
   async runOptimizationSprint(projectPath, options = {}) {
-    console.log('⚡ [TITAN MODE Level 7] TITAN COLLECTIVE - Autonomous Optimizer\n');
+    console.log(
+      "⚡ [TITAN MODE Level 7] TITAN COLLECTIVE - Autonomous Optimizer\n",
+    );
     console.log(`Starting optimization sprint for: ${projectPath}\n`);
 
     const startTime = Date.now();
 
     // Phase 1: Multi-domain analysis
-    console.log('[Phase 1] Multi-domain analysis...');
+    console.log("[Phase 1] Multi-domain analysis...");
     const analysis = await this.performMultiDomainAnalysis(projectPath);
 
-    console.log(`   Found ${analysis.totalFindings} issues across ${this.config.domains.length} domains`);
+    console.log(
+      `   Found ${analysis.totalFindings} issues across ${this.config.domains.length} domains`,
+    );
 
     // Phase 2: Prioritize improvements
-    console.log('\n[Phase 2] Prioritizing improvements...');
+    console.log("\n[Phase 2] Prioritizing improvements...");
     const prioritized = await this.prioritizeImprovements(analysis.findings);
 
     console.log(`   Prioritized ${prioritized.length} improvements`);
 
     // Phase 3: Schedule improvements
-    console.log('\n[Phase 3] Scheduling improvements...');
+    console.log("\n[Phase 3] Scheduling improvements...");
     const scheduled = this.scheduleImprovements(prioritized);
 
-    console.log(`   Scheduled ${scheduled.immediate.length} for immediate deployment`);
+    console.log(
+      `   Scheduled ${scheduled.immediate.length} for immediate deployment`,
+    );
     console.log(`   Queued ${scheduled.queued.length} for next window`);
 
     // Phase 4: Apply immediate improvements
-    console.log('\n[Phase 4] Applying immediate improvements...');
-    const results = await this.applyImprovements(scheduled.immediate, projectPath);
+    console.log("\n[Phase 4] Applying immediate improvements...");
+    const results = await this.applyImprovements(
+      scheduled.immediate,
+      projectPath,
+    );
 
     console.log(`   Applied: ${results.applied}`);
     console.log(`   Failed: ${results.failed}`);
 
     // Phase 5: Validate telemetry (if enabled)
     if (this.config.validateTelemetry) {
-      console.log('\n[Phase 5] Validating telemetry...');
+      console.log("\n[Phase 5] Validating telemetry...");
       const telemetry = await this.validateTelemetry(results);
-      console.log(`   Telemetry check: ${telemetry.healthy ? '✓ HEALTHY' : '✗ DEGRADED'}`);
+      console.log(
+        `   Telemetry check: ${telemetry.healthy ? "✓ HEALTHY" : "✗ DEGRADED"}`,
+      );
 
       if (!telemetry.healthy) {
-        console.log('   Rolling back changes...');
+        console.log("   Rolling back changes...");
         await this.rollbackSprint(results);
       }
     }
@@ -132,12 +145,16 @@ class Level7AutonomousOptimizer {
       applied: results.applied,
       failed: results.failed,
       cost: results.cost,
-      telemetry: this.config.validateTelemetry ? await this.validateTelemetry(results) : null
+      telemetry: this.config.validateTelemetry
+        ? await this.validateTelemetry(results)
+        : null,
     };
 
     this.sprintHistory.push(sprint);
 
-    console.log(`\n[Level 7] Sprint complete in ${(sprint.duration / 1000).toFixed(1)}s`);
+    console.log(
+      `\n[Level 7] Sprint complete in ${(sprint.duration / 1000).toFixed(1)}s`,
+    );
 
     return sprint;
   }
@@ -146,8 +163,8 @@ class Level7AutonomousOptimizer {
    * Perform multi-domain analysis using ensemble
    */
   async performMultiDomainAnalysis(projectPath) {
-    const fs = require('fs');
-    const path = require('path');
+    const fs = require("fs");
+    const path = require("path");
 
     const findings = [];
 
@@ -157,7 +174,7 @@ class Level7AutonomousOptimizer {
       const items = fs.readdirSync(dir, { withFileTypes: true });
 
       for (const item of items) {
-        if (item.name.startsWith('.') || item.name === 'node_modules') continue;
+        if (item.name.startsWith(".") || item.name === "node_modules") continue;
 
         const fullPath = path.join(dir, item.name);
 
@@ -173,7 +190,9 @@ class Level7AutonomousOptimizer {
 
     const files = findCodeFiles(projectPath);
 
-    console.log(`   Analyzing ${files.length} files across ${this.config.domains.length} domains...`);
+    console.log(
+      `   Analyzing ${files.length} files across ${this.config.domains.length} domains...`,
+    );
 
     // Analyze each file with each domain (in parallel for speed)
     // Analyze each file with each domain (in parallel for speed)
@@ -184,38 +203,52 @@ class Level7AutonomousOptimizer {
       const batch = files.slice(i, i + BATCH_SIZE);
 
       // Process batch in parallel
-      await Promise.all(batch.map(async (file) => {
-        try {
-          const content = await fs.promises.readFile(file, 'utf-8');
+      await Promise.all(
+        batch.map(async (file) => {
+          try {
+            const content = await fs.promises.readFile(file, "utf-8");
 
-          for (const domain of this.config.domains) {
-            try {
-              let result;
+            for (const domain of this.config.domains) {
+              try {
+                let result;
 
-              if (this.config.useEnsemble) {
-                result = await this.ensemble.analyzeWithEnsemble(domain, file, content, projectPath);
-              } else {
-                result = await this.aiManager.analyze(domain, file, content, projectPath);
+                if (this.config.useEnsemble) {
+                  result = await this.ensemble.analyzeWithEnsemble(
+                    domain,
+                    file,
+                    content,
+                    projectPath,
+                  );
+                } else {
+                  result = await this.aiManager.analyze(
+                    domain,
+                    file,
+                    content,
+                    projectPath,
+                  );
+                }
+
+                if (result.issues) {
+                  findings.push(...result.issues);
+                }
+              } catch (error) {
+                console.error(
+                  `   Error analyzing ${file} with ${domain}:`,
+                  error.message,
+                );
               }
-
-              if (result.issues) {
-                findings.push(...result.issues);
-              }
-
-            } catch (error) {
-              console.error(`   Error analyzing ${file} with ${domain}:`, error.message);
             }
+          } catch (readError) {
+            console.error(`   Error reading file ${file}:`, readError.message);
           }
-        } catch (readError) {
-          console.error(`   Error reading file ${file}:`, readError.message);
-        }
-      }));
+        }),
+      );
     }
 
     return {
       totalFindings: findings.length,
       findings,
-      files: files.length
+      files: files.length,
     };
   }
 
@@ -228,19 +261,19 @@ class Level7AutonomousOptimizer {
     // - Implementation effort (complexity, dependencies)
     // - Risk (breaking changes, test coverage)
 
-    const scored = findings.map(finding => {
+    const scored = findings.map((finding) => {
       const impact = this.calculateImpact(finding);
       const effort = this.estimateEffort(finding);
       const risk = this.assessRisk(finding);
 
-      const priority = (impact * 0.5) + ((10 - effort) * 0.3) + ((10 - risk) * 0.2);
+      const priority = impact * 0.5 + (10 - effort) * 0.3 + (10 - risk) * 0.2;
 
       return {
         finding,
         impact,
         effort,
         risk,
-        priority
+        priority,
       };
     });
 
@@ -257,17 +290,25 @@ class Level7AutonomousOptimizer {
     let score = 0;
 
     // Severity
-    if (finding.severity === 'HIGH') score += 5;
-    else if (finding.severity === 'MEDIUM') score += 3;
+    if (finding.severity === "HIGH") score += 5;
+    else if (finding.severity === "MEDIUM") score += 3;
     else score += 1;
 
     // Bonus for PERFORMANCE or TECH DEBT during Optimization Sprints
-    if (finding.category === 'N_PLUS_ONE_QUERY' || finding.category === 'COMPLEX_CONDITION') {
+    if (
+      finding.category === "N_PLUS_ONE_QUERY" ||
+      finding.category === "COMPLEX_CONDITION"
+    ) {
       score += 2;
     }
 
     // Category impact
-    const highImpactCategories = ['SQL_INJECTION', 'XSS', 'COMMAND_EXEC', 'N_PLUS_ONE_QUERY'];
+    const highImpactCategories = [
+      "SQL_INJECTION",
+      "XSS",
+      "COMMAND_EXEC",
+      "N_PLUS_ONE_QUERY",
+    ];
     if (highImpactCategories.includes(finding.category)) {
       score += 3;
     }
@@ -284,8 +325,12 @@ class Level7AutonomousOptimizer {
    * Estimate implementation effort (1-10, lower = easier)
    */
   estimateEffort(finding) {
-    const easyCategories = ['SYNC_IO', 'MAGIC_NUMBER', 'UNUSED_VARIABLE'];
-    const hardCategories = ['COMPLEX_CONDITION', 'LONG_METHOD', 'SQL_INJECTION'];
+    const easyCategories = ["SYNC_IO", "MAGIC_NUMBER", "UNUSED_VARIABLE"];
+    const hardCategories = [
+      "COMPLEX_CONDITION",
+      "LONG_METHOD",
+      "SQL_INJECTION",
+    ];
 
     if (easyCategories.includes(finding.category)) return 3;
     if (hardCategories.includes(finding.category)) return 8;
@@ -306,7 +351,7 @@ class Level7AutonomousOptimizer {
     if (finding.confidenceScore?.score > 90) risk -= 2;
 
     // Higher risk for logic changes
-    const riskyCategories = ['SQL_INJECTION', 'COMPLEX_CONDITION'];
+    const riskyCategories = ["SQL_INJECTION", "COMPLEX_CONDITION"];
     if (riskyCategories.includes(finding.category)) risk += 3;
 
     // Titan Insight Integration: Lower risk if we have high historical success
@@ -314,7 +359,7 @@ class Level7AutonomousOptimizer {
       // This is a simplified check. In real implementation we would await or have these pre-loaded.
       // Assuming we preload stats in init or lazily.
       // For now, let's assume we trust common categories more if Insight is enabled.
-      const safeCategories = ['UNUSED_VARIABLE', 'MAGIC_NUMBER']; // Placeholder for Insight data
+      const safeCategories = ["UNUSED_VARIABLE", "MAGIC_NUMBER"]; // Placeholder for Insight data
       if (safeCategories.includes(finding.category)) risk -= 1;
     }
 
@@ -326,23 +371,26 @@ class Level7AutonomousOptimizer {
    */
   scheduleImprovements(prioritized) {
     const now = new Date();
-    const currentDay = now.toLocaleDateString('en-US', { weekday: 'long' });
+    const currentDay = now.toLocaleDateString("en-US", { weekday: "long" });
     const currentTime = now.toTimeString().slice(0, 5);
 
     // Check if we're in a deployment window
-    const inWindow = this.config.deploymentWindows.some(window =>
-      window.day === currentDay && currentTime >= window.start && currentTime <= window.end
+    const inWindow = this.config.deploymentWindows.some(
+      (window) =>
+        window.day === currentDay &&
+        currentTime >= window.start &&
+        currentTime <= window.end,
     );
 
     if (inWindow) {
       return {
         immediate: prioritized.slice(0, 10), // Deploy top 10 now
-        queued: prioritized.slice(10)
+        queued: prioritized.slice(10),
       };
     } else {
       return {
         immediate: [],
-        queued: prioritized // Queue all for next window
+        queued: prioritized, // Queue all for next window
       };
     }
   }
@@ -351,10 +399,10 @@ class Level7AutonomousOptimizer {
    * Apply improvements using Level 4 fixers
    */
   async applyImprovements(improvements, projectPath) {
-    const findings = improvements.map(imp => imp.finding);
+    const findings = improvements.map((imp) => imp.finding);
 
     const results = await this.titanFix.runLevel4Fixes(findings, {
-      projectPath
+      projectPath,
     });
 
     return results;
@@ -378,8 +426,8 @@ class Level7AutonomousOptimizer {
         errorRate: 0.001,
         avgResponseTime: 150,
         cpuUsage: 45,
-        memoryUsage: 60
-      }
+        memoryUsage: 60,
+      },
     };
   }
 
@@ -387,7 +435,7 @@ class Level7AutonomousOptimizer {
    * Rollback sprint changes
    */
   async rollbackSprint(sprintResults) {
-    console.log('   Rolling back all changes from sprint...');
+    console.log("   Rolling back all changes from sprint...");
 
     for (const result of sprintResults.results) {
       if (result.applied && result.fixId) {
@@ -395,7 +443,7 @@ class Level7AutonomousOptimizer {
       }
     }
 
-    console.log('   Rollback complete');
+    console.log("   Rollback complete");
   }
 
   /**

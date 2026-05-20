@@ -5,38 +5,38 @@
  * Wraps domain-analyzers.js refactoring heuristics with enhanced reporting and auto-fix capabilities.
  */
 
-const path = require('path');
-const { analyzeDomain } = require('../domain-analyzers');
-const ToolBridge = require('../tool-bridge');
+const path = require("path");
+const { analyzeDomain } = require("../domain-analyzers");
+const ToolBridge = require("../tool-bridge");
 
 class RefactoringGodAgent {
   constructor(options = {}) {
     this.options = {
       projectRoot: options.projectRoot || process.cwd(),
       enableAutoFix: options.enableAutoFix || false,
-      ...options
+      ...options,
     };
 
     this.toolBridge = new ToolBridge({
       workingDirectory: this.options.projectRoot,
       enableFileOperations: true,
-      enableBackups: true
+      enableBackups: true,
     });
 
     this.capabilities = [
-      'dead_code_detection',
-      'duplication_detection',
-      'complexity_analysis',
-      'extract_method',
-      'inline_variable',
-      'code_quality_analysis'
+      "dead_code_detection",
+      "duplication_detection",
+      "complexity_analysis",
+      "extract_method",
+      "inline_variable",
+      "code_quality_analysis",
     ];
 
     this.metrics = {
       filesAnalyzed: 0,
       codeSmells: 0,
       refactoringsRecommended: 0,
-      fixesApplied: 0
+      fixesApplied: 0,
     };
   }
 
@@ -52,53 +52,61 @@ class RefactoringGodAgent {
 
     try {
       // Read file content
-      const readResult = await this.toolBridge.read(path.relative(this.options.projectRoot, absolutePath));
+      const readResult = await this.toolBridge.read(
+        path.relative(this.options.projectRoot, absolutePath),
+      );
 
       if (!readResult.success) {
         return {
           success: false,
           file: filePath,
-          error: readResult.error
+          error: readResult.error,
         };
       }
 
       const content = readResult.content;
 
       // Run refactoring analysis using existing domain analyzer
-      const analysis = analyzeDomain('refactoring-god', absolutePath, content, this.options.projectRoot);
+      const analysis = analyzeDomain(
+        "refactoring-god",
+        absolutePath,
+        content,
+        this.options.projectRoot,
+      );
 
       // Update metrics
       this.metrics.filesAnalyzed++;
       this.metrics.codeSmells += analysis.issues.length;
-      this.metrics.refactoringsRecommended += analysis.issues.filter(i => i.severity === 'HIGH' || i.severity === 'MEDIUM').length;
+      this.metrics.refactoringsRecommended += analysis.issues.filter(
+        (i) => i.severity === "HIGH" || i.severity === "MEDIUM",
+      ).length;
 
       // Categorize issues by type
       const categorized = this.categorizeIssues(analysis.issues);
 
       return {
         success: true,
-        agent: 'refactoring-god',
+        agent: "refactoring-god",
         file: filePath,
         absolutePath: absolutePath,
         summary: {
           totalIssues: analysis.issues.length,
-          high: analysis.issues.filter(i => i.severity === 'HIGH').length,
-          medium: analysis.issues.filter(i => i.severity === 'MEDIUM').length,
-          low: analysis.issues.filter(i => i.severity === 'LOW').length
+          high: analysis.issues.filter((i) => i.severity === "HIGH").length,
+          medium: analysis.issues.filter((i) => i.severity === "MEDIUM").length,
+          low: analysis.issues.filter((i) => i.severity === "LOW").length,
         },
         issues: analysis.issues,
         categorized: categorized,
         metadata: analysis.metadata,
         linesAnalyzed: analysis.linesAnalyzed,
-        executionTime: analysis.executionTime
+        executionTime: analysis.executionTime,
       };
-
     } catch (error) {
       return {
         success: false,
-        agent: 'refactoring-god',
+        agent: "refactoring-god",
         file: filePath,
-        error: error.message
+        error: error.message,
       };
     }
   }
@@ -112,10 +120,10 @@ class RefactoringGodAgent {
   async scanDirectory(directoryPath, options = {}) {
     const {
       maxFiles = 100,
-      filePattern = /\.(js|ts|jsx|tsx|py|php|java|rb|go)$/
+      filePattern = /\.(js|ts|jsx|tsx|py|php|java|rb|go)$/,
     } = options;
 
-    const fs = require('fs').promises;
+    const fs = require("fs").promises;
     const files = [];
 
     // Recursive file discovery
@@ -131,7 +139,7 @@ class RefactoringGodAgent {
 
         if (entry.isDirectory()) {
           // Skip node_modules, .git, etc
-          if (!entry.name.startsWith('.') && entry.name !== 'node_modules') {
+          if (!entry.name.startsWith(".") && entry.name !== "node_modules") {
             await walkDir(fullPath);
           }
         } else if (entry.isFile() && filePattern.test(entry.name)) {
@@ -154,7 +162,7 @@ class RefactoringGodAgent {
     // Aggregate results
     return {
       success: true,
-      agent: 'refactoring-god',
+      agent: "refactoring-god",
       directory: directoryPath,
       filesScanned: files.length,
       filesWithIssues: results.length,
@@ -162,10 +170,10 @@ class RefactoringGodAgent {
       summary: {
         high: results.reduce((sum, r) => sum + r.summary.high, 0),
         medium: results.reduce((sum, r) => sum + r.summary.medium, 0),
-        low: results.reduce((sum, r) => sum + r.summary.low, 0)
+        low: results.reduce((sum, r) => sum + r.summary.low, 0),
       },
       results: results,
-      metrics: { ...this.metrics }
+      metrics: { ...this.metrics },
     };
   }
 
@@ -175,8 +183,8 @@ class RefactoringGodAgent {
   categorizeIssues(issues) {
     const categories = {};
 
-    issues.forEach(issue => {
-      const category = issue.category || 'UNKNOWN';
+    issues.forEach((issue) => {
+      const category = issue.category || "UNKNOWN";
       if (!categories[category]) {
         categories[category] = [];
       }
@@ -192,7 +200,7 @@ class RefactoringGodAgent {
   getTopIssues(n = 10) {
     // This would be enhanced to track issues across scans
     return {
-      message: 'Top issues tracking not yet implemented in this version'
+      message: "Top issues tracking not yet implemented in this version",
     };
   }
 
@@ -203,9 +211,9 @@ class RefactoringGodAgent {
     const { summary, filesScanned, filesWithIssues, totalIssues } = scanResults;
 
     const report = {
-      title: 'Refactoring God Analysis Report',
+      title: "Refactoring God Analysis Report",
       timestamp: new Date().toISOString(),
-      agent: 'refactoring-god',
+      agent: "refactoring-god",
       tier: 2,
 
       overview: {
@@ -215,14 +223,14 @@ class RefactoringGodAgent {
         highPriorityIssues: summary.high,
         mediumPriorityIssues: summary.medium,
         lowPriorityIssues: summary.low,
-        codeQualityGrade: this.calculateCodeQualityGrade(summary)
+        codeQualityGrade: this.calculateCodeQualityGrade(summary),
       },
 
       breakdown: summary,
 
       recommendations: this.generateRecommendations(summary),
 
-      metrics: { ...this.metrics }
+      metrics: { ...this.metrics },
     };
 
     return report;
@@ -235,19 +243,16 @@ class RefactoringGodAgent {
     // Fewer code smells = higher grade
     const totalSmells = summary.high + summary.medium + summary.low;
 
-    if (totalSmells === 0) return 'A+';
+    if (totalSmells === 0) return "A+";
 
-    const score = 100 - (
-      summary.high * 15 +
-      summary.medium * 7 +
-      summary.low * 2
-    );
+    const score =
+      100 - (summary.high * 15 + summary.medium * 7 + summary.low * 2);
 
-    if (score >= 95) return 'A';
-    if (score >= 85) return 'B';
-    if (score >= 75) return 'C';
-    if (score >= 65) return 'D';
-    return 'F';
+    if (score >= 95) return "A";
+    if (score >= 85) return "B";
+    if (score >= 75) return "C";
+    if (score >= 65) return "D";
+    return "F";
   }
 
   /**
@@ -258,37 +263,38 @@ class RefactoringGodAgent {
 
     if (summary.high > 0) {
       recommendations.push({
-        priority: 'HIGH',
+        priority: "HIGH",
         action: `Address ${summary.high} high-priority code quality issues`,
-        impact: 'Significant improvement in code maintainability and readability',
-        effort: 'Days to week'
+        impact:
+          "Significant improvement in code maintainability and readability",
+        effort: "Days to week",
       });
     }
 
     if (summary.medium > 5) {
       recommendations.push({
-        priority: 'MEDIUM',
+        priority: "MEDIUM",
         action: `Refactor ${summary.medium} medium-priority code smells`,
-        impact: 'Improved code organization and reduced technical debt',
-        effort: 'Week to weeks'
+        impact: "Improved code organization and reduced technical debt",
+        effort: "Week to weeks",
       });
     }
 
     if (summary.low > 10) {
       recommendations.push({
-        priority: 'LOW',
+        priority: "LOW",
         action: `Clean up ${summary.low} minor code quality issues`,
-        impact: 'Enhanced code consistency and developer experience',
-        effort: 'Quick wins for code quality improvements'
+        impact: "Enhanced code consistency and developer experience",
+        effort: "Quick wins for code quality improvements",
       });
     }
 
     if (recommendations.length === 0) {
       recommendations.push({
-        priority: 'INFO',
-        action: 'Excellent! No significant code quality issues found',
-        impact: 'Code meets high quality standards',
-        effort: 'Minimal - maintain current practices'
+        priority: "INFO",
+        action: "Excellent! No significant code quality issues found",
+        impact: "Code meets high quality standards",
+        effort: "Minimal - maintain current practices",
       });
     }
 
@@ -310,7 +316,7 @@ class RefactoringGodAgent {
       filesAnalyzed: 0,
       codeSmells: 0,
       refactoringsRecommended: 0,
-      fixesApplied: 0
+      fixesApplied: 0,
     };
   }
 }

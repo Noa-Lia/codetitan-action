@@ -1,9 +1,13 @@
-'use strict';
+"use strict";
 
-const path = require('path');
-const crypto = require('crypto');
-const { AIAttribution, buildEmptyCommitAttribution, buildEmptyFindingAttribution } = require('./ai-attribution');
-const PRRiskScorer = require('./pr-risk-scorer');
+const path = require("path");
+const crypto = require("crypto");
+const {
+  AIAttribution,
+  buildEmptyCommitAttribution,
+  buildEmptyFindingAttribution,
+} = require("./ai-attribution");
+const PRRiskScorer = require("./pr-risk-scorer");
 
 /**
  * FeedbackLoop — production learning engine.
@@ -19,17 +23,23 @@ class FeedbackLoop {
       projectRoot: config.projectRoot || process.cwd(),
       supabaseUrl: config.supabaseUrl || process.env.SUPABASE_URL,
       supabaseKey: config.supabaseKey || process.env.SUPABASE_SERVICE_KEY,
-      dbPath: config.dbPath || path.join(config.projectRoot || process.cwd(), '.codetitan', 'feedback.db'),
+      dbPath:
+        config.dbPath ||
+        path.join(
+          config.projectRoot || process.cwd(),
+          ".codetitan",
+          "feedback.db",
+        ),
       incidentWindowMs: config.incidentWindowMs || 7 * 24 * 60 * 60 * 1000, // 7 days
-      ruleThreshold: config.ruleThreshold || 3,   // incidents before suggesting a rule
-      ...config
+      ruleThreshold: config.ruleThreshold || 3, // incidents before suggesting a rule
+      ...config,
     };
     this.attributionProvider = config.attributionProvider || null;
     this.prRiskScorer = config.prRiskScorer || null;
 
-    this._db = null;         // SQLite instance (lazy)
-    this._supabase = null;   // Supabase client (lazy)
-    this._ready = null;      // Promise<void> — resolved when storage is ready
+    this._db = null; // SQLite instance (lazy)
+    this._supabase = null; // Supabase client (lazy)
+    this._ready = null; // Promise<void> — resolved when storage is ready
 
     // Allow injecting a test store to bypass SQLite/Supabase entirely
     if (config._store) {
@@ -52,10 +62,13 @@ class FeedbackLoop {
     // Try Supabase first
     if (this.config.supabaseUrl && this.config.supabaseKey) {
       try {
-        const { createClient } = require('@supabase/supabase-js');
-        this._supabase = createClient(this.config.supabaseUrl, this.config.supabaseKey);
+        const { createClient } = require("@supabase/supabase-js");
+        this._supabase = createClient(
+          this.config.supabaseUrl,
+          this.config.supabaseKey,
+        );
         // Quick connectivity test
-        await this._supabase.from('production_incidents').select('id').limit(1);
+        await this._supabase.from("production_incidents").select("id").limit(1);
         return; // Supabase works
       } catch {
         this._supabase = null;
@@ -67,7 +80,7 @@ class FeedbackLoop {
   }
 
   async _initSQLite() {
-    const fs = require('fs').promises;
+    const fs = require("fs").promises;
     await fs.mkdir(path.dirname(this.config.dbPath), { recursive: true });
 
     const { Database } = await this._openSQLite(this.config.dbPath);
@@ -126,15 +139,29 @@ class FeedbackLoop {
   async _openSQLite(dbPath) {
     return new Promise((resolve, reject) => {
       try {
-        const sqlite3 = require('sqlite3').verbose();
+        const sqlite3 = require("sqlite3").verbose();
         const db = new sqlite3.Database(dbPath, (err) => {
           if (err) return reject(err);
 
           const Database = {
-            exec: (sql) => new Promise((res, rej) => db.exec(sql, e => e ? rej(e) : res())),
-            run: (sql, params = []) => new Promise((res, rej) => db.run(sql, params, e => e ? rej(e) : res())),
-            all: (sql, params = []) => new Promise((res, rej) => db.all(sql, params, (e, rows) => e ? rej(e) : res(rows || []))),
-            get: (sql, params = []) => new Promise((res, rej) => db.get(sql, params, (e, row) => e ? rej(e) : res(row))),
+            exec: (sql) =>
+              new Promise((res, rej) =>
+                db.exec(sql, (e) => (e ? rej(e) : res())),
+              ),
+            run: (sql, params = []) =>
+              new Promise((res, rej) =>
+                db.run(sql, params, (e) => (e ? rej(e) : res())),
+              ),
+            all: (sql, params = []) =>
+              new Promise((res, rej) =>
+                db.all(sql, params, (e, rows) =>
+                  e ? rej(e) : res(rows || []),
+                ),
+              ),
+            get: (sql, params = []) =>
+              new Promise((res, rej) =>
+                db.get(sql, params, (e, row) => (e ? rej(e) : res(row))),
+              ),
           };
 
           resolve({ Database });
@@ -167,7 +194,7 @@ class FeedbackLoop {
       incident_id: outcome.incidentId || null,
       error_message: outcome.errorMessage || null,
       project_root: this.config.projectRoot,
-      created_at: new Date().toISOString()
+      created_at: new Date().toISOString(),
     };
 
     if (this._store) {
@@ -175,28 +202,46 @@ class FeedbackLoop {
       return { id, recorded: true };
     }
     if (this._supabase) {
-      await this._supabase.from('fix_outcomes').insert({ ...row, success: outcome.success });
+      await this._supabase
+        .from("fix_outcomes")
+        .insert({ ...row, success: outcome.success });
     } else if (this._db) {
       await this._db.run(
         `INSERT INTO fix_outcomes (id,fix_id,finding_id,project_id,category,success,confidence_score,incident_id,error_message,project_root,created_at)
          VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
-        [row.id, row.fix_id, row.finding_id, row.project_id, row.category, row.success,
-         row.confidence_score, row.incident_id, row.error_message, row.project_root, row.created_at]
+        [
+          row.id,
+          row.fix_id,
+          row.finding_id,
+          row.project_id,
+          row.category,
+          row.success,
+          row.confidence_score,
+          row.incident_id,
+          row.error_message,
+          row.project_root,
+          row.created_at,
+        ],
       );
     }
 
     // Feed back into ML scorer if category info is available
     if (outcome.category !== undefined) {
       try {
-        const MLConfidenceScorer = require('./ml-confidence-scorer');
-        const scorer = new MLConfidenceScorer({ supabaseUrl: this.config.supabaseUrl, supabaseKey: this.config.supabaseKey });
+        const MLConfidenceScorer = require("./ml-confidence-scorer");
+        const scorer = new MLConfidenceScorer({
+          supabaseUrl: this.config.supabaseUrl,
+          supabaseKey: this.config.supabaseKey,
+        });
         await scorer.recordFeedback(
           fixId,
           { category: outcome.category, ruleId: outcome.findingId },
           outcome.success,
-          { projectId: this.config.projectRoot }
+          { projectId: this.config.projectRoot },
         );
-      } catch { /* scorer may not be available */ }
+      } catch {
+        /* scorer may not be available */
+      }
     }
 
     return { id, recorded: true };
@@ -234,24 +279,33 @@ class FeedbackLoop {
     await this._ensureReady();
 
     const pattern = this._extractPattern(incident);
-    const ruleId = 'AUTO-' + crypto.createHash('sha256')
-      .update(JSON.stringify(pattern)).digest('hex').slice(0, 8).toUpperCase();
+    const ruleId =
+      "AUTO-" +
+      crypto
+        .createHash("sha256")
+        .update(JSON.stringify(pattern))
+        .digest("hex")
+        .slice(0, 8)
+        .toUpperCase();
 
     const count = await this._countSimilarIncidents(pattern);
     if (count < this.config.ruleThreshold) return null;
 
-    const confidence = Math.min(0.5 + (count - this.config.ruleThreshold) * 0.1, 0.95);
+    const confidence = Math.min(
+      0.5 + (count - this.config.ruleThreshold) * 0.1,
+      0.95,
+    );
 
     const rule = {
       ruleId,
       projectId: incident.project_id || incident.projectId || null,
       pattern,
       description: `Auto-detected: ${pattern.errorType} in ${pattern.filePattern}`,
-      severity: incident.severity || 'HIGH',
+      severity: incident.severity || "HIGH",
       incidentCount: count,
       confidence,
       autoGenerated: true,
-      lastSeen: new Date().toISOString()
+      lastSeen: new Date().toISOString(),
     };
 
     // Persist proposal
@@ -266,7 +320,7 @@ class FeedbackLoop {
    * @param {string} timeRange - e.g. '7d', '30d'
    * @returns {Promise<Object>}
    */
-  async getInsights(projectId, timeRange = '7d') {
+  async getInsights(projectId, timeRange = "7d") {
     await this._ensureReady();
 
     const sinceMs = this._parseTimeRange(timeRange);
@@ -275,11 +329,13 @@ class FeedbackLoop {
     const [outcomes, incidents, rules] = await Promise.all([
       this._getOutcomes(since, projectId),
       this._getIncidents(since, projectId),
-      this._getProposedRules(projectId)
+      this._getProposedRules(projectId),
     ]);
 
     const total = outcomes.length;
-    const successful = outcomes.filter(o => o.success === 1 || o.success === true).length;
+    const successful = outcomes.filter(
+      (o) => o.success === 1 || o.success === true,
+    ).length;
     const fixSuccessRate = total > 0 ? successful / total : null;
 
     // Top failing categories
@@ -294,9 +350,11 @@ class FeedbackLoop {
       .slice(0, 5)
       .map(([category, count]) => ({ category, count }));
 
-    const attributionProvider = this.attributionProvider || new AIAttribution({
-      projectRoot: this.config.projectRoot
-    });
+    const attributionProvider =
+      this.attributionProvider ||
+      new AIAttribution({
+        projectRoot: this.config.projectRoot,
+      });
 
     let commitAttribution = buildEmptyCommitAttribution(timeRange, null);
     let latestRun = null;
@@ -305,51 +363,65 @@ class FeedbackLoop {
     let teamRecommendations = [];
     let prRiskScore = {
       score: 0,
-      level: 'low',
-      reason: 'No attributed findings available.',
+      level: "low",
+      reason: "No attributed findings available.",
       components: {
         severity: 0,
         aiQuality: 0,
-        attributionCoverage: 0
+        attributionCoverage: 0,
       },
-      byTool: []
+      byTool: [],
     };
 
     try {
-      commitAttribution = attributionProvider.collectCommitAttribution({ timeRange });
-      latestRun = attributionProvider.loadLatestHistoryRun();
-      const latestFindings = Array.isArray(latestRun?.report?.findings) ? latestRun.report.findings : [];
-      findingAttribution = attributionProvider.attributeFindings(latestFindings, {
-        runId: latestRun?.runId || null
+      commitAttribution = attributionProvider.collectCommitAttribution({
+        timeRange,
       });
-      toolQualityScores = attributionProvider.computeToolQuality(commitAttribution, findingAttribution);
-      teamRecommendations = attributionProvider.buildTeamRecommendations(commitAttribution, toolQualityScores);
+      latestRun = attributionProvider.loadLatestHistoryRun();
+      const latestFindings = Array.isArray(latestRun?.report?.findings)
+        ? latestRun.report.findings
+        : [];
+      findingAttribution = attributionProvider.attributeFindings(
+        latestFindings,
+        {
+          runId: latestRun?.runId || null,
+        },
+      );
+      toolQualityScores = attributionProvider.computeToolQuality(
+        commitAttribution,
+        findingAttribution,
+      );
+      teamRecommendations = attributionProvider.buildTeamRecommendations(
+        commitAttribution,
+        toolQualityScores,
+      );
       prRiskScore = (this.prRiskScorer || new PRRiskScorer()).score({
         latestFindings,
         findingAttribution,
-        toolQualityScores
+        toolQualityScores,
       });
     } catch (error) {
-      const reason = error && error.message ? error.message : 'AI attribution unavailable.';
+      const reason =
+        error && error.message ? error.message : "AI attribution unavailable.";
       commitAttribution = buildEmptyCommitAttribution(timeRange, reason);
       findingAttribution = buildEmptyFindingAttribution(null, 0, reason);
       toolQualityScores = [];
       teamRecommendations = [
         {
-          type: 'attribution_unavailable',
-          message: reason
-        }
+          type: "attribution_unavailable",
+          message: reason,
+        },
       ];
       prRiskScore = {
         score: 0,
-        level: 'low',
+        level: "low",
         reason,
         components: {
           severity: 0,
           aiQuality: 0,
-          attributionCoverage: 0
+          attributionCoverage: 0,
         },
-        byTool: []
+        byTool: [],
       };
     }
 
@@ -360,13 +432,13 @@ class FeedbackLoop {
       topFailingCategories,
       rulesFromIncidents: rules,
       incidentCount: incidents.length,
-      recommendedPriorities: topFailingCategories.map(c => c.category),
+      recommendedPriorities: topFailingCategories.map((c) => c.category),
       timeRange,
       aiAttribution: commitAttribution,
       findingAttribution,
       toolQualityScores,
       teamRecommendations,
-      prRiskScore
+      prRiskScore,
     };
   }
 
@@ -376,13 +448,15 @@ class FeedbackLoop {
    */
   async updateConfidenceFromProduction(incidentCorrelations) {
     try {
-      const MLConfidenceScorer = require('./ml-confidence-scorer');
+      const MLConfidenceScorer = require("./ml-confidence-scorer");
       const scorer = new MLConfidenceScorer({
         supabaseUrl: this.config.supabaseUrl,
-        supabaseKey: this.config.supabaseKey
+        supabaseKey: this.config.supabaseKey,
       });
       await scorer.incorporateProductionData(incidentCorrelations);
-    } catch { /* scorer may not be available */ }
+    } catch {
+      /* scorer may not be available */
+    }
   }
 
   // ─── Internal helpers ──────────────────────────────────────────────────────
@@ -393,13 +467,13 @@ class FeedbackLoop {
       project_id: incident.projectId || incident.project_id || null,
       file_path: incident.file || incident.filePath || null,
       line_number: incident.line || incident.lineNumber || null,
-      error_message: incident.error || incident.message || '',
+      error_message: incident.error || incident.message || "",
       stack_trace: incident.stackTrace || incident.stack || null,
-      severity: (incident.severity || 'HIGH').toUpperCase(),
-      source: incident.source || 'manual',
+      severity: (incident.severity || "HIGH").toUpperCase(),
+      source: incident.source || "manual",
       correlated_finding_id: null,
       project_root: this.config.projectRoot,
-      created_at: new Date().toISOString()
+      created_at: new Date().toISOString(),
     };
   }
 
@@ -409,16 +483,25 @@ class FeedbackLoop {
       return;
     }
     if (this._supabase) {
-      await this._supabase.from('production_incidents').insert(normalized);
+      await this._supabase.from("production_incidents").insert(normalized);
     } else if (this._db) {
       await this._db.run(
         `INSERT INTO production_incidents
          (id,project_id,file_path,line_number,error_message,stack_trace,severity,source,correlated_finding_id,project_root,created_at)
          VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
-        [normalized.id, normalized.project_id, normalized.file_path, normalized.line_number,
-         normalized.error_message, normalized.stack_trace, normalized.severity,
-         normalized.source, normalized.correlated_finding_id,
-         normalized.project_root, normalized.created_at]
+        [
+          normalized.id,
+          normalized.project_id,
+          normalized.file_path,
+          normalized.line_number,
+          normalized.error_message,
+          normalized.stack_trace,
+          normalized.severity,
+          normalized.source,
+          normalized.correlated_finding_id,
+          normalized.project_root,
+          normalized.created_at,
+        ],
       );
     }
   }
@@ -429,31 +512,45 @@ class FeedbackLoop {
     if (!incident.file_path) return findings;
 
     try {
-      const cacheDir = require('path').join(this.config.projectRoot, '.codetitan-cache');
-      const fs = require('fs').promises;
+      const cacheDir = require("path").join(
+        this.config.projectRoot,
+        ".codetitan-cache",
+      );
+      const fs = require("fs").promises;
       const files = await fs.readdir(cacheDir).catch(() => []);
       for (const f of files) {
-        if (!f.endsWith('.json')) continue;
+        if (!f.endsWith(".json")) continue;
         try {
-          const cacheFilePath = require('path').join(cacheDir, f);
-          const raw = await fs.readFile(cacheFilePath, 'utf-8');
+          const cacheFilePath = require("path").join(cacheDir, f);
+          const raw = await fs.readFile(cacheFilePath, "utf-8");
           const parsed = JSON.parse(raw);
-          if (!parsed || typeof parsed !== 'object') continue;
+          if (!parsed || typeof parsed !== "object") continue;
 
           const issues = Array.isArray(parsed.issues)
             ? parsed.issues
-            : (Array.isArray(parsed.findings) ? parsed.findings : []);
+            : Array.isArray(parsed.findings)
+              ? parsed.findings
+              : [];
           for (const issue of issues) {
             if (issue.file_path === incident.file_path) {
-              const lineDiff = Math.abs((issue.line_number || 0) - (incident.line_number || 0));
+              const lineDiff = Math.abs(
+                (issue.line_number || 0) - (incident.line_number || 0),
+              );
               if (lineDiff <= 10) {
-                findings.push({ ...issue, correlationScore: 1 - lineDiff / 10 });
+                findings.push({
+                  ...issue,
+                  correlationScore: 1 - lineDiff / 10,
+                });
               }
             }
           }
-        } catch { /* skip malformed cache */ }
+        } catch {
+          /* skip malformed cache */
+        }
       }
-    } catch { /* cache not available */ }
+    } catch {
+      /* cache not available */
+    }
 
     return findings.slice(0, 10);
   }
@@ -468,40 +565,50 @@ class FeedbackLoop {
   }
 
   _extractPattern(incident) {
-    const errorMsg = incident.error_message || incident.error || '';
+    const errorMsg = incident.error_message || incident.error || "";
     // Extract error type (first word of error class)
-    const errorTypeMatch = errorMsg.match(/^([A-Za-z]+Error|[A-Za-z]+Exception|[A-Za-z]+Fault)/);
-    const errorType = errorTypeMatch ? errorTypeMatch[1] : 'UnknownError';
+    const errorTypeMatch = errorMsg.match(
+      /^([A-Za-z]+Error|[A-Za-z]+Exception|[A-Za-z]+Fault)/,
+    );
+    const errorType = errorTypeMatch ? errorTypeMatch[1] : "UnknownError";
 
     // Extract file pattern (strip specific line numbers / hashes)
-    const filePath = incident.file_path || '';
-    const filePattern = filePath.replace(/\/[a-f0-9]{8,}/g, '/<hash>').split('/').slice(-2).join('/');
+    const filePath = incident.file_path || "";
+    const filePattern = filePath
+      .replace(/\/[a-f0-9]{8,}/g, "/<hash>")
+      .split("/")
+      .slice(-2)
+      .join("/");
 
-    return { errorType, filePattern, severity: incident.severity || 'HIGH' };
+    return { errorType, filePattern, severity: incident.severity || "HIGH" };
   }
 
   async _countSimilarIncidents(pattern) {
-    const since = new Date(Date.now() - this.config.incidentWindowMs).toISOString();
+    const since = new Date(
+      Date.now() - this.config.incidentWindowMs,
+    ).toISOString();
 
     if (this._store) {
-      return this._store.incidents.filter(i =>
-        (i.error_message || '').includes(pattern.errorType) && i.created_at >= since
+      return this._store.incidents.filter(
+        (i) =>
+          (i.error_message || "").includes(pattern.errorType) &&
+          i.created_at >= since,
       ).length;
     }
 
     if (this._supabase) {
       const { count } = await this._supabase
-        .from('production_incidents')
-        .select('id', { count: 'exact', head: true })
-        .ilike('error_message', `%${pattern.errorType}%`)
-        .gte('created_at', since);
+        .from("production_incidents")
+        .select("id", { count: "exact", head: true })
+        .ilike("error_message", `%${pattern.errorType}%`)
+        .gte("created_at", since);
       return count || 0;
     }
 
     if (this._db) {
       const row = await this._db.get(
         `SELECT COUNT(*) as n FROM production_incidents WHERE error_message LIKE ? AND created_at >= ?`,
-        [`%${pattern.errorType}%`, since]
+        [`%${pattern.errorType}%`, since],
       );
       return row?.n || 0;
     }
@@ -511,17 +618,10 @@ class FeedbackLoop {
 
   async _persistRuleProposal(rule) {
     if (this._store) {
-      const existing = this._store.rules.findIndex(r => r.rule_id === rule.ruleId);
-      const row = { rule_id: rule.ruleId, project_id: rule.projectId || null, pattern: rule.pattern, description: rule.description,
-                    severity: rule.severity, incident_count: rule.incidentCount,
-                    confidence: rule.confidence, approved: false };
-      if (existing >= 0) this._store.rules[existing] = row;
-      else this._store.rules.push(row);
-      return;
-    }
-    if (this._supabase) {
-      await this._supabase.from('generated_rules').upsert({
-        id: crypto.randomUUID(),
+      const existing = this._store.rules.findIndex(
+        (r) => r.rule_id === rule.ruleId,
+      );
+      const row = {
         rule_id: rule.ruleId,
         project_id: rule.projectId || null,
         pattern: rule.pattern,
@@ -530,76 +630,132 @@ class FeedbackLoop {
         incident_count: rule.incidentCount,
         confidence: rule.confidence,
         approved: false,
-        project_root: this.config.projectRoot,
-        created_at: new Date().toISOString()
-      }, { onConflict: 'rule_id' });
+      };
+      if (existing >= 0) this._store.rules[existing] = row;
+      else this._store.rules.push(row);
+      return;
+    }
+    if (this._supabase) {
+      await this._supabase.from("generated_rules").upsert(
+        {
+          id: crypto.randomUUID(),
+          rule_id: rule.ruleId,
+          project_id: rule.projectId || null,
+          pattern: rule.pattern,
+          description: rule.description,
+          severity: rule.severity,
+          incident_count: rule.incidentCount,
+          confidence: rule.confidence,
+          approved: false,
+          project_root: this.config.projectRoot,
+          created_at: new Date().toISOString(),
+        },
+        { onConflict: "rule_id" },
+      );
     } else if (this._db) {
       await this._db.run(
         `INSERT OR REPLACE INTO generated_rules
          (id,rule_id,project_id,pattern,description,severity,incident_count,confidence,approved,project_root,created_at)
          VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
-        [crypto.randomUUID(), rule.ruleId,
-         rule.projectId || null, JSON.stringify(rule.pattern), rule.description, rule.severity,
-         rule.incidentCount, rule.confidence, 0, this.config.projectRoot,
-         new Date().toISOString()]
+        [
+          crypto.randomUUID(),
+          rule.ruleId,
+          rule.projectId || null,
+          JSON.stringify(rule.pattern),
+          rule.description,
+          rule.severity,
+          rule.incidentCount,
+          rule.confidence,
+          0,
+          this.config.projectRoot,
+          new Date().toISOString(),
+        ],
       );
     }
   }
 
   async _getOutcomes(since, projectId = null) {
     if (this._store) {
-      return this._store.outcomes.filter(o => o.created_at >= since && (!projectId || o.project_id === projectId));
+      return this._store.outcomes.filter(
+        (o) =>
+          o.created_at >= since && (!projectId || o.project_id === projectId),
+      );
     }
     if (this._supabase) {
       let query = this._supabase
-        .from('fix_outcomes').select('*').gte('created_at', since);
-      if (projectId) query = query.eq('project_id', projectId);
+        .from("fix_outcomes")
+        .select("*")
+        .gte("created_at", since);
+      if (projectId) query = query.eq("project_id", projectId);
       const { data } = await query;
       return data || [];
     }
     if (this._db) {
       if (projectId) {
-        return this._db.all(`SELECT * FROM fix_outcomes WHERE created_at >= ? AND project_id = ?`, [since, projectId]);
+        return this._db.all(
+          `SELECT * FROM fix_outcomes WHERE created_at >= ? AND project_id = ?`,
+          [since, projectId],
+        );
       }
-      return this._db.all(`SELECT * FROM fix_outcomes WHERE created_at >= ?`, [since]);
+      return this._db.all(`SELECT * FROM fix_outcomes WHERE created_at >= ?`, [
+        since,
+      ]);
     }
     return [];
   }
 
   async _getIncidents(since, projectId = null) {
     if (this._store) {
-      return this._store.incidents.filter(i => i.created_at >= since && (!projectId || i.project_id === projectId));
+      return this._store.incidents.filter(
+        (i) =>
+          i.created_at >= since && (!projectId || i.project_id === projectId),
+      );
     }
     if (this._supabase) {
       let query = this._supabase
-        .from('production_incidents').select('*').gte('created_at', since);
-      if (projectId) query = query.eq('project_id', projectId);
+        .from("production_incidents")
+        .select("*")
+        .gte("created_at", since);
+      if (projectId) query = query.eq("project_id", projectId);
       const { data } = await query;
       return data || [];
     }
     if (this._db) {
       if (projectId) {
-        return this._db.all(`SELECT * FROM production_incidents WHERE created_at >= ? AND project_id = ?`, [since, projectId]);
+        return this._db.all(
+          `SELECT * FROM production_incidents WHERE created_at >= ? AND project_id = ?`,
+          [since, projectId],
+        );
       }
-      return this._db.all(`SELECT * FROM production_incidents WHERE created_at >= ?`, [since]);
+      return this._db.all(
+        `SELECT * FROM production_incidents WHERE created_at >= ?`,
+        [since],
+      );
     }
     return [];
   }
 
   async _getProposedRules(projectId = null) {
     if (this._store) {
-      return this._store.rules.filter(r => !r.approved && (!projectId || r.project_id === projectId));
+      return this._store.rules.filter(
+        (r) => !r.approved && (!projectId || r.project_id === projectId),
+      );
     }
     if (this._supabase) {
       let query = this._supabase
-        .from('generated_rules').select('*').eq('approved', false);
-      if (projectId) query = query.eq('project_id', projectId);
+        .from("generated_rules")
+        .select("*")
+        .eq("approved", false);
+      if (projectId) query = query.eq("project_id", projectId);
       const { data } = await query;
       return data || [];
     }
     if (this._db) {
       if (projectId) {
-        return this._db.all(`SELECT * FROM generated_rules WHERE approved = 0 AND project_id = ?`, [projectId]);
+        return this._db.all(
+          `SELECT * FROM generated_rules WHERE approved = 0 AND project_id = ?`,
+          [projectId],
+        );
       }
       return this._db.all(`SELECT * FROM generated_rules WHERE approved = 0`);
     }

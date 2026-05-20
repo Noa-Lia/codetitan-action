@@ -16,10 +16,10 @@
  * @module titanmode/level8-sentinel
  */
 
-const { AIProviderManager, EnsembleAnalyzer } = require('../ai-providers');
-const TitanFix = require('./titan-fix');
-const TitanOptimize = require('./titan-optimize');
-const { EventEmitter } = require('events');
+const { AIProviderManager, EnsembleAnalyzer } = require("../ai-providers");
+const TitanFix = require("./titan-fix");
+const TitanOptimize = require("./titan-optimize");
+const { EventEmitter } = require("events");
 
 class Level8Sentinel extends EventEmitter {
   constructor(config = {}) {
@@ -34,11 +34,12 @@ class Level8Sentinel extends EventEmitter {
       // Auto-remediation settings
       autoRemediate: config.autoRemediate !== false,
       maxAutoRemediations: config.maxAutoRemediations || 10,
-      remediationConfidenceThreshold: config.remediationConfidenceThreshold || 85,
+      remediationConfidenceThreshold:
+        config.remediationConfidenceThreshold || 85,
 
       // Escalation settings
       escalateOnFailure: config.escalateOnFailure !== false,
-      escalationChannels: config.escalationChannels || ['console'], // console, slack, pagerduty, email
+      escalationChannels: config.escalationChannels || ["console"], // console, slack, pagerduty, email
 
       // Alert thresholds
       thresholds: {
@@ -46,13 +47,13 @@ class Level8Sentinel extends EventEmitter {
         highFindings: config.thresholds?.highFindings || 5,
         errorRate: config.thresholds?.errorRate || 0.05, // 5%
         responseTime: config.thresholds?.responseTime || 3000, // 3s
-        ...config.thresholds
+        ...config.thresholds,
       },
 
       // Polling interval (ms)
       pollingInterval: config.pollingInterval || 60000, // 1 minute
 
-      ...config
+      ...config,
     };
 
     this.aiManager = new AIProviderManager();
@@ -61,15 +62,17 @@ class Level8Sentinel extends EventEmitter {
     this.titanOptimize = new TitanOptimize();
 
     // Phase 3: production feedback loop
-    const FeedbackLoop = require('../feedback-loop');
-    this.feedbackLoop = new FeedbackLoop({ projectRoot: config.projectRoot || process.cwd() });
+    const FeedbackLoop = require("../feedback-loop");
+    this.feedbackLoop = new FeedbackLoop({
+      projectRoot: config.projectRoot || process.cwd(),
+    });
 
     this.state = {
       active: false,
       lastCheck: null,
       incidents: [],
       remediations: [],
-      escalations: []
+      escalations: [],
     };
 
     this.intervals = [];
@@ -79,23 +82,25 @@ class Level8Sentinel extends EventEmitter {
    * Start Sentinel Mode
    */
   async start(projectPath) {
-    console.log('⚡ [TITAN MODE Level 8] TITAN SENTINEL - Always-On Guardian ACTIVATED\n');
-    console.log('🛡️  Always-on guardian monitoring your codebase\n');
+    console.log(
+      "⚡ [TITAN MODE Level 8] TITAN SENTINEL - Always-On Guardian ACTIVATED\n",
+    );
+    console.log("🛡️  Always-on guardian monitoring your codebase\n");
 
     this.state.active = true;
     this.state.projectPath = projectPath;
 
-    console.log('Monitoring:');
-    if (this.config.monitorCommits) console.log('  ✓ Git commits');
-    if (this.config.monitorTelemetry) console.log('  ✓ Live telemetry');
-    if (this.config.monitorIncidents) console.log('  ✓ Incidents');
+    console.log("Monitoring:");
+    if (this.config.monitorCommits) console.log("  ✓ Git commits");
+    if (this.config.monitorTelemetry) console.log("  ✓ Live telemetry");
+    if (this.config.monitorIncidents) console.log("  ✓ Incidents");
 
-    console.log('\nEscalation channels:');
+    console.log("\nEscalation channels:");
     for (const channel of this.config.escalationChannels) {
       console.log(`  ✓ ${channel}`);
     }
 
-    console.log('\n');
+    console.log("\n");
 
     // Start monitoring tasks
     if (this.config.monitorCommits) {
@@ -110,16 +115,16 @@ class Level8Sentinel extends EventEmitter {
       this.startIncidentMonitoring();
     }
 
-    this.emit('started', { projectPath });
+    this.emit("started", { projectPath });
 
-    console.log('[Sentinel] Monitoring active...\n');
+    console.log("[Sentinel] Monitoring active...\n");
   }
 
   /**
    * Stop Sentinel Mode
    */
   async stop() {
-    console.log('[Sentinel] Stopping monitoring...');
+    console.log("[Sentinel] Stopping monitoring...");
 
     this.state.active = false;
 
@@ -130,16 +135,16 @@ class Level8Sentinel extends EventEmitter {
 
     this.intervals = [];
 
-    this.emit('stopped');
+    this.emit("stopped");
 
-    console.log('[Sentinel] Monitoring stopped\n');
+    console.log("[Sentinel] Monitoring stopped\n");
   }
 
   /**
    * Monitor git commits for security/quality issues
    */
   startCommitMonitoring(projectPath) {
-    console.log('[Sentinel] Starting commit monitoring...');
+    console.log("[Sentinel] Starting commit monitoring...");
 
     const interval = setInterval(async () => {
       if (!this.state.active) return;
@@ -151,9 +156,8 @@ class Level8Sentinel extends EventEmitter {
         for (const commit of commits) {
           await this.analyzeCommit(commit, projectPath);
         }
-
       } catch (error) {
-        this.handleError('commit-monitoring', error);
+        this.handleError("commit-monitoring", error);
       }
     }, this.config.pollingInterval);
 
@@ -164,7 +168,7 @@ class Level8Sentinel extends EventEmitter {
    * Monitor telemetry for anomalies
    */
   startTelemetryMonitoring() {
-    console.log('[Sentinel] Starting telemetry monitoring...');
+    console.log("[Sentinel] Starting telemetry monitoring...");
 
     const interval = setInterval(async () => {
       if (!this.state.active) return;
@@ -175,24 +179,23 @@ class Level8Sentinel extends EventEmitter {
         // Check thresholds
         if (telemetry.errorRate > this.config.thresholds.errorRate) {
           await this.handleIncident({
-            type: 'high-error-rate',
-            severity: 'HIGH',
-            message: `Error rate ${(telemetry.errorRate * 100).toFixed(2)}% exceeds threshold ${(this.config.thresholds.errorRate * 100)}%`,
-            telemetry
+            type: "high-error-rate",
+            severity: "HIGH",
+            message: `Error rate ${(telemetry.errorRate * 100).toFixed(2)}% exceeds threshold ${this.config.thresholds.errorRate * 100}%`,
+            telemetry,
           });
         }
 
         if (telemetry.avgResponseTime > this.config.thresholds.responseTime) {
           await this.handleIncident({
-            type: 'slow-response',
-            severity: 'MEDIUM',
+            type: "slow-response",
+            severity: "MEDIUM",
             message: `Average response time ${telemetry.avgResponseTime}ms exceeds threshold ${this.config.thresholds.responseTime}ms`,
-            telemetry
+            telemetry,
           });
         }
-
       } catch (error) {
-        this.handleError('telemetry-monitoring', error);
+        this.handleError("telemetry-monitoring", error);
       }
     }, this.config.pollingInterval);
 
@@ -203,7 +206,7 @@ class Level8Sentinel extends EventEmitter {
    * Monitor for security incidents
    */
   startIncidentMonitoring() {
-    console.log('[Sentinel] Starting incident monitoring...');
+    console.log("[Sentinel] Starting incident monitoring...");
 
     const interval = setInterval(async () => {
       if (!this.state.active) return;
@@ -215,9 +218,8 @@ class Level8Sentinel extends EventEmitter {
         for (const incident of incidents) {
           await this.handleIncident(incident);
         }
-
       } catch (error) {
-        this.handleError('incident-monitoring', error);
+        this.handleError("incident-monitoring", error);
       }
     }, this.config.pollingInterval);
 
@@ -228,7 +230,9 @@ class Level8Sentinel extends EventEmitter {
    * Analyze a git commit
    */
   async analyzeCommit(commit, projectPath) {
-    console.log(`[Sentinel] Analyzing commit ${commit.sha.slice(0, 7)}: ${commit.message}`);
+    console.log(
+      `[Sentinel] Analyzing commit ${commit.sha.slice(0, 7)}: ${commit.message}`,
+    );
 
     // Get changed files
     const changedFiles = await this.getCommitChanges(commit.sha, projectPath);
@@ -242,30 +246,31 @@ class Level8Sentinel extends EventEmitter {
 
         // Use ensemble for maximum accuracy
         const result = await this.ensemble.analyzeWithEnsemble(
-          'security-god',
+          "security-god",
           file.path,
           content,
           projectPath,
-          { budget: 0.05 }
+          { budget: 0.05 },
         );
 
         findings.push(...(result.issues || []));
-
       } catch (error) {
         console.error(`   Error analyzing ${file.path}:`, error.message);
       }
     }
 
     // Check for critical/high findings
-    const critical = findings.filter(f => f.severity === 'HIGH' || f.severity === 'CRITICAL');
+    const critical = findings.filter(
+      (f) => f.severity === "HIGH" || f.severity === "CRITICAL",
+    );
 
     if (critical.length > 0) {
       await this.handleIncident({
-        type: 'commit-security-issue',
-        severity: 'HIGH',
+        type: "commit-security-issue",
+        severity: "HIGH",
         message: `Commit ${commit.sha.slice(0, 7)} introduced ${critical.length} security issues`,
         commit,
-        findings: critical
+        findings: critical,
       });
     }
   }
@@ -281,10 +286,10 @@ class Level8Sentinel extends EventEmitter {
     this.state.incidents.push({
       ...incident,
       timestamp: new Date().toISOString(),
-      status: 'detected'
+      status: "detected",
     });
 
-    this.emit('incident', incident);
+    this.emit("incident", incident);
 
     // Phase 3: correlate with known findings and learn from this incident
     try {
@@ -294,18 +299,24 @@ class Level8Sentinel extends EventEmitter {
         error: incident.message || incident.type,
         stackTrace: incident.stackTrace,
         severity: incident.severity,
-        source: incident.source || 'sentinel'
+        source: incident.source || "sentinel",
       });
 
       if (correlation.newRuleCandidate) {
-        console.log(`   💡 New rule candidate: ${correlation.newRuleCandidate.ruleId}`);
-        this.emit('new-rule-candidate', correlation.newRuleCandidate);
+        console.log(
+          `   💡 New rule candidate: ${correlation.newRuleCandidate.ruleId}`,
+        );
+        this.emit("new-rule-candidate", correlation.newRuleCandidate);
       }
 
       if (correlation.correlatedFindings.length > 0) {
-        console.log(`   🔗 Correlated to ${correlation.correlatedFindings.length} known finding(s)`);
+        console.log(
+          `   🔗 Correlated to ${correlation.correlatedFindings.length} known finding(s)`,
+        );
         // Boost confidence weights for the correlated categories
-        const categories = correlation.correlatedFindings.map(f => ({ category: f.category })).filter(c => c.category);
+        const categories = correlation.correlatedFindings
+          .map((f) => ({ category: f.category }))
+          .filter((c) => c.category);
         if (categories.length > 0) {
           await this.feedbackLoop.updateConfidenceFromProduction(categories);
         }
@@ -316,31 +327,31 @@ class Level8Sentinel extends EventEmitter {
 
     // Auto-remediate if enabled
     if (this.config.autoRemediate && this.shouldAutoRemediate(incident)) {
-      console.log('   Attempting automatic remediation...');
+      console.log("   Attempting automatic remediation...");
 
       const remediation = await this.autoRemediate(incident);
 
       if (remediation.success) {
-        console.log('   ✓ Incident auto-remediated');
-        incident.status = 'remediated';
+        console.log("   ✓ Incident auto-remediated");
+        incident.status = "remediated";
         incident.remediation = remediation;
 
         this.state.remediations.push(remediation);
-        this.emit('remediated', { incident, remediation });
+        this.emit("remediated", { incident, remediation });
 
         return;
       } else {
-        console.log('   ✗ Auto-remediation failed');
-        incident.status = 'escalated';
+        console.log("   ✗ Auto-remediation failed");
+        incident.status = "escalated";
       }
     }
 
     // Escalate to humans
-    console.log('   Escalating to humans...');
+    console.log("   Escalating to humans...");
     await this.escalateIncident(incident);
 
-    incident.status = 'escalated';
-    this.emit('escalated', incident);
+    incident.status = "escalated";
+    this.emit("escalated", incident);
   }
 
   /**
@@ -353,7 +364,7 @@ class Level8Sentinel extends EventEmitter {
     }
 
     // Only auto-remediate medium/low severity
-    if (incident.severity === 'CRITICAL' || incident.severity === 'HIGH') {
+    if (incident.severity === "CRITICAL" || incident.severity === "HIGH") {
       return false;
     }
 
@@ -373,12 +384,11 @@ class Level8Sentinel extends EventEmitter {
           success: results.applied > 0,
           applied: results.applied,
           cost: results.cost,
-          details: results
+          details: results,
         };
       }
 
-      return { success: false, reason: 'No automated fix available' };
-
+      return { success: false, reason: "No automated fix available" };
     } catch (error) {
       return { success: false, error: error.message };
     }
@@ -391,7 +401,7 @@ class Level8Sentinel extends EventEmitter {
     const escalation = {
       incident,
       timestamp: new Date().toISOString(),
-      channels: []
+      channels: [],
     };
 
     for (const channel of this.config.escalationChannels) {
@@ -421,23 +431,23 @@ class Level8Sentinel extends EventEmitter {
     };
 
     switch (channel) {
-      case 'console':
-        console.log('\n📢 ESCALATION:');
+      case "console":
+        console.log("\n📢 ESCALATION:");
         console.log(`   Type: ${incident.type}`);
         console.log(`   Severity: ${incident.severity}`);
         console.log(`   Message: ${incident.message}`);
         console.log(`   Action required: Manual review and remediation\n`);
         break;
 
-      case 'slack':
+      case "slack":
         await this.sendSlackNotification(payload);
         break;
 
-      case 'pagerduty':
+      case "pagerduty":
         await this.sendPagerDutyAlert(payload);
         break;
 
-      case 'email':
+      case "email":
         await this.sendEmailNotification(payload);
         break;
 
@@ -452,36 +462,41 @@ class Level8Sentinel extends EventEmitter {
   async sendSlackNotification(payload) {
     const webhookUrl = process.env.SENTINEL_SLACK_WEBHOOK;
     if (!webhookUrl) {
-      console.log('   [Slack] No webhook URL configured (SENTINEL_SLACK_WEBHOOK)');
+      console.log(
+        "   [Slack] No webhook URL configured (SENTINEL_SLACK_WEBHOOK)",
+      );
       return;
     }
 
     try {
       const response = await fetch(webhookUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           text: `🚨 *${payload.severity} INCIDENT*: ${payload.type}`,
           blocks: [
             {
-              type: 'section',
+              type: "section",
               text: {
-                type: 'mrkdwn',
-                text: `*Severity:* ${payload.severity}\n*Type:* ${payload.type}\n*Message:* ${payload.message}`
-              }
+                type: "mrkdwn",
+                text: `*Severity:* ${payload.severity}\n*Type:* ${payload.type}\n*Message:* ${payload.message}`,
+              },
             },
             {
-              type: 'context',
+              type: "context",
               elements: [
-                { type: 'mrkdwn', text: `Project: \`${payload.project}\` | ${payload.timestamp}` }
-              ]
-            }
-          ]
-        })
+                {
+                  type: "mrkdwn",
+                  text: `Project: \`${payload.project}\` | ${payload.timestamp}`,
+                },
+              ],
+            },
+          ],
+        }),
       });
       console.log(`   [Slack] Notification sent (${response.status})`);
     } catch (error) {
-      console.error('   [Slack] Failed to send:', error.message);
+      console.error("   [Slack] Failed to send:", error.message);
     }
   }
 
@@ -491,29 +506,36 @@ class Level8Sentinel extends EventEmitter {
   async sendPagerDutyAlert(payload) {
     const routingKey = process.env.SENTINEL_PAGERDUTY_KEY;
     if (!routingKey) {
-      console.log('   [PagerDuty] No routing key configured (SENTINEL_PAGERDUTY_KEY)');
+      console.log(
+        "   [PagerDuty] No routing key configured (SENTINEL_PAGERDUTY_KEY)",
+      );
       return;
     }
 
     try {
-      const response = await fetch('https://events.pagerduty.com/v2/enqueue', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+      const response = await fetch("https://events.pagerduty.com/v2/enqueue", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           routing_key: routingKey,
-          event_action: 'trigger',
+          event_action: "trigger",
           dedup_key: `sentinel-${payload.type}-${Date.now()}`,
           payload: {
             summary: `[CodeTitan Sentinel] ${payload.severity}: ${payload.message}`,
-            severity: payload.severity === 'CRITICAL' ? 'critical' : payload.severity === 'HIGH' ? 'error' : 'warning',
-            source: 'codetitan-sentinel',
-            custom_details: payload
-          }
-        })
+            severity:
+              payload.severity === "CRITICAL"
+                ? "critical"
+                : payload.severity === "HIGH"
+                  ? "error"
+                  : "warning",
+            source: "codetitan-sentinel",
+            custom_details: payload,
+          },
+        }),
       });
       console.log(`   [PagerDuty] Alert created (${response.status})`);
     } catch (error) {
-      console.error('   [PagerDuty] Failed to send:', error.message);
+      console.error("   [PagerDuty] Failed to send:", error.message);
     }
   }
 
@@ -525,14 +547,16 @@ class Level8Sentinel extends EventEmitter {
     const emailTo = process.env.SENTINEL_EMAIL_TO;
 
     if (!emailEndpoint || !emailTo) {
-      console.log('   [Email] No endpoint/recipient configured (SENTINEL_EMAIL_ENDPOINT, SENTINEL_EMAIL_TO)');
+      console.log(
+        "   [Email] No endpoint/recipient configured (SENTINEL_EMAIL_ENDPOINT, SENTINEL_EMAIL_TO)",
+      );
       return;
     }
 
     try {
       const response = await fetch(emailEndpoint, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           to: emailTo,
           subject: `[CodeTitan Alert] ${payload.severity}: ${payload.type}`,
@@ -543,12 +567,12 @@ class Level8Sentinel extends EventEmitter {
             <p><strong>Message:</strong> ${payload.message}</p>
             <p><strong>Project:</strong> ${payload.project}</p>
             <p><strong>Time:</strong> ${payload.timestamp}</p>
-          `
-        })
+          `,
+        }),
       });
       console.log(`   [Email] Notification sent (${response.status})`);
     } catch (error) {
-      console.error('   [Email] Failed to send:', error.message);
+      console.error("   [Email] Failed to send:", error.message);
     }
   }
 
@@ -557,7 +581,7 @@ class Level8Sentinel extends EventEmitter {
    */
   handleError(source, error) {
     console.error(`[Sentinel] Error in ${source}:`, error.message);
-    this.emit('error', { source, error });
+    this.emit("error", { source, error });
   }
 
   /**
@@ -566,7 +590,7 @@ class Level8Sentinel extends EventEmitter {
    */
   async getRecentCommits(projectPath) {
     try {
-      const simpleGit = require('simple-git');
+      const simpleGit = require("simple-git");
       const git = simpleGit(projectPath);
 
       // Get commits from the last hour (or since last check)
@@ -575,21 +599,21 @@ class Level8Sentinel extends EventEmitter {
         : new Date(Date.now() - 3600000).toISOString(); // 1 hour ago
 
       const log = await git.log({
-        '--since': since,
-        maxCount: 10
+        "--since": since,
+        maxCount: 10,
       });
 
       this.state.lastCheck = new Date().toISOString();
 
-      return log.all.map(commit => ({
+      return log.all.map((commit) => ({
         sha: commit.hash,
         message: commit.message,
         author: commit.author_name,
         date: commit.date,
-        files: [] // Will be populated by getCommitChanges
+        files: [], // Will be populated by getCommitChanges
       }));
     } catch (error) {
-      console.error('[Sentinel] Failed to get commits:', error.message);
+      console.error("[Sentinel] Failed to get commits:", error.message);
       return [];
     }
   }
@@ -600,29 +624,35 @@ class Level8Sentinel extends EventEmitter {
    */
   async getCommitChanges(sha, projectPath) {
     try {
-      const simpleGit = require('simple-git');
+      const simpleGit = require("simple-git");
       const git = simpleGit(projectPath);
-      const path = require('path');
+      const path = require("path");
 
       // Get the diff for this commit
-      const diff = await git.diff([`${sha}^`, sha, '--name-status']);
+      const diff = await git.diff([`${sha}^`, sha, "--name-status"]);
 
-      const changes = diff.split('\n')
-        .filter(line => line.trim())
-        .map(line => {
-          const [status, ...fileParts] = line.split('\t');
-          const file = fileParts.join('\t');
+      const changes = diff
+        .split("\n")
+        .filter((line) => line.trim())
+        .map((line) => {
+          const [status, ...fileParts] = line.split("\t");
+          const file = fileParts.join("\t");
           return {
-            status: status === 'A' ? 'added' : status === 'D' ? 'deleted' : 'modified',
+            status:
+              status === "A"
+                ? "added"
+                : status === "D"
+                  ? "deleted"
+                  : "modified",
             path: path.join(projectPath, file),
-            relativePath: file
+            relativePath: file,
           };
         })
-        .filter(change => /\.(js|jsx|ts|tsx|py|java|go)$/.test(change.path));
+        .filter((change) => /\.(js|jsx|ts|tsx|py|java|go)$/.test(change.path));
 
       return changes;
     } catch (error) {
-      console.error('[Sentinel] Failed to get commit changes:', error.message);
+      console.error("[Sentinel] Failed to get commit changes:", error.message);
       return [];
     }
   }
@@ -631,8 +661,8 @@ class Level8Sentinel extends EventEmitter {
    * Read file content safely
    */
   async readFile(filePath) {
-    const fs = require('fs').promises;
-    return fs.readFile(filePath, 'utf-8');
+    const fs = require("fs").promises;
+    return fs.readFile(filePath, "utf-8");
   }
 
   /**
@@ -640,26 +670,28 @@ class Level8Sentinel extends EventEmitter {
    * Integrates with process metrics and optional external sources
    */
   async collectTelemetry() {
-    const os = require('os');
+    const os = require("os");
 
     // Collect real system metrics
-    const cpuUsage = os.loadavg()[0] / os.cpus().length * 100;
+    const cpuUsage = (os.loadavg()[0] / os.cpus().length) * 100;
     const totalMem = os.totalmem();
     const freeMem = os.freemem();
     const memoryUsage = ((totalMem - freeMem) / totalMem) * 100;
 
     // Simulated application metrics (would integrate with APM in production)
-    const errorRate = this.state.incidents.filter(
-      i => i.type === 'error' &&
-        new Date(i.timestamp) > new Date(Date.now() - 300000) // Last 5 min
-    ).length / 100;
+    const errorRate =
+      this.state.incidents.filter(
+        (i) =>
+          i.type === "error" &&
+          new Date(i.timestamp) > new Date(Date.now() - 300000), // Last 5 min
+      ).length / 100;
 
     return {
       errorRate: Math.min(errorRate, 0.1),
       avgResponseTime: 100 + Math.random() * 100, // Would come from APM
       cpuUsage: Math.min(cpuUsage, 100),
       memoryUsage: Math.min(memoryUsage, 100),
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
     };
   }
 
@@ -674,15 +706,19 @@ class Level8Sentinel extends EventEmitter {
     // In production, this would integrate with security tools (Snyk, etc.)
 
     // Check for high severity findings in recent commits
-    if (this.state.incidents.some(i =>
-      i.severity === 'CRITICAL' &&
-      i.status !== 'remediated' &&
-      new Date(i.timestamp) > new Date(Date.now() - 3600000)
-    )) {
+    if (
+      this.state.incidents.some(
+        (i) =>
+          i.severity === "CRITICAL" &&
+          i.status !== "remediated" &&
+          new Date(i.timestamp) > new Date(Date.now() - 3600000),
+      )
+    ) {
       incidents.push({
-        type: 'unresolved-critical',
-        severity: 'HIGH',
-        message: 'Unresolved critical security issue detected in recent commits'
+        type: "unresolved-critical",
+        severity: "HIGH",
+        message:
+          "Unresolved critical security issue detected in recent commits",
       });
     }
 
@@ -700,7 +736,7 @@ class Level8Sentinel extends EventEmitter {
       incidents: this.state.incidents.length,
       remediations: this.state.remediations.length,
       escalations: this.state.escalations.length,
-      uptime: this.state.active ? Date.now() - this.state.startTime : 0
+      uptime: this.state.active ? Date.now() - this.state.startTime : 0,
     };
   }
 }

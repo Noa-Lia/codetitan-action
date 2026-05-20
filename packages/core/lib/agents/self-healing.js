@@ -1,4 +1,4 @@
-const FixerRunner = require('../fixer-runner');
+const FixerRunner = require("../fixer-runner");
 
 class SelfHealingAgent {
   constructor({ projectRoot }) {
@@ -6,7 +6,10 @@ class SelfHealingAgent {
   }
 
   async proposeFixes(report) {
-    const runner = new FixerRunner({ projectRoot: this.projectRoot, enableWrites: false });
+    const runner = new FixerRunner({
+      projectRoot: this.projectRoot,
+      enableWrites: false,
+    });
     return runner.applyFixes(report, { dryRun: true });
   }
 }

@@ -5,39 +5,39 @@
  * Wraps domain-analyzers.js security heuristics with enhanced reporting and auto-fix capabilities.
  */
 
-const path = require('path');
-const { analyzeDomain } = require('../domain-analyzers');
-const ToolBridge = require('../tool-bridge');
+const path = require("path");
+const { analyzeDomain } = require("../domain-analyzers");
+const ToolBridge = require("../tool-bridge");
 
 class SecurityGodAgent {
   constructor(options = {}) {
     this.options = {
       projectRoot: options.projectRoot || process.cwd(),
       enableAutoFix: options.enableAutoFix || false,
-      ...options
+      ...options,
     };
 
     this.toolBridge = new ToolBridge({
       workingDirectory: this.options.projectRoot,
       enableFileOperations: true,
-      enableBackups: true
+      enableBackups: true,
     });
 
     this.capabilities = [
-      'vulnerability_detection',
-      'sql_injection_detection',
-      'xss_detection',
-      'secrets_scanning',
-      'command_injection_detection',
-      'auto_fix',
-      'security_analysis'
+      "vulnerability_detection",
+      "sql_injection_detection",
+      "xss_detection",
+      "secrets_scanning",
+      "command_injection_detection",
+      "auto_fix",
+      "security_analysis",
     ];
 
     this.metrics = {
       filesScanned: 0,
       vulnerabilitiesFound: 0,
       criticalIssues: 0,
-      fixesApplied: 0
+      fixesApplied: 0,
     };
   }
 
@@ -53,54 +53,63 @@ class SecurityGodAgent {
 
     try {
       // Read file content
-      const readResult = await this.toolBridge.read(path.relative(this.options.projectRoot, absolutePath));
+      const readResult = await this.toolBridge.read(
+        path.relative(this.options.projectRoot, absolutePath),
+      );
 
       if (!readResult.success) {
         return {
           success: false,
           file: filePath,
-          error: readResult.error
+          error: readResult.error,
         };
       }
 
       const content = readResult.content;
 
       // Run security analysis using existing domain analyzer
-      const analysis = analyzeDomain('security-god', absolutePath, content, this.options.projectRoot);
+      const analysis = analyzeDomain(
+        "security-god",
+        absolutePath,
+        content,
+        this.options.projectRoot,
+      );
 
       // Update metrics
       this.metrics.filesScanned++;
       this.metrics.vulnerabilitiesFound += analysis.issues.length;
-      this.metrics.criticalIssues += analysis.issues.filter(i => i.severity === 'CRITICAL' || i.severity === 'HIGH').length;
+      this.metrics.criticalIssues += analysis.issues.filter(
+        (i) => i.severity === "CRITICAL" || i.severity === "HIGH",
+      ).length;
 
       // Categorize issues by type
       const categorized = this.categorizeIssues(analysis.issues);
 
       return {
         success: true,
-        agent: 'security-god',
+        agent: "security-god",
         file: filePath,
         absolutePath: absolutePath,
         summary: {
           totalIssues: analysis.issues.length,
-          critical: analysis.issues.filter(i => i.severity === 'CRITICAL').length,
-          high: analysis.issues.filter(i => i.severity === 'HIGH').length,
-          medium: analysis.issues.filter(i => i.severity === 'MEDIUM').length,
-          low: analysis.issues.filter(i => i.severity === 'LOW').length
+          critical: analysis.issues.filter((i) => i.severity === "CRITICAL")
+            .length,
+          high: analysis.issues.filter((i) => i.severity === "HIGH").length,
+          medium: analysis.issues.filter((i) => i.severity === "MEDIUM").length,
+          low: analysis.issues.filter((i) => i.severity === "LOW").length,
         },
         issues: analysis.issues,
         categorized: categorized,
         metadata: analysis.metadata,
         linesAnalyzed: analysis.linesAnalyzed,
-        executionTime: analysis.executionTime
+        executionTime: analysis.executionTime,
       };
-
     } catch (error) {
       return {
         success: false,
-        agent: 'security-god',
+        agent: "security-god",
         file: filePath,
-        error: error.message
+        error: error.message,
       };
     }
   }
@@ -114,10 +123,10 @@ class SecurityGodAgent {
   async scanDirectory(directoryPath, options = {}) {
     const {
       maxFiles = 100,
-      filePattern = /\.(js|ts|jsx|tsx|py|php|java|rb|go)$/
+      filePattern = /\.(js|ts|jsx|tsx|py|php|java|rb|go)$/,
     } = options;
 
-    const fs = require('fs').promises;
+    const fs = require("fs").promises;
     const files = [];
 
     // Recursive file discovery
@@ -133,7 +142,7 @@ class SecurityGodAgent {
 
         if (entry.isDirectory()) {
           // Skip node_modules, .git, etc
-          if (!entry.name.startsWith('.') && entry.name !== 'node_modules') {
+          if (!entry.name.startsWith(".") && entry.name !== "node_modules") {
             await walkDir(fullPath);
           }
         } else if (entry.isFile() && filePattern.test(entry.name)) {
@@ -156,7 +165,7 @@ class SecurityGodAgent {
     // Aggregate results
     return {
       success: true,
-      agent: 'security-god',
+      agent: "security-god",
       directory: directoryPath,
       filesScanned: files.length,
       filesWithIssues: results.length,
@@ -165,10 +174,10 @@ class SecurityGodAgent {
         critical: results.reduce((sum, r) => sum + r.summary.critical, 0),
         high: results.reduce((sum, r) => sum + r.summary.high, 0),
         medium: results.reduce((sum, r) => sum + r.summary.medium, 0),
-        low: results.reduce((sum, r) => sum + r.summary.low, 0)
+        low: results.reduce((sum, r) => sum + r.summary.low, 0),
       },
       results: results,
-      metrics: { ...this.metrics }
+      metrics: { ...this.metrics },
     };
   }
 
@@ -178,8 +187,8 @@ class SecurityGodAgent {
   categorizeIssues(issues) {
     const categories = {};
 
-    issues.forEach(issue => {
-      const category = issue.category || 'UNKNOWN';
+    issues.forEach((issue) => {
+      const category = issue.category || "UNKNOWN";
       if (!categories[category]) {
         categories[category] = [];
       }
@@ -195,7 +204,7 @@ class SecurityGodAgent {
   getTopIssues(n = 10) {
     // This would be enhanced to track issues across scans
     return {
-      message: 'Top issues tracking not yet implemented in this version'
+      message: "Top issues tracking not yet implemented in this version",
     };
   }
 
@@ -206,9 +215,9 @@ class SecurityGodAgent {
     const { summary, filesScanned, filesWithIssues, totalIssues } = scanResults;
 
     const report = {
-      title: 'Security God Analysis Report',
+      title: "Security God Analysis Report",
       timestamp: new Date().toISOString(),
-      agent: 'security-god',
+      agent: "security-god",
       tier: 2,
 
       overview: {
@@ -217,14 +226,14 @@ class SecurityGodAgent {
         totalVulnerabilities: totalIssues,
         criticalVulnerabilities: summary.critical,
         highVulnerabilities: summary.high,
-        securityGrade: this.calculateSecurityGrade(summary)
+        securityGrade: this.calculateSecurityGrade(summary),
       },
 
       breakdown: summary,
 
       recommendations: this.generateRecommendations(summary),
 
-      metrics: { ...this.metrics }
+      metrics: { ...this.metrics },
     };
 
     return report;
@@ -234,18 +243,18 @@ class SecurityGodAgent {
    * Calculate security grade (A-F) based on vulnerabilities found
    */
   calculateSecurityGrade(summary) {
-    const score = 100 - (
-      summary.critical * 20 +
-      summary.high * 10 +
-      summary.medium * 5 +
-      summary.low * 1
-    );
+    const score =
+      100 -
+      (summary.critical * 20 +
+        summary.high * 10 +
+        summary.medium * 5 +
+        summary.low * 1);
 
-    if (score >= 90) return 'A';
-    if (score >= 80) return 'B';
-    if (score >= 70) return 'C';
-    if (score >= 60) return 'D';
-    return 'F';
+    if (score >= 90) return "A";
+    if (score >= 80) return "B";
+    if (score >= 70) return "C";
+    if (score >= 60) return "D";
+    return "F";
   }
 
   /**
@@ -256,37 +265,37 @@ class SecurityGodAgent {
 
     if (summary.critical > 0) {
       recommendations.push({
-        priority: 'URGENT',
+        priority: "URGENT",
         action: `Fix ${summary.critical} CRITICAL vulnerabilities immediately`,
-        impact: 'System compromise, data breach, production outage',
-        effort: 'Hours to days'
+        impact: "System compromise, data breach, production outage",
+        effort: "Hours to days",
       });
     }
 
     if (summary.high > 0) {
       recommendations.push({
-        priority: 'HIGH',
+        priority: "HIGH",
         action: `Address ${summary.high} HIGH severity vulnerabilities`,
-        impact: 'Exploitation likely, significant security risk',
-        effort: 'Days to week'
+        impact: "Exploitation likely, significant security risk",
+        effort: "Days to week",
       });
     }
 
     if (summary.medium > 5) {
       recommendations.push({
-        priority: 'MEDIUM',
+        priority: "MEDIUM",
         action: `Remediate ${summary.medium} MEDIUM severity issues`,
-        impact: 'Reduces attack surface, improves security posture',
-        effort: 'Week to weeks'
+        impact: "Reduces attack surface, improves security posture",
+        effort: "Week to weeks",
       });
     }
 
     if (summary.low > 10) {
       recommendations.push({
-        priority: 'LOW',
+        priority: "LOW",
         action: `Clean up ${summary.low} minor security issues`,
-        impact: 'Security hygiene, defense in depth',
-        effort: 'Quick wins for security hardening'
+        impact: "Security hygiene, defense in depth",
+        effort: "Quick wins for security hardening",
       });
     }
 
@@ -308,7 +317,7 @@ class SecurityGodAgent {
       filesScanned: 0,
       vulnerabilitiesFound: 0,
       criticalIssues: 0,
-      fixesApplied: 0
+      fixesApplied: 0,
     };
   }
 }

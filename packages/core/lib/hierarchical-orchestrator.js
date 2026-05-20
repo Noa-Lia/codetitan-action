@@ -7,21 +7,21 @@
  * Phase 3 Component 1
  */
 
-const fs = require('fs').promises;
-const path = require('path');
-const { AIProviderManager } = require('./ai-providers');
-const { analyzeDomain: heuristicAnalyze } = require('./domain-analyzers');
-const CacheManager = require('./cache-manager');
+const fs = require("fs").promises;
+const path = require("path");
+const { AIProviderManager } = require("./ai-providers");
+const { analyzeDomain: heuristicAnalyze } = require("./domain-analyzers");
+const CacheManager = require("./cache-manager");
 
 class HierarchicalOrchestrator {
   constructor() {
     // 5 Domain Titans
     this.domainGods = [
-      'security-god',
-      'performance-god',
-      'test-god',
-      'refactoring-god',
-      'documentation-god'
+      "security-god",
+      "performance-god",
+      "test-god",
+      "refactoring-god",
+      "documentation-god",
     ];
     this.selectedDomains = [...this.domainGods];
 
@@ -40,16 +40,16 @@ class HierarchicalOrchestrator {
 
     // Cache manager (keyed per file content hash — avoids re-analyzing unchanged files)
     this.cacheManager = new CacheManager({
-      cacheDir: path.join(process.cwd(), '.codetitan-cache'),
-      ttl: 24 * 60 * 60 * 1000 // 24h
+      cacheDir: path.join(process.cwd(), ".codetitan-cache"),
+      ttl: 24 * 60 * 60 * 1000, // 24h
     });
 
     // Cost tracking for this run
     this.costTracker = {
       totalUSD: 0,
-      budgetLimitUSD: 1.00, // default $1 cap per run
+      budgetLimitUSD: 1.0, // default $1 cap per run
       apiCallCount: 0,
-      cacheHits: 0
+      cacheHits: 0,
     };
 
     // Metrics
@@ -59,7 +59,7 @@ class HierarchicalOrchestrator {
       completedTasks: 0,
       failedTasks: 0,
       startTime: null,
-      endTime: null
+      endTime: null,
     };
   }
 
@@ -71,12 +71,13 @@ class HierarchicalOrchestrator {
     this.projectRoot = projectPath;
     this.verbose = options.verbose !== false;
     this.taskOptions = options;
-    this.noAi = options.noAi === true || options['no-ai'] === true;
-    if (options.budget) this.costTracker.budgetLimitUSD = parseFloat(options.budget);
+    this.noAi = options.noAi === true || options["no-ai"] === true;
+    if (options.budget)
+      this.costTracker.budgetLimitUSD = parseFloat(options.budget);
 
     if (this.verbose) {
       console.log(`\n[START] Starting full analysis of: ${projectPath}`);
-      if (this.noAi) console.log('[INFO] --no-ai: heuristic-only mode');
+      if (this.noAi) console.log("[INFO] --no-ai: heuristic-only mode");
     }
 
     // Initialize cache
@@ -98,12 +99,15 @@ class HierarchicalOrchestrator {
       this.selectedDomains = domains;
 
       // Initialize AI provider manager (heuristics fallback if no keys)
-      this.aiManager = options.aiManager || new AIProviderManager(options.aiConfig || {});
+      this.aiManager =
+        options.aiManager || new AIProviderManager(options.aiConfig || {});
 
       // Step 3: Distribute files to ALL selected Domain Gods
       const taskDistribution = this.createTaskDistribution(files, domains);
       if (this.verbose) {
-        console.log(`[CHART] Distributed tasks across ${domains.length} Domain Titans`);
+        console.log(
+          `[CHART] Distributed tasks across ${domains.length} Domain Titans`,
+        );
       }
 
       // Step 4: Execute in waves (max 50 agents at a time)
@@ -112,9 +116,105 @@ class HierarchicalOrchestrator {
         console.log(`[OK] Completed analysis: ${results.length} results`);
       }
 
+      // Step 5: Cross-file JS/TS taint pass (project-wide, after per-file waves).
+      //
+      // 2026-05-18 js-wire-in: close the 6th-instance dead-code gap surfaced
+      // by `docs/plans/2026-05-18-js-cross-file-integration-audit.md`.
+      // `analyzeCrossFileTaint` (`packages/core/lib/cross-file-taint.js`)
+      // has lived dormant since the monorepo workspace sync — its only call
+      // site was `incremental-analyzer.js`, which has zero production
+      // consumers and is not on the public API surface
+      // (`packages/core/index.js`). This block is the first production wire
+      // for the JS cross-file taint analyzer.
+      //
+      // Shape mirrors the Python cross-file wire pattern (project-wide pass
+      // after `executeWaves`, gated on `>= 2` files of the relevant
+      // language, best-effort try/catch with stderr warn, results pushed in
+      // the `{god, file, findings:{issues:[...]}, metrics}` shape that
+      // `result-synthesis-engine.js:73-96` `collectFindings` consumes).
+      //
+      // A SEPARATE kill-switch is used (`disableCrossFileJs` / env
+      // `CODETITAN_DISABLE_CROSS_FILE_JS=1`) — distinct from the Python
+      // `disableCrossFile` flag — so operators can toggle Python and JS
+      // cross-file passes independently (mirrors the `disableGoTaint`
+      // precedent established by the Go wire-in arc).
+      try {
+        const disableCrossFileJs =
+          (this.taskOptions && this.taskOptions.disableCrossFileJs === true) ||
+          process.env.CODETITAN_DISABLE_CROSS_FILE_JS === "1";
+        // Match the analyzer's own `isJsTs` filter (`cross-file-taint.js:87-89`):
+        // .js, .ts, .jsx, .tsx, .mjs, .cjs. Re-declared here to avoid
+        // requiring the analyzer module when we're going to skip anyway.
+        const jsFiles = files.filter((f) =>
+          /\.(?:js|ts|jsx|tsx|mjs|cjs)$/i.test(f),
+        );
+        if (disableCrossFileJs && jsFiles.length >= 2) {
+          // Only log when a pass would otherwise have run — avoids a
+          // confusing "skipped" line on pure-Python/pure-Go repos with the
+          // env var set.
+          console.warn(
+            "[codetitan] js cross-file taint analysis skipped (disabled via " +
+              (process.env.CODETITAN_DISABLE_CROSS_FILE_JS === "1"
+                ? "CODETITAN_DISABLE_CROSS_FILE_JS=1 env"
+                : "disableCrossFileJs option") +
+              ")",
+          );
+        }
+        if (!disableCrossFileJs && jsFiles.length >= 2) {
+          // Lazy require: matches the Python wire pattern and keeps the
+          // analyzer module out of the load-path on pure-Python/pure-Go
+          // scans. Re-requiring is cheap once Node's module cache hits.
+          const { analyzeCrossFileTaint } = require("./cross-file-taint");
+          const crossFileFindings = await analyzeCrossFileTaint(
+            this.projectRoot,
+            files,
+            this.taskOptions || {},
+          );
+          for (const finding of crossFileFindings || []) {
+            results.push({
+              god: "security-god",
+              file: finding.file,
+              findings: {
+                issues: [
+                  {
+                    line: finding.line,
+                    column: finding.column || 0,
+                    severity: finding.severity,
+                    category: finding.category,
+                    message: finding.message,
+                    impact: finding.impact || 8,
+                    snippet: finding.snippet,
+                    taintPath: finding.taintPath,
+                  },
+                ],
+                linesAnalyzed: 0,
+                executionTime: 0,
+              },
+              metrics: {
+                linesAnalyzed: 0,
+                issuesFound: 1,
+                executionTime: 0,
+              },
+            });
+          }
+          if (this.verbose && crossFileFindings && crossFileFindings.length) {
+            console.log(
+              `[CROSS-FILE] JS/TS cross-file taint: ${crossFileFindings.length} findings across ${jsFiles.length} .js/.ts file(s)`,
+            );
+          }
+        }
+      } catch (err) {
+        // Best-effort: cross-file taint never crashes the main orchestration.
+        // Warn-log makes future regressions visible in stderr rather than
+        // silently producing zero cross-file findings.
+        console.warn(
+          "[codetitan] js cross-file: orchestrator-dispatch error:",
+          err && err.message ? err.message : err,
+        );
+      }
+
       this.metrics.endTime = Date.now();
       return results;
-
     } catch (error) {
       console.error(`[ERROR] Orchestration failed:`, error);
       this.metrics.endTime = Date.now();
@@ -136,12 +236,15 @@ class HierarchicalOrchestrator {
 
     // .codetitanignore — user-authored, takes precedence
     try {
-      const content = await fs.readFile(path.join(projectPath, '.codetitanignore'), 'utf8');
+      const content = await fs.readFile(
+        path.join(projectPath, ".codetitanignore"),
+        "utf8",
+      );
       for (const rawLine of content.split(/\r?\n/)) {
         const line = rawLine.trim();
-        if (!line || line.startsWith('#')) continue;
+        if (!line || line.startsWith("#")) continue;
         // Rule-specific suppressions like "path/to/file.js:RULE_ID" — extract the path part
-        const colonIdx = line.indexOf(':');
+        const colonIdx = line.indexOf(":");
         patterns.push(colonIdx > -1 ? line.slice(0, colonIdx) : line);
       }
     } catch (_) {
@@ -150,20 +253,23 @@ class HierarchicalOrchestrator {
 
     // .gitignore — respect the user's "not source" intent
     try {
-      const content = await fs.readFile(path.join(projectPath, '.gitignore'), 'utf8');
+      const content = await fs.readFile(
+        path.join(projectPath, ".gitignore"),
+        "utf8",
+      );
       for (const rawLine of content.split(/\r?\n/)) {
         const line = rawLine.trim();
-        if (!line || line.startsWith('#')) continue;
+        if (!line || line.startsWith("#")) continue;
         // Skip negation — the matcher has no un-ignore path. Losing negation semantics is
         // safe here because SKIP_DIRS already covers the dirs where negation typically applies.
-        if (line.startsWith('!')) continue;
+        if (line.startsWith("!")) continue;
         // Normalize gitignore anchoring markers so the matcher's prefix-regex lands:
         //   leading "/" — root-anchored marker; our matcher is already root-relative.
         //   trailing "/" — directory-only marker; the matcher uses "(/.*)?$" to
         //     cover subpaths, so a trailing "/" would force `publish-check/` to
         //     require a literal slash that `publish-check` (dir name alone) lacks.
-        let stripped = line.startsWith('/') ? line.slice(1) : line;
-        if (stripped.endsWith('/')) stripped = stripped.slice(0, -1);
+        let stripped = line.startsWith("/") ? line.slice(1) : line;
+        if (stripped.endsWith("/")) stripped = stripped.slice(0, -1);
         if (stripped) patterns.push(stripped);
       }
     } catch (_) {
@@ -178,20 +284,24 @@ class HierarchicalOrchestrator {
    * Supports ** glob wildcards and directory-prefix matching.
    */
   matchesIgnorePattern(absolutePath, projectPath, patterns) {
-    const relative = path.relative(projectPath, absolutePath).replace(/\\/g, '/');
+    const relative = path
+      .relative(projectPath, absolutePath)
+      .replace(/\\/g, "/");
     for (const pattern of patterns) {
-      const p = pattern.replace(/\\/g, '/');
+      const p = pattern.replace(/\\/g, "/");
       // Exact match
       if (p === relative) return true;
       // glob **  handling: convert to regex
       // Build regex: replace ** and * separately to avoid collision
-      const regexStr = '^' + p
-        .replace(/\*\*/g, '\x00GLOBSTAR\x00')   // stash ** before escaping
-        .replace(/\*/g, '\x00STAR\x00')         // stash * before escaping
-        .replace(/[.+^${}()|[\]\\]/g, '\\$&')  // escape regex special chars
-        .replace(/\x00GLOBSTAR\x00/g, '.*')     // ** → .* (any path segment)
-        .replace(/\x00STAR\x00/g, '[^/]*')      // * → single-segment wildcard
-        + '(/.*)?$';
+      const regexStr =
+        "^" +
+        p
+          .replace(/\*\*/g, "\x00GLOBSTAR\x00") // stash ** before escaping
+          .replace(/\*/g, "\x00STAR\x00") // stash * before escaping
+          .replace(/[.+^${}()|[\]\\]/g, "\\$&") // escape regex special chars
+          .replace(/\x00GLOBSTAR\x00/g, ".*") // ** → .* (any path segment)
+          .replace(/\x00STAR\x00/g, "[^/]*") + // * → single-segment wildcard
+        "(/.*)?$";
       if (new RegExp(regexStr).test(relative)) return true;
     }
     return false;
@@ -207,34 +317,45 @@ class HierarchicalOrchestrator {
     const resolvedIgnoreRoot = ignoreRoot || projectPath;
     const ignorePatterns = await this.loadIgnorePatterns(resolvedIgnoreRoot);
     if (this.verbose && ignorePatterns.length > 0) {
-      console.log(`[FILES] Loaded ${ignorePatterns.length} ignore pattern(s) from .codetitanignore + .gitignore`);
+      console.log(
+        `[FILES] Loaded ${ignorePatterns.length} ignore pattern(s) from .codetitanignore + .gitignore`,
+      );
     }
     const SKIP_DIRS = new Set([
-      'node_modules',
-      '.git',
-      '.codetitan',
-      '.codetitan-cache',
-      'dist',
-      'build',
-      'coverage',
-      '.next',
-      '.turbo',
-      'out',
-      'vendor',
-      '__pycache__',
-      'venv',
-      '.venv',
-      '.pytest_cache',
-      '.mypy_cache',
-      '.tox',
-      '.ruff_cache',
-      '.cache',
-      'site-packages'
+      "node_modules",
+      ".git",
+      ".codetitan",
+      ".codetitan-cache",
+      "dist",
+      "build",
+      "coverage",
+      ".next",
+      ".turbo",
+      "out",
+      "vendor",
+      "__pycache__",
+      "venv",
+      ".venv",
+      ".pytest_cache",
+      ".mypy_cache",
+      ".tox",
+      ".ruff_cache",
+      ".cache",
+      "site-packages",
     ]);
-    const SKIP_DIR_PREFIXES = ['.next'];
+    const SKIP_DIR_PREFIXES = [".next"];
 
     // File extensions to analyze
-    const extensions = ['.js', '.ts', '.jsx', '.tsx', '.py', '.java', '.go', '.rb'];
+    const extensions = [
+      ".js",
+      ".ts",
+      ".jsx",
+      ".tsx",
+      ".py",
+      ".java",
+      ".go",
+      ".rb",
+    ];
 
     const self = this;
     async function walk(dir) {
@@ -246,13 +367,33 @@ class HierarchicalOrchestrator {
 
           // Skip node_modules, .git, build directories, etc.
           if (entry.isDirectory()) {
-            if (SKIP_DIRS.has(entry.name) || SKIP_DIR_PREFIXES.some(prefix => entry.name.startsWith(prefix))) continue;
-            if (ignorePatterns.length > 0 && self.matchesIgnorePattern(fullPath, resolvedIgnoreRoot, ignorePatterns)) continue;
+            if (
+              SKIP_DIRS.has(entry.name) ||
+              SKIP_DIR_PREFIXES.some((prefix) => entry.name.startsWith(prefix))
+            )
+              continue;
+            if (
+              ignorePatterns.length > 0 &&
+              self.matchesIgnorePattern(
+                fullPath,
+                resolvedIgnoreRoot,
+                ignorePatterns,
+              )
+            )
+              continue;
             await walk(fullPath);
           } else if (entry.isFile()) {
             const ext = path.extname(entry.name);
             if (!extensions.includes(ext)) continue;
-            if (ignorePatterns.length > 0 && self.matchesIgnorePattern(fullPath, resolvedIgnoreRoot, ignorePatterns)) continue;
+            if (
+              ignorePatterns.length > 0 &&
+              self.matchesIgnorePattern(
+                fullPath,
+                resolvedIgnoreRoot,
+                ignorePatterns,
+              )
+            )
+              continue;
             files.push(fullPath);
           }
         }
@@ -276,14 +417,14 @@ class HierarchicalOrchestrator {
 
     const parsedLevel = parseInt(level, 10);
     const domainsByLevel = {
-      1: ['security-god'],
-      2: ['security-god', 'performance-god'],
-      3: ['security-god', 'performance-god', 'test-god'],
-      4: ['security-god', 'performance-god', 'test-god', 'refactoring-god'],
+      1: ["security-god"],
+      2: ["security-god", "performance-god"],
+      3: ["security-god", "performance-god", "test-god"],
+      4: ["security-god", "performance-god", "test-god", "refactoring-god"],
       5: [...this.domainGods],
       6: [...this.domainGods],
       7: [...this.domainGods],
-      8: [...this.domainGods]
+      8: [...this.domainGods],
     };
 
     return domainsByLevel[parsedLevel] || domainsByLevel[6];
@@ -295,7 +436,7 @@ class HierarchicalOrchestrator {
    */
   createTaskDistribution(files, domains = this.domainGods) {
     const distribution = {};
-    domains.forEach(god => {
+    domains.forEach((god) => {
       distribution[god] = files;
     });
 
@@ -312,13 +453,15 @@ class HierarchicalOrchestrator {
     // Convert distribution to flat array of tasks
     const allTasks = [];
     Object.entries(taskDistribution).forEach(([god, files]) => {
-      files.forEach(file => {
+      files.forEach((file) => {
         allTasks.push({ god, file });
       });
     });
 
     if (this.verbose) {
-      console.log(`\n[BOLT] Executing ${allTasks.length} tasks in waves of ${this.maxConcurrent}`);
+      console.log(
+        `\n[BOLT] Executing ${allTasks.length} tasks in waves of ${this.maxConcurrent}`,
+      );
     }
 
     // Execute in waves
@@ -330,16 +473,18 @@ class HierarchicalOrchestrator {
       const end = Math.min(start + batchSize, allTasks.length);
       const waveTasks = allTasks.slice(start, end);
 
-      console.log(`\n🌊 Wave ${waveNum + 1}/${totalWaves}: Processing ${waveTasks.length} files`);
+      console.log(
+        `\n🌊 Wave ${waveNum + 1}/${totalWaves}: Processing ${waveTasks.length} files`,
+      );
 
       // Execute wave in parallel
       const waveResults = await Promise.allSettled(
-        waveTasks.map(task => this.executeTask(task))
+        waveTasks.map((task) => this.executeTask(task)),
       );
 
       // Collect results and handle failures
       waveResults.forEach((result, index) => {
-        if (result.status === 'fulfilled') {
+        if (result.status === "fulfilled") {
           allResults.push(result.value);
           this.metrics.completedTasks++;
         } else {
@@ -349,8 +494,8 @@ class HierarchicalOrchestrator {
           allResults.push({
             god: waveTasks[index].god,
             file: waveTasks[index].file,
-            error: result.reason.message || 'Unknown error',
-            findings: []
+            error: result.reason.message || "Unknown error",
+            findings: [],
           });
         }
       });
@@ -369,7 +514,11 @@ class HierarchicalOrchestrator {
    */
   async executeTask({ god, file }) {
     try {
-      const findings = await this.analyzeFileWithGod(god, file, this.taskOptions);
+      const findings = await this.analyzeFileWithGod(
+        god,
+        file,
+        this.taskOptions,
+      );
 
       return {
         god,
@@ -378,11 +527,13 @@ class HierarchicalOrchestrator {
         metrics: {
           linesAnalyzed: findings.linesAnalyzed || 0,
           issuesFound: findings.issues?.length || 0,
-          executionTime: findings.executionTime || 0
-        }
+          executionTime: findings.executionTime || 0,
+        },
       };
     } catch (error) {
-      throw new Error(`Failed to analyze ${file} with ${god}: ${error.message}`);
+      throw new Error(
+        `Failed to analyze ${file} with ${god}: ${error.message}`,
+      );
     }
   }
 
@@ -410,7 +561,7 @@ class HierarchicalOrchestrator {
     }
 
     // ── 2. Read file ──────────────────────────────────────────────────────────
-    const content = await fs.readFile(file, 'utf-8');
+    const content = await fs.readFile(file, "utf-8");
     const lines = content.split(/\r?\n/);
 
     // ── 3. Heuristic pre-filter (always runs, always free) ────────────────────
@@ -418,33 +569,46 @@ class HierarchicalOrchestrator {
     try {
       heuristicResult = heuristicAnalyze(god, file, content, this.projectRoot);
     } catch (err) {
-      heuristicResult = { issues: [], linesAnalyzed: lines.length, executionTime: 0 };
+      heuristicResult = {
+        issues: [],
+        linesAnalyzed: lines.length,
+        executionTime: 0,
+      };
     }
     const heuristicIssues = heuristicResult.issues || [];
 
     // ── 4. Decide whether to call Claude ─────────────────────────────────────
-    const shouldCallClaude = (
+    const shouldCallClaude =
       !this.noAi &&
       this.aiManager &&
       this.costTracker.totalUSD < this.costTracker.budgetLimitUSD &&
-      (heuristicIssues.length > 0 || lines.length > 80)
-    );
+      (heuristicIssues.length > 0 || lines.length > 80);
 
     let finalIssues = heuristicIssues;
-    let providerMetadata = { provider: 'heuristic', cacheHit: false };
+    let providerMetadata = { provider: "heuristic", cacheHit: false };
 
     if (shouldCallClaude) {
       try {
         // Estimate cost before calling — skip if single file would bust budget
         const estimatedTokens = Math.ceil(content.length / 4);
-        const provider = await this.aiManager.getProvider('claude');
+        const provider = await this.aiManager.getProvider("claude");
         if (provider) {
           const estimatedCost = provider.estimateCost(estimatedTokens, 600);
-          if (this.costTracker.totalUSD + estimatedCost <= this.costTracker.budgetLimitUSD) {
-            const aiResult = await this.aiManager.analyze(god, file, content, this.projectRoot, {
-              preferredProvider: 'claude',
-              budget: this.costTracker.budgetLimitUSD - this.costTracker.totalUSD
-            });
+          if (
+            this.costTracker.totalUSD + estimatedCost <=
+            this.costTracker.budgetLimitUSD
+          ) {
+            const aiResult = await this.aiManager.analyze(
+              god,
+              file,
+              content,
+              this.projectRoot,
+              {
+                preferredProvider: "claude",
+                budget:
+                  this.costTracker.budgetLimitUSD - this.costTracker.totalUSD,
+              },
+            );
 
             const aiIssues = aiResult.issues || [];
             const costUSD = aiResult.metadata?.costUSD || 0;
@@ -454,22 +618,26 @@ class HierarchicalOrchestrator {
             // Merge: Claude + heuristic, deduplicate by (category, line ±2)
             finalIssues = this.mergeIssues(aiIssues, heuristicIssues);
             providerMetadata = {
-              provider: 'claude',
+              provider: "claude",
               fallbackUsed: aiResult.metadata?.fallbackUsed || false,
               costUSD,
               runningTotalUSD: this.costTracker.totalUSD,
-              cacheHit: false
+              cacheHit: false,
             };
           } else {
             if (this.verbose) {
-              console.warn(`[Budget] Skipping Claude for ${path.basename(file)} — budget cap reached ($${this.costTracker.totalUSD.toFixed(3)})`);
+              console.warn(
+                `[Budget] Skipping Claude for ${path.basename(file)} — budget cap reached ($${this.costTracker.totalUSD.toFixed(3)})`,
+              );
             }
           }
         }
       } catch (err) {
         // Claude failed — heuristic results already set as fallback
         if (this.verbose) {
-          console.warn(`[Claude] Analysis failed for ${path.basename(file)}: ${err.message}`);
+          console.warn(
+            `[Claude] Analysis failed for ${path.basename(file)}: ${err.message}`,
+          );
         }
       }
     }
@@ -478,12 +646,12 @@ class HierarchicalOrchestrator {
       issues: finalIssues,
       linesAnalyzed: lines.length,
       executionTime: Date.now() - start,
-      metadata: providerMetadata
+      metadata: providerMetadata,
     };
 
     // ── 5. Cache the result (domain-keyed within the file's cache entry) ────────
     // Merge with any existing cached domains for this file
-    const existingEntry = await this.cacheManager.get(file) || {};
+    const existingEntry = (await this.cacheManager.get(file)) || {};
     existingEntry[god] = result;
     await this.cacheManager.set(file, existingEntry);
 
@@ -497,12 +665,16 @@ class HierarchicalOrchestrator {
    */
   mergeIssues(claudeIssues, heuristicIssues) {
     const merged = [...claudeIssues];
-    const claimedLines = new Set(claudeIssues.map(i => `${i.category}:${i.line}`));
+    const claimedLines = new Set(
+      claudeIssues.map((i) => `${i.category}:${i.line}`),
+    );
 
     for (const h of heuristicIssues) {
       // Check if Claude already flagged this location (±2 lines, same category)
-      const isDuplicate = claudeIssues.some(c =>
-        c.category === h.category && Math.abs((c.line || 0) - (h.line || 0)) <= 2
+      const isDuplicate = claudeIssues.some(
+        (c) =>
+          c.category === h.category &&
+          Math.abs((c.line || 0) - (h.line || 0)) <= 2,
       );
       if (!isDuplicate) {
         merged.push(h);
@@ -517,7 +689,7 @@ class HierarchicalOrchestrator {
    */
   async pauseBetweenWaves() {
     const pauseMs = 500; // 500ms pause
-    await new Promise(resolve => setTimeout(resolve, pauseMs));
+    await new Promise((resolve) => setTimeout(resolve, pauseMs));
   }
 
   /**
@@ -531,9 +703,16 @@ class HierarchicalOrchestrator {
     return {
       ...this.metrics,
       duration,
-      filesPerSecond: duration > 0 ? this.metrics.totalFiles / (duration / 1000) : 0,
-      successRate: this.metrics.totalTasks > 0 ? this.metrics.completedTasks / this.metrics.totalTasks : 0,
-      failureRate: this.metrics.totalTasks > 0 ? this.metrics.failedTasks / this.metrics.totalTasks : 0
+      filesPerSecond:
+        duration > 0 ? this.metrics.totalFiles / (duration / 1000) : 0,
+      successRate:
+        this.metrics.totalTasks > 0
+          ? this.metrics.completedTasks / this.metrics.totalTasks
+          : 0,
+      failureRate:
+        this.metrics.totalTasks > 0
+          ? this.metrics.failedTasks / this.metrics.totalTasks
+          : 0,
     };
   }
 }

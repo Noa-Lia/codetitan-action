@@ -16,18 +16,18 @@
  * - Performance metrics
  */
 
-const EventEmitter = require('events');
-const fs = require('fs');
-const path = require('path');
-const crypto = require('crypto');
+const EventEmitter = require("events");
+const fs = require("fs");
+const path = require("path");
+const crypto = require("crypto");
 
-const DELEGATION_CONTRACT = 'codetitan.agent-runtime.delegation';
-const DELEGATION_VERSION = '1.0';
+const DELEGATION_CONTRACT = "codetitan.agent-runtime.delegation";
+const DELEGATION_VERSION = "1.0";
 const DELEGATION_SECTION_KEYS = {
-  taskRequest: 'task_request',
-  evidencePackage: 'evidence_package',
-  resultSummary: 'result_summary',
-  followUpRequest: 'follow_up_request'
+  taskRequest: "task_request",
+  evidencePackage: "evidence_package",
+  resultSummary: "result_summary",
+  followUpRequest: "follow_up_request",
 };
 
 function ensureArray(value) {
@@ -39,7 +39,7 @@ function ensureArray(value) {
 }
 
 function cloneObject(value, fallback = {}) {
-  if (!value || typeof value !== 'object') {
+  if (!value || typeof value !== "object") {
     return { ...fallback };
   }
 
@@ -47,17 +47,20 @@ function cloneObject(value, fallback = {}) {
 }
 
 function resolveReviewArtifactPath(payload = {}, runtimeState = {}) {
-  return payload?.review_artifact?.path ||
+  return (
+    payload?.review_artifact?.path ||
     runtimeState?.reviewArtifact?.path ||
     runtimeState?.review_artifact_path ||
-    null;
+    null
+  );
 }
 
 function resolveFixSession(payload = {}, runtimeState = {}) {
   const fixSession = payload?.fix_session || runtimeState?.fixSession || {};
 
   const id = fixSession?.id || runtimeState?.fix_session_id || null;
-  const sessionPath = fixSession?.path || runtimeState?.fix_session_path || null;
+  const sessionPath =
+    fixSession?.path || runtimeState?.fix_session_path || null;
 
   if (!id && !sessionPath) {
     return null;
@@ -65,7 +68,7 @@ function resolveFixSession(payload = {}, runtimeState = {}) {
 
   return {
     id,
-    path: sessionPath
+    path: sessionPath,
   };
 }
 
@@ -80,7 +83,7 @@ class AgentMessageBus extends EventEmitter {
       maxQueueSize: options.maxQueueSize ?? 10000,
       deadLetterQueueEnabled: options.deadLetterQueueEnabled ?? true,
       metricsEnabled: options.metricsEnabled ?? true,
-      ...options
+      ...options,
     };
 
     // Message storage
@@ -94,8 +97,8 @@ class AgentMessageBus extends EventEmitter {
     this.agentIntegrations = new Map(); // agent_id -> integration metadata
     this.agentSdkReports = new Map();
     this.retryTimers = new Set();
-    this.persistencePath = path.join(__dirname, '..', 'data', 'message-bus');
-    this.metricsPath = path.join(this.persistencePath, 'agent-metrics.json');
+    this.persistencePath = path.join(__dirname, "..", "data", "message-bus");
+    this.metricsPath = path.join(this.persistencePath, "agent-metrics.json");
 
     // Request-Response tracking
     this.pendingRequests = new Map(); // correlation_id -> {resolve, reject, timeout}
@@ -108,7 +111,7 @@ class AgentMessageBus extends EventEmitter {
       messagesFailed: 0,
       averageLatency: 0,
       totalLatency: 0,
-      requestsInFlight: 0
+      requestsInFlight: 0,
     };
 
     // Persistence
@@ -127,38 +130,44 @@ class AgentMessageBus extends EventEmitter {
    * Ensure persistence directory exists
    */
   ensurePersistencePath() {
-    fs.promises.mkdir(this.persistencePath, { recursive: true }).catch(() => {});
+    fs.promises
+      .mkdir(this.persistencePath, { recursive: true })
+      .catch(() => {});
   }
 
   /**
    * Load persisted messages from disk
    */
   loadPersistedMessages() {
-    const messagesFile = path.join(this.persistencePath, 'messages.jsonl');
-    fs.promises.stat(messagesFile)
-      .then(stat => stat.isFile())
-      .then(async exists => {
+    const messagesFile = path.join(this.persistencePath, "messages.jsonl");
+    fs.promises
+      .stat(messagesFile)
+      .then((stat) => stat.isFile())
+      .then(async (exists) => {
         if (!exists) return;
-        const raw = await fs.promises.readFile(messagesFile, 'utf8');
-        const lines = raw.split('\n').filter(Boolean);
-        lines.forEach(line => {
+        const raw = await fs.promises.readFile(messagesFile, "utf8");
+        const lines = raw.split("\n").filter(Boolean);
+        lines.forEach((line) => {
           try {
             const message = JSON.parse(line);
             this.messages.set(message.message_id, message);
             this.messageLog.push(message);
           } catch (err) {
-            console.error('Failed to parse message:', err.message);
+            console.error("Failed to parse message:", err.message);
           }
         });
-        console.log(`[MessageBus] Loaded ${this.messages.size} persisted messages`);
+        console.log(
+          `[MessageBus] Loaded ${this.messages.size} persisted messages`,
+        );
       })
       .catch(() => {});
   }
 
   loadPersistedSdkReports() {
-    fs.promises.readFile(this.metricsPath, 'utf8')
-      .then(raw => JSON.parse(raw))
-      .then(data => {
+    fs.promises
+      .readFile(this.metricsPath, "utf8")
+      .then((raw) => JSON.parse(raw))
+      .then((data) => {
         Object.entries(data || {}).forEach(([agentId, report]) => {
           this.agentSdkReports.set(agentId, report);
         });
@@ -173,9 +182,18 @@ class AgentMessageBus extends EventEmitter {
       for (const [agentId, report] of this.agentSdkReports.entries()) {
         serialized[agentId] = report;
       }
-      fs.promises.writeFile(this.metricsPath, JSON.stringify(serialized, null, 2), 'utf8').catch(() => {});
+      fs.promises
+        .writeFile(
+          this.metricsPath,
+          JSON.stringify(serialized, null, 2),
+          "utf8",
+        )
+        .catch(() => {});
     } catch (error) {
-      console.error('[MessageBus] Failed to persist SDK reports:', error.message);
+      console.error(
+        "[MessageBus] Failed to persist SDK reports:",
+        error.message,
+      );
     }
   }
 
@@ -186,10 +204,12 @@ class AgentMessageBus extends EventEmitter {
     if (!this.options.persistMessages) return;
 
     try {
-      const messagesFile = path.join(this.persistencePath, 'messages.jsonl');
-      fs.promises.appendFile(messagesFile, JSON.stringify(message) + '\n', 'utf8').catch(() => {});
+      const messagesFile = path.join(this.persistencePath, "messages.jsonl");
+      fs.promises
+        .appendFile(messagesFile, JSON.stringify(message) + "\n", "utf8")
+        .catch(() => {});
     } catch (error) {
-      console.error('[MessageBus] Failed to persist message:', error.message);
+      console.error("[MessageBus] Failed to persist message:", error.message);
     }
   }
 
@@ -197,7 +217,7 @@ class AgentMessageBus extends EventEmitter {
    * Generate unique message ID
    */
   generateMessageId() {
-    return crypto.randomBytes(16).toString('hex');
+    return crypto.randomBytes(16).toString("hex");
   }
 
   /**
@@ -217,17 +237,17 @@ class AgentMessageBus extends EventEmitter {
         correlation_id: metadata.correlation_id || this.generateMessageId(),
         session_id: metadata.session_id || null,
         parent_message_id: metadata.parent_message_id || null,
-        priority: metadata.priority || 'medium',
+        priority: metadata.priority || "medium",
         ttl: metadata.ttl || 300000, // 5 minutes default
         retry_count: metadata.retry_count || 0,
         max_retries: metadata.max_retries || 3,
-        ...metadata
+        ...metadata,
       },
-      status: 'pending',
+      status: "pending",
       sent_at: null,
       received_at: null,
       processed_at: null,
-      error: null
+      error: null,
     };
 
     return message;
@@ -256,15 +276,15 @@ class AgentMessageBus extends EventEmitter {
 
     // Mark as sent
     message.sent_at = new Date().toISOString();
-    message.status = 'sent';
+    message.status = "sent";
 
     // Route message
     try {
       await this.routeMessage(message);
-      message.status = 'delivered';
+      message.status = "delivered";
       this.metrics.messagesProcessed++;
     } catch (error) {
-      message.status = 'failed';
+      message.status = "failed";
       message.error = error.message;
       this.metrics.messagesFailed++;
 
@@ -297,19 +317,19 @@ class AgentMessageBus extends EventEmitter {
     const startTime = Date.now();
 
     switch (message.type) {
-      case 'request':
+      case "request":
         await this.handleRequest(message);
         break;
 
-      case 'response':
+      case "response":
         await this.handleResponse(message);
         break;
 
-      case 'notification':
+      case "notification":
         await this.handleNotification(message);
         break;
 
-      case 'broadcast':
+      case "broadcast":
         await this.handleBroadcast(message);
         break;
 
@@ -320,7 +340,8 @@ class AgentMessageBus extends EventEmitter {
     // Update latency metrics
     const latency = Date.now() - startTime;
     this.metrics.totalLatency += latency;
-    this.metrics.averageLatency = this.metrics.totalLatency / this.metrics.messagesProcessed;
+    this.metrics.averageLatency =
+      this.metrics.totalLatency / this.metrics.messagesProcessed;
   }
 
   /**
@@ -331,15 +352,15 @@ class AgentMessageBus extends EventEmitter {
     this.metrics.messagesReceived++;
 
     const integration = this.getAgentIntegration(message.to);
-    if (integration?.sdk && typeof integration.sdk.heartbeat === 'function') {
-      integration.sdk.heartbeat('active');
+    if (integration?.sdk && typeof integration.sdk.heartbeat === "function") {
+      integration.sdk.heartbeat("active");
     }
 
     // Emit event for the recipient agent
     this.emit(`message:${message.to}`, message);
 
     // Also emit general message event
-    this.emit('message', message);
+    this.emit("message", message);
   }
 
   /**
@@ -363,7 +384,9 @@ class AgentMessageBus extends EventEmitter {
       this.pendingRequests.delete(correlationId);
       this.metrics.requestsInFlight--;
     } else {
-      console.warn(`[MessageBus] Received response for unknown request: ${correlationId}`);
+      console.warn(
+        `[MessageBus] Received response for unknown request: ${correlationId}`,
+      );
     }
   }
 
@@ -381,8 +404,11 @@ class AgentMessageBus extends EventEmitter {
       // Emit to all subscribers
       for (const agentId of subscribers) {
         const integration = this.getAgentIntegration(agentId);
-        if (integration?.sdk && typeof integration.sdk.heartbeat === 'function') {
-          integration.sdk.heartbeat('active');
+        if (
+          integration?.sdk &&
+          typeof integration.sdk.heartbeat === "function"
+        ) {
+          integration.sdk.heartbeat("active");
         }
         this.emit(`message:${agentId}`, message);
 
@@ -394,7 +420,10 @@ class AgentMessageBus extends EventEmitter {
             try {
               await callback(message);
             } catch (error) {
-              console.error(`[MessageBus] Callback error for ${agentId}:`, error.message);
+              console.error(
+                `[MessageBus] Callback error for ${agentId}:`,
+                error.message,
+              );
             }
           }
         }
@@ -415,47 +444,49 @@ class AgentMessageBus extends EventEmitter {
     // Emit to all registered agents
     for (const agentId of this.agentCallbacks.keys()) {
       const integration = this.getAgentIntegration(agentId);
-      if (integration?.sdk && typeof integration.sdk.heartbeat === 'function') {
-        integration.sdk.heartbeat('active');
+      if (integration?.sdk && typeof integration.sdk.heartbeat === "function") {
+        integration.sdk.heartbeat("active");
       }
       this.emit(`message:${agentId}`, message);
     }
 
     // Also emit general broadcast event
-    this.emit('broadcast', message);
+    this.emit("broadcast", message);
   }
 
   createTaskRequestContract({
     from = null,
     to = null,
     taskId = null,
-    action = 'execute_task',
+    action = "execute_task",
     task = {},
     metadata = {},
     summary = null,
     requestedRole = null,
-    priority = 'medium'
+    priority = "medium",
   } = {}) {
-    const target = task?.file || task?.path || task?.directory || task?.basePath || null;
+    const target =
+      task?.file || task?.path || task?.directory || task?.basePath || null;
 
     return {
       kind: DELEGATION_SECTION_KEYS.taskRequest,
       taskId,
       action,
-      summary: summary || task?.description || metadata?.description || `Delegated ${action}`,
+      summary:
+        summary ||
+        task?.description ||
+        metadata?.description ||
+        `Delegated ${action}`,
       requestedRole: requestedRole || metadata?.role || null,
       requestedBy: from,
       assignedTo: to,
       priority,
       target,
-      requestedAt: new Date().toISOString()
+      requestedAt: new Date().toISOString(),
     };
   }
 
-  createEvidencePackage({
-    taskId = null,
-    result = {}
-  } = {}) {
+  createEvidencePackage({ taskId = null, result = {} } = {}) {
     const payload = result?.result || result || {};
     const runtimeState = cloneObject(payload.runtime_state);
     const reviewArtifactPath = resolveReviewArtifactPath(payload, runtimeState);
@@ -468,29 +499,34 @@ class AgentMessageBus extends EventEmitter {
       kind: DELEGATION_SECTION_KEYS.evidencePackage,
       taskId,
       evidenceCount: evidence.length,
-      evidenceSummary: payload.evidenceSummary || 'No evidence recorded.',
+      evidenceSummary: payload.evidenceSummary || "No evidence recorded.",
       evidence,
       toolTrace,
       artifacts,
       runtimeState,
       providerUsage: runtimeState?.providerUsage || null,
       reviewArtifact: reviewArtifactPath ? { path: reviewArtifactPath } : null,
-      fixSession
+      fixSession,
     };
   }
 
   createResultSummaryContract({
     taskId = null,
     result = {},
-    completedBy = null
+    completedBy = null,
   } = {}) {
     const payload = result?.result || result || {};
     const runtimeState = cloneObject(payload.runtime_state);
     const reviewArtifactPath = resolveReviewArtifactPath(payload, runtimeState);
     const fixSession = resolveFixSession(payload, runtimeState);
     const success = result?.success !== false && payload?.success !== false;
-    const status = payload.status || (success ? 'completed' : 'failed');
-    const summary = payload.summary || payload.message || result?.message || result?.error || 'Delegated task completed';
+    const status = payload.status || (success ? "completed" : "failed");
+    const summary =
+      payload.summary ||
+      payload.message ||
+      result?.message ||
+      result?.error ||
+      "Delegated task completed";
 
     return {
       kind: DELEGATION_SECTION_KEYS.resultSummary,
@@ -499,26 +535,32 @@ class AgentMessageBus extends EventEmitter {
       status,
       summary,
       message: payload.message || result?.message || summary,
-      quality: typeof result?.quality === 'number'
-        ? result.quality
-        : (typeof payload?.quality === 'number' ? payload.quality : (success ? 1 : 0)),
+      quality:
+        typeof result?.quality === "number"
+          ? result.quality
+          : typeof payload?.quality === "number"
+            ? payload.quality
+            : success
+              ? 1
+              : 0,
       completedBy,
-      reasoningMode: runtimeState.reasoningMode || 'standard',
+      reasoningMode: runtimeState.reasoningMode || "standard",
       providerUsage: runtimeState.providerUsage || null,
-      verificationStatus: runtimeState.verificationStatus || (success ? 'verified' : 'failed'),
+      verificationStatus:
+        runtimeState.verificationStatus || (success ? "verified" : "failed"),
       reviewArtifactPath,
       fixSessionId: fixSession?.id || null,
-      fixSessionPath: fixSession?.path || null
+      fixSessionPath: fixSession?.path || null,
     };
   }
 
   createFollowUpRequestContract({
     taskId = null,
-    reason = 'additional_context_required',
+    reason = "additional_context_required",
     requestedInputs = [],
-    action = 'provide_context',
+    action = "provide_context",
     required = true,
-    summary = null
+    summary = null,
   } = {}) {
     return {
       kind: DELEGATION_SECTION_KEYS.followUpRequest,
@@ -527,7 +569,9 @@ class AgentMessageBus extends EventEmitter {
       reason,
       required,
       requestedInputs: ensureArray(requestedInputs),
-      summary: summary || 'Provide additional context so the delegated task can continue.'
+      summary:
+        summary ||
+        "Provide additional context so the delegated task can continue.",
     };
   }
 
@@ -535,11 +579,11 @@ class AgentMessageBus extends EventEmitter {
     taskRequest = null,
     evidencePackage = null,
     resultSummary = null,
-    followUpRequest = null
+    followUpRequest = null,
   } = {}) {
     const envelope = {
       contract: DELEGATION_CONTRACT,
-      version: DELEGATION_VERSION
+      version: DELEGATION_VERSION,
     };
     const sections = [];
 
@@ -579,7 +623,9 @@ class AgentMessageBus extends EventEmitter {
       ...metadata,
       delegation_contract: DELEGATION_CONTRACT,
       delegation_version: DELEGATION_VERSION,
-      delegation_sections: Array.isArray(envelope.sections) ? envelope.sections : [],
+      delegation_sections: Array.isArray(envelope.sections)
+        ? envelope.sections
+        : [],
       delegated_task_id: taskId,
       delegation_status: envelope?.resultSummary?.status || null,
       follow_up_required: Boolean(envelope?.followUpRequest),
@@ -594,14 +640,15 @@ class AgentMessageBus extends EventEmitter {
       fix_session_path:
         envelope?.resultSummary?.fixSessionPath ||
         envelope?.evidencePackage?.fixSession?.path ||
-        null
+        null,
     };
   }
 
   getDelegationEnvelope(messageOrContent) {
-    const content = messageOrContent?.content && typeof messageOrContent.content === 'object'
-      ? messageOrContent.content
-      : messageOrContent;
+    const content =
+      messageOrContent?.content && typeof messageOrContent.content === "object"
+        ? messageOrContent.content
+        : messageOrContent;
     const delegation = content?.delegation;
 
     if (!delegation || delegation.contract !== DELEGATION_CONTRACT) {
@@ -613,9 +660,20 @@ class AgentMessageBus extends EventEmitter {
 
   buildFollowUpRequest(originalMessage, result) {
     const delegation = this.getDelegationEnvelope(originalMessage);
-    const taskId = delegation?.taskRequest?.taskId || originalMessage?.content?.task_id || originalMessage?.message_id || null;
+    const taskId =
+      delegation?.taskRequest?.taskId ||
+      originalMessage?.content?.task_id ||
+      originalMessage?.message_id ||
+      null;
     const content = originalMessage?.content || {};
-    const target = content?.task?.file || content?.task?.path || content?.task?.directory || content?.task?.basePath || content?.file || content?.path || null;
+    const target =
+      content?.task?.file ||
+      content?.task?.path ||
+      content?.task?.directory ||
+      content?.task?.basePath ||
+      content?.file ||
+      content?.path ||
+      null;
 
     if (target) {
       return null;
@@ -626,7 +684,7 @@ class AgentMessageBus extends EventEmitter {
       result?.result?.error ||
       result?.result?.message ||
       result?.message ||
-      '';
+      "";
     const normalizedFailure = failureMessage.toLowerCase();
 
     if (!normalizedFailure) {
@@ -634,10 +692,10 @@ class AgentMessageBus extends EventEmitter {
     }
 
     const needsContext =
-      normalizedFailure.includes('target') ||
-      normalizedFailure.includes('file') ||
-      normalizedFailure.includes('directory') ||
-      normalizedFailure.includes('evidence');
+      normalizedFailure.includes("target") ||
+      normalizedFailure.includes("file") ||
+      normalizedFailure.includes("directory") ||
+      normalizedFailure.includes("evidence");
 
     if (!needsContext) {
       return null;
@@ -645,9 +703,10 @@ class AgentMessageBus extends EventEmitter {
 
     return this.createFollowUpRequestContract({
       taskId,
-      reason: 'additional_context_required',
-      requestedInputs: ['file', 'directory', 'errors'],
-      summary: 'Provide a concrete file or directory target so the delegated task can gather evidence.'
+      reason: "additional_context_required",
+      requestedInputs: ["file", "directory", "errors"],
+      summary:
+        "Provide a concrete file or directory target so the delegated task can gather evidence.",
     });
   }
 
@@ -666,7 +725,10 @@ class AgentMessageBus extends EventEmitter {
           return;
         }
         this.pendingRequests.delete(correlationId);
-        this.metrics.requestsInFlight = Math.max(0, this.metrics.requestsInFlight - 1);
+        this.metrics.requestsInFlight = Math.max(
+          0,
+          this.metrics.requestsInFlight - 1,
+        );
         pendingRequest.reject(new Error(`Request timeout after ${timeout}ms`));
       }, timeout);
       timeoutHandle.unref?.();
@@ -675,16 +737,16 @@ class AgentMessageBus extends EventEmitter {
       this.pendingRequests.set(correlationId, {
         resolve,
         reject,
-        timeout: timeoutHandle
+        timeout: timeoutHandle,
       });
     });
 
     this.metrics.requestsInFlight++;
 
     // Send request
-    await this.send(from, to, 'request', content, {
+    await this.send(from, to, "request", content, {
       ...metadata,
-      correlation_id: correlationId
+      correlation_id: correlationId,
     });
 
     // Wait for response
@@ -692,8 +754,9 @@ class AgentMessageBus extends EventEmitter {
   }
 
   async delegateTask(from, to, payload = {}, metadata = {}, timeout = 30000) {
-    const taskId = payload.taskId || payload.task_id || this.generateMessageId();
-    const action = payload.action || 'execute_task';
+    const taskId =
+      payload.taskId || payload.task_id || this.generateMessageId();
+    const action = payload.action || "execute_task";
     const task = payload.task || payload.content || {};
     const taskMetadata = cloneObject(payload.metadata);
     const taskRequest = this.createTaskRequestContract({
@@ -705,7 +768,11 @@ class AgentMessageBus extends EventEmitter {
       metadata: taskMetadata,
       summary: payload.summary,
       requestedRole: payload.requestedRole,
-      priority: metadata.priority || payload.priority || taskMetadata.priority || 'medium'
+      priority:
+        metadata.priority ||
+        payload.priority ||
+        taskMetadata.priority ||
+        "medium",
     });
     const delegation = this.createDelegationEnvelope({ taskRequest });
 
@@ -717,14 +784,20 @@ class AgentMessageBus extends EventEmitter {
         task_id: taskId,
         task,
         metadata: taskMetadata,
-        delegation
+        delegation,
       },
       this.createDelegationMetadata(delegation, metadata),
-      timeout
+      timeout,
     );
   }
 
-  async sendFollowUpRequest(from, to, payload = {}, metadata = {}, timeout = 30000) {
+  async sendFollowUpRequest(
+    from,
+    to,
+    payload = {},
+    metadata = {},
+    timeout = 30000,
+  ) {
     const taskId = payload.taskId || payload.task_id || null;
     const followUpRequest = this.createFollowUpRequestContract({
       taskId,
@@ -732,7 +805,7 @@ class AgentMessageBus extends EventEmitter {
       requestedInputs: payload.requestedInputs,
       action: payload.action,
       required: payload.required,
-      summary: payload.summary
+      summary: payload.summary,
     });
     const delegation = this.createDelegationEnvelope({ followUpRequest });
 
@@ -740,14 +813,14 @@ class AgentMessageBus extends EventEmitter {
       from,
       to,
       {
-        action: payload.action || 'provide_context',
+        action: payload.action || "provide_context",
         task_id: taskId,
         task: payload.task || {},
         metadata: cloneObject(payload.metadata),
-        delegation
+        delegation,
       },
       this.createDelegationMetadata(delegation, metadata),
-      timeout
+      timeout,
     );
   }
 
@@ -755,49 +828,60 @@ class AgentMessageBus extends EventEmitter {
    * Send response to a request
    */
   async respond(originalMessage, from, content, metadata = {}) {
-    return this.send(from, originalMessage.from, 'response', content, {
+    return this.send(from, originalMessage.from, "response", content, {
       ...metadata,
       correlation_id: originalMessage.metadata.correlation_id,
       parent_message_id: originalMessage.message_id,
-      inReplyTo: originalMessage.message_id || originalMessage.id || null
+      inReplyTo: originalMessage.message_id || originalMessage.id || null,
     });
   }
 
-  async respondToDelegatedTask(originalMessage, from, result = {}, metadata = {}) {
+  async respondToDelegatedTask(
+    originalMessage,
+    from,
+    result = {},
+    metadata = {},
+  ) {
     const originalDelegation = this.getDelegationEnvelope(originalMessage);
-    const taskId = originalDelegation?.taskRequest?.taskId || originalMessage?.content?.task_id || originalMessage?.message_id || null;
-    const explicitFollowUp = Object.prototype.hasOwnProperty.call(metadata, 'followUpRequest')
+    const taskId =
+      originalDelegation?.taskRequest?.taskId ||
+      originalMessage?.content?.task_id ||
+      originalMessage?.message_id ||
+      null;
+    const explicitFollowUp = Object.prototype.hasOwnProperty.call(
+      metadata,
+      "followUpRequest",
+    )
       ? metadata.followUpRequest
       : undefined;
-    const followUpRequest = explicitFollowUp === undefined
-      ? this.buildFollowUpRequest(originalMessage, result)
-      : explicitFollowUp;
+    const followUpRequest =
+      explicitFollowUp === undefined
+        ? this.buildFollowUpRequest(originalMessage, result)
+        : explicitFollowUp;
     const delegation = this.createDelegationEnvelope({
       resultSummary: this.createResultSummaryContract({
         taskId,
         result,
-        completedBy: from
+        completedBy: from,
       }),
       evidencePackage: this.createEvidencePackage({
         taskId,
-        result
+        result,
       }),
-      followUpRequest: followUpRequest || null
+      followUpRequest: followUpRequest || null,
     });
     const responseContent = {
-      ...(result && typeof result === 'object' ? result : { value: result }),
-      delegation
+      ...(result && typeof result === "object" ? result : { value: result }),
+      delegation,
     };
-    const {
-      followUpRequest: _ignoredFollowUpRequest,
-      ...responseMetadata
-    } = metadata || {};
+    const { followUpRequest: _ignoredFollowUpRequest, ...responseMetadata } =
+      metadata || {};
 
     return this.respond(
       originalMessage,
       from,
       responseContent,
-      this.createDelegationMetadata(delegation, responseMetadata)
+      this.createDelegationMetadata(delegation, responseMetadata),
     );
   }
 
@@ -850,14 +934,14 @@ class AgentMessageBus extends EventEmitter {
    * Publish to a topic
    */
   async publish(from, topic, content, metadata = {}) {
-    return this.send(from, topic, 'notification', content, metadata);
+    return this.send(from, topic, "notification", content, metadata);
   }
 
   /**
    * Broadcast to all agents
    */
   async broadcast(from, content, metadata = {}) {
-    return this.send(from, '*', 'broadcast', content, metadata);
+    return this.send(from, "*", "broadcast", content, metadata);
   }
 
   /**
@@ -910,7 +994,7 @@ class AgentMessageBus extends EventEmitter {
    */
   getMessagesForAgent(agentId, limit = 100) {
     return this.messageLog
-      .filter(msg => msg.to === agentId || msg.from === agentId)
+      .filter((msg) => msg.to === agentId || msg.from === agentId)
       .slice(-limit);
   }
 
@@ -937,7 +1021,7 @@ class AgentMessageBus extends EventEmitter {
    */
   getAgentSdkReport(agentId) {
     const integration = this.getAgentIntegration(agentId);
-    if (integration?.sdk && typeof integration.sdk.report === 'function') {
+    if (integration?.sdk && typeof integration.sdk.report === "function") {
       const report = integration.sdk.report();
       this.updateAgentSdkReport(agentId, report);
       return report;
@@ -950,7 +1034,7 @@ class AgentMessageBus extends EventEmitter {
    */
   getMessageThread(correlationId) {
     return this.messageLog
-      .filter(msg => msg.metadata.correlation_id === correlationId)
+      .filter((msg) => msg.metadata.correlation_id === correlationId)
       .sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
   }
 
@@ -965,7 +1049,7 @@ class AgentMessageBus extends EventEmitter {
       deadLetterQueueSize: this.deadLetterQueue.length,
       activeSubscriptions: this.subscriptions.size,
       registeredAgents: this.agentCallbacks.size,
-      pendingRequests: this.pendingRequests.size
+      pendingRequests: this.pendingRequests.size,
     };
   }
 
@@ -974,22 +1058,54 @@ class AgentMessageBus extends EventEmitter {
    */
   printMetrics() {
     const metrics = this.getMetrics();
-    console.log('\n+- MESSAGE BUS METRICS --------------------------------------+');
-    console.log(`| Messages Sent: ${metrics.messagesSent.toString().padEnd(48)} |`);
-    console.log(`| Messages Received: ${metrics.messagesReceived.toString().padEnd(44)} |`);
-    console.log(`| Messages Processed: ${metrics.messagesProcessed.toString().padEnd(43)} |`);
-    console.log(`| Messages Failed: ${metrics.messagesFailed.toString().padEnd(46)} |`);
-    console.log(`| Average Latency: ${metrics.averageLatency.toFixed(2)}ms${' '.repeat(40 - metrics.averageLatency.toFixed(2).length)} |`);
-    console.log('|                                                            |');
-    console.log(`| Total Messages in Memory: ${metrics.totalMessages.toString().padEnd(35)} |`);
-    console.log(`| Message Log Size: ${metrics.messageLogSize.toString().padEnd(45)} |`);
-    console.log(`| Dead Letter Queue: ${metrics.deadLetterQueueSize.toString().padEnd(44)} |`);
-    console.log('|                                                            |');
-    console.log(`| Active Subscriptions: ${metrics.activeSubscriptions.toString().padEnd(41)} |`);
-    console.log(`| Registered Agents: ${metrics.registeredAgents.toString().padEnd(44)} |`);
-    console.log(`| Pending Requests: ${metrics.pendingRequests.toString().padEnd(45)} |`);
-    console.log(`| Requests In Flight: ${metrics.requestsInFlight.toString().padEnd(43)} |`);
-    console.log('+------------------------------------------------------------+\n');
+    console.log(
+      "\n+- MESSAGE BUS METRICS --------------------------------------+",
+    );
+    console.log(
+      `| Messages Sent: ${metrics.messagesSent.toString().padEnd(48)} |`,
+    );
+    console.log(
+      `| Messages Received: ${metrics.messagesReceived.toString().padEnd(44)} |`,
+    );
+    console.log(
+      `| Messages Processed: ${metrics.messagesProcessed.toString().padEnd(43)} |`,
+    );
+    console.log(
+      `| Messages Failed: ${metrics.messagesFailed.toString().padEnd(46)} |`,
+    );
+    console.log(
+      `| Average Latency: ${metrics.averageLatency.toFixed(2)}ms${" ".repeat(40 - metrics.averageLatency.toFixed(2).length)} |`,
+    );
+    console.log(
+      "|                                                            |",
+    );
+    console.log(
+      `| Total Messages in Memory: ${metrics.totalMessages.toString().padEnd(35)} |`,
+    );
+    console.log(
+      `| Message Log Size: ${metrics.messageLogSize.toString().padEnd(45)} |`,
+    );
+    console.log(
+      `| Dead Letter Queue: ${metrics.deadLetterQueueSize.toString().padEnd(44)} |`,
+    );
+    console.log(
+      "|                                                            |",
+    );
+    console.log(
+      `| Active Subscriptions: ${metrics.activeSubscriptions.toString().padEnd(41)} |`,
+    );
+    console.log(
+      `| Registered Agents: ${metrics.registeredAgents.toString().padEnd(44)} |`,
+    );
+    console.log(
+      `| Pending Requests: ${metrics.pendingRequests.toString().padEnd(45)} |`,
+    );
+    console.log(
+      `| Requests In Flight: ${metrics.requestsInFlight.toString().padEnd(43)} |`,
+    );
+    console.log(
+      "+------------------------------------------------------------+\n",
+    );
   }
 
   /**
@@ -1010,7 +1126,7 @@ class AgentMessageBus extends EventEmitter {
     }
 
     // Clean message log
-    this.messageLog = this.messageLog.filter(msg => {
+    this.messageLog = this.messageLog.filter((msg) => {
       const messageTime = new Date(msg.timestamp).getTime();
       return messageTime >= cutoff;
     });
@@ -1039,7 +1155,7 @@ class AgentMessageBus extends EventEmitter {
     this.subscriptions.clear();
     this.agentCallbacks.clear();
     this.pendingRequests.clear();
-    console.log('[MessageBus] Shutdown complete');
+    console.log("[MessageBus] Shutdown complete");
   }
 }
 
@@ -1050,18 +1166,18 @@ if (require.main === module) {
   const messageBus = new AgentMessageBus();
 
   // Simulate two agents
-  const agent1 = 'code-intelligence-agent';
-  const agent2 = 'architecture-agent';
+  const agent1 = "code-intelligence-agent";
+  const agent2 = "architecture-agent";
 
   // Register agents
   messageBus.registerAgent(agent1, (message) => {
     console.log(`[${agent1}] Received message:`, message.content);
 
     // If it's a request, send response
-    if (message.type === 'request') {
+    if (message.type === "request") {
       messageBus.respond(message, agent1, {
-        analysis: 'Code looks good',
-        quality_score: 0.95
+        analysis: "Code looks good",
+        quality_score: 0.95,
       });
     }
   });
@@ -1071,32 +1187,35 @@ if (require.main === module) {
   });
 
   // Test 1: Direct request-response
-  console.log('\n=== Test 1: Request-Response ===');
-  messageBus.request(agent2, agent1, {
-    action: 'analyze',
-    file: 'user-service.js'
-  }).then(response => {
-    console.log('[agent2] Received response:', response.content);
-  }).catch(error => {
-    console.error('[agent2] Request failed:', error.message);
-  });
+  console.log("\n=== Test 1: Request-Response ===");
+  messageBus
+    .request(agent2, agent1, {
+      action: "analyze",
+      file: "user-service.js",
+    })
+    .then((response) => {
+      console.log("[agent2] Received response:", response.content);
+    })
+    .catch((error) => {
+      console.error("[agent2] Request failed:", error.message);
+    });
 
   // Test 2: Pub-Sub
-  console.log('\n=== Test 2: Pub-Sub ===');
-  messageBus.subscribe(agent1, 'code-quality');
-  messageBus.subscribe(agent2, 'code-quality');
+  console.log("\n=== Test 2: Pub-Sub ===");
+  messageBus.subscribe(agent1, "code-quality");
+  messageBus.subscribe(agent2, "code-quality");
 
-  messageBus.publish('self-healing-agent', 'code-quality', {
-    file: 'user-service.js',
-    issues_fixed: 5
+  messageBus.publish("self-healing-agent", "code-quality", {
+    file: "user-service.js",
+    issues_fixed: 5,
   });
 
   // Test 3: Broadcast
   setTimeout(() => {
-    console.log('\n=== Test 3: Broadcast ===');
-    messageBus.broadcast('supreme-coordinator', {
-      announcement: 'System health check complete',
-      status: 'all systems operational'
+    console.log("\n=== Test 3: Broadcast ===");
+    messageBus.broadcast("supreme-coordinator", {
+      announcement: "System health check complete",
+      status: "all systems operational",
     });
   }, 1000);
 

@@ -3,27 +3,31 @@
  * Converts the marketing-level "Domain Titans" into deterministic detectors.
  */
 
-const fs = require('fs');
-const path = require('path');
-const { analyzeTaint } = require('./taint-analyzer');
-const { analyzeSupplyChain } = require('./supply-chain-analyzer');
-const { analyzeRust } = require('./rust-analyzer');
-const { analyzeJavaSecurity } = require('./java-security-analyzer');
-const { analyzePhpSecurity } = require('./php-security-analyzer');
-const { analyzeCSharpSecurity } = require('./csharp-security-analyzer');
-const { EXTENDED_SECURITY_RULES } = require('./security-rules-extended');
+const fs = require("fs");
+const path = require("path");
+const { analyzeTaint } = require("./taint-analyzer");
+const { analyzeSupplyChain } = require("./supply-chain-analyzer");
+const { analyzeRust } = require("./rust-analyzer");
+const { analyzeJavaSecurity } = require("./java-security-analyzer");
+const { analyzePhpSecurity } = require("./php-security-analyzer");
+const { analyzeCSharpSecurity } = require("./csharp-security-analyzer");
+const { EXTENDED_SECURITY_RULES } = require("./security-rules-extended");
 
-const TEST_FILE_REGEX = /(?:[/\\](?:tests?|__tests__|__mocks__|benchmarks?|bench|perf|perfs|fixtures?|e2e|integration)(?:[/\\]|$)|(?:^|[/\\])test_[^/\\]+\.[^.]+$|[._-](?:test|spec|tests|bench|benchmark|perf)\.[^.]+$|jest\.setup\.[jt]s$|vitest\.setup\.[jt]s$)/i;
+const TEST_FILE_REGEX =
+  /(?:[/\\](?:tests?|__tests__|__mocks__|benchmarks?|bench|perf|perfs|fixtures?|e2e|integration)(?:[/\\]|$)|(?:^|[/\\])test_[^/\\]+\.[^.]+$|[._-](?:test|spec|tests|bench|benchmark|perf)\.[^.]+$|jest\.setup\.[jt]s$|vitest\.setup\.[jt]s$)/i;
 // Matches benchmark/fixture dirs that should be fully excluded from secrets scanning
 const BENCH_DIR_REGEX = /[/\\](?:benchmarks?|bench)[/\\]/i;
 // Engine infrastructure files and build scripts that intentionally call exec/spawn as part of their function
 // Also covers: node-compat / polyfill implementation files (e.g. bun's src/js/node/), scripts/ dirs (build tooling),
 // codegen/ dirs, and misctools/ (code generators / release tooling)
-const INFRA_EXEC_FILE_REGEX = /(?:fixers[\\/](?:command-exec-fixer|xss-fixer|fix-verifier)|tool-bridge|test-executor|benchmark-runner|supply-chain-analyzer|action-kit|actions-shim)\.[jt]s$|(?:^|[/\\])(?:Makefile|Gruntfile|Gulpfile|Jakefile)\.[jt]s$|[/\\](?:src[/\\]js[/\\]node|polyfills?|compat|node-compat|codegen|misctools)[/\\]|[/\\]scripts[/\\][^/\\]+\.[jt]s$|[/\\][^/\\]+-cli[/\\]src[/\\]|[/\\](?:e2e|integration)-(?:test-runner|tests?)[/\\]|[/\\][^/\\]+-test-runner[/\\]/i;
+const INFRA_EXEC_FILE_REGEX =
+  /(?:fixers[\\/](?:command-exec-fixer|xss-fixer|fix-verifier)|tool-bridge|test-executor|benchmark-runner|supply-chain-analyzer|action-kit|actions-shim)\.[jt]s$|(?:^|[/\\])(?:Makefile|Gruntfile|Gulpfile|Jakefile)\.[jt]s$|[/\\](?:src[/\\]js[/\\]node|polyfills?|compat|node-compat|codegen|misctools)[/\\]|[/\\]scripts[/\\][^/\\]+\.[jt]s$|[/\\][^/\\]+-cli[/\\]src[/\\]|[/\\](?:e2e|integration)-(?:test-runner|tests?)[/\\]|[/\\][^/\\]+-test-runner[/\\]/i;
 // Minified/bundled dist files — findings in these are always FPs (they reflect source, not user code)
-const MINIFIED_FILE_REGEX = /(?:\.min\.[jt]s$|[/\\](?:dist|build|out|\.next|client-dist|min)[/\\])/i;
+const MINIFIED_FILE_REGEX =
+  /(?:\.min\.[jt]s$|[/\\](?:dist|build|out|\.next|client-dist|min)[/\\])/i;
 const COMMENT_REGEX = /^\s*(?:\/\/|#|\/\*|\*|"""|''')/;
-const DOC_FILE_REGEX = /(\.md$|\.mdx$|[/\\]examples[/\\]|[/\\]docs[/\\]|[/\\]blog[/\\]|[/\\]fixtures[/\\])/i;
+const DOC_FILE_REGEX =
+  /(\.md$|\.mdx$|[/\\]examples[/\\]|[/\\]docs[/\\]|[/\\]blog[/\\]|[/\\]fixtures[/\\])/i;
 const EXAMPLE_CONFIG_FILE_REGEX = /(?:\.example\.|\.sample\.|\.template\.)/i;
 // i18n/locale/translation files are pure text data, not code. Any pattern-match
 // rule firing on the content (entropy scan, default-credential string match,
@@ -35,7 +39,8 @@ const LOCALE_FILE_REGEX = /[/\\](?:locales?|i18n|translations?|messages)[/\\]/i;
 // Pattern-match rules firing on the content are structurally FPs (vendored
 // library code, not user-authored). Closes Plane FP P6 (Workbox postMessage)
 // from Phase 1 Week 2; likely affects more across customer-shape repos.
-const VENDORED_BUNDLE_REGEX = /(?:^|[/\\])public[/\\](?:workbox|sw|service-worker|precache-manifest|firebase-messaging-sw)[A-Za-z0-9_.-]*\.[mc]?js$|(?:^|[/\\])public[/\\][A-Za-z0-9_-]+-[a-f0-9]{8,}\.[mc]?js$/i;
+const VENDORED_BUNDLE_REGEX =
+  /(?:^|[/\\])public[/\\](?:workbox|sw|service-worker|precache-manifest|firebase-messaging-sw)[A-Za-z0-9_.-]*\.[mc]?js$|(?:^|[/\\])public[/\\][A-Za-z0-9_-]+-[a-f0-9]{8,}\.[mc]?js$/i;
 // Seed scripts, fixture files, sample-data generators. Credentials and high-
 // entropy IDs in these files are by-design (test data, demo content, DB
 // bootstrap), not real secrets. Closes Cal.com FP CC1 (scripts/seed.ts), and
@@ -43,20 +48,31 @@ const VENDORED_BUNDLE_REGEX = /(?:^|[/\\])public[/\\](?:workbox|sw|service-worke
 // from Phase 1 Week 2. Filename-form is strict (must start with seed/fixture/
 // sample-data, or end with .fixture(s).ts / -fixture(s).ts / generate-seed.ts)
 // to avoid suppressing real source like `src/utils/seeded-random.ts`.
-const SEED_FIXTURE_FILE_REGEX = /(?:^|[/\\])(?:seed[s]?|fixtures?|sample[-_]data)(?:[/\\])|(?:^|[/\\])(?:seed[s]?|fixtures?|sample[-_]data)\.[mc]?[jt]sx?$|(?:^|[/\\])generate-(?:seed[s]?|sample[-_]data|fixtures?)[A-Za-z0-9_.-]*\.[mc]?[jt]sx?$|\.fixtures?\.[mc]?[jt]sx?$|-fixtures?\.[mc]?[jt]sx?$/i;
+const SEED_FIXTURE_FILE_REGEX =
+  /(?:^|[/\\])(?:seed[s]?|fixtures?|sample[-_]data)(?:[/\\])|(?:^|[/\\])(?:seed[s]?|fixtures?|sample[-_]data)\.[mc]?[jt]sx?$|(?:^|[/\\])generate-(?:seed[s]?|sample[-_]data|fixtures?)[A-Za-z0-9_.-]*\.[mc]?[jt]sx?$|\.fixtures?\.[mc]?[jt]sx?$|-fixtures?\.[mc]?[jt]sx?$/i;
 const MINIFIED_LINE_LENGTH = 500;
 const SECRET_ENTROPY_FLOOR = 3.0;
 // Matches RHS that is a dynamic value (env var, function call, template literal with ${}), not a plain hardcoded string
-const DYNAMIC_RHS_REGEX = /process\.env\.|crypto\.|randomBytes|generateKey|uuid|nanoid|\$\{/i;
-const SAFE_EXEC_REDIRECTION_SUFFIX_REGEX = /\s*(?:2>\/dev\/null|2>&1|\|\|\s*true)\s*/g;
-const DANGEROUS_STATIC_COMMAND_REGEX = /\b(?:rm|bash|sh|sudo|curl|wget|ssh|scp|powershell|cmd(?:\.exe)?)\b/i;
-const STATIC_EXEC_LITERAL_REGEX = /(?:child_process\.|(?<![.#\w]))(exec|execSync)\s*\(\s*(['"`])((?:\\.|(?!\2).)*)\2/;
-const SPAWN_CALL_PREFIX_REGEX = /(?:child_process\.|(?<![.#\w]))(spawn|spawnSync)\s*\(\s*([^,]+?)\s*,\s*/;
-const COMMAND_IDENTIFIER_ARG_REGEX = /(?:child_process\.|(?<![.#\w]))(exec|execSync)\s*\(\s*([A-Za-z_$][\w$]*)\b/;
-const SECRET_PATTERN_DEFINITION_REGEX = /\b(?:regex|pattern)\s*:\s*\/.+\/[dgimsuy]*\s*(?:[,}]|$)/;
-const SENSITIVE_LOG_IDENTIFIER_REGEX = /\b(?:password|passwd|token|secret|apiKey|api_key|authToken|authorization)\b/i;
-const SENSITIVE_TEMPLATE_INTERPOLATION_REGEX = /\$\{[^}]*\b(?:password|passwd|token|secret|apiKey|api_key|authToken|authorization)\b[^}]*}/i;
-const SENSITIVE_ENV_ACCESS_REGEX = /process\.env\.[A-Z0-9_]*(?:PASSWORD|TOKEN|SECRET|API_KEY|APIKEY|AUTHORIZATION|AUTH_TOKEN|ACCESS_KEY)[A-Z0-9_]*/i;
+const DYNAMIC_RHS_REGEX =
+  /process\.env\.|crypto\.|randomBytes|generateKey|uuid|nanoid|\$\{/i;
+const SAFE_EXEC_REDIRECTION_SUFFIX_REGEX =
+  /\s*(?:2>\/dev\/null|2>&1|\|\|\s*true)\s*/g;
+const DANGEROUS_STATIC_COMMAND_REGEX =
+  /\b(?:rm|bash|sh|sudo|curl|wget|ssh|scp|powershell|cmd(?:\.exe)?)\b/i;
+const STATIC_EXEC_LITERAL_REGEX =
+  /(?:child_process\.|(?<![.#\w]))(exec|execSync)\s*\(\s*(['"`])((?:\\.|(?!\2).)*)\2/;
+const SPAWN_CALL_PREFIX_REGEX =
+  /(?:child_process\.|(?<![.#\w]))(spawn|spawnSync)\s*\(\s*([^,]+?)\s*,\s*/;
+const COMMAND_IDENTIFIER_ARG_REGEX =
+  /(?:child_process\.|(?<![.#\w]))(exec|execSync)\s*\(\s*([A-Za-z_$][\w$]*)\b/;
+const SECRET_PATTERN_DEFINITION_REGEX =
+  /\b(?:regex|pattern)\s*:\s*\/.+\/[dgimsuy]*\s*(?:[,}]|$)/;
+const SENSITIVE_LOG_IDENTIFIER_REGEX =
+  /\b(?:password|passwd|token|secret|apiKey|api_key|authToken|authorization)\b/i;
+const SENSITIVE_TEMPLATE_INTERPOLATION_REGEX =
+  /\$\{[^}]*\b(?:password|passwd|token|secret|apiKey|api_key|authToken|authorization)\b[^}]*}/i;
+const SENSITIVE_ENV_ACCESS_REGEX =
+  /process\.env\.[A-Z0-9_]*(?:PASSWORD|TOKEN|SECRET|API_KEY|APIKEY|AUTHORIZATION|AUTH_TOKEN|ACCESS_KEY)[A-Z0-9_]*/i;
 
 // Matches log-adjacent outer calls that wrap a redaction helper whose last
 // argument is a redaction-flag string literal. The helper redacts before the
@@ -65,102 +81,555 @@ const SENSITIVE_ENV_ACCESS_REGEX = /process\.env\.[A-Z0-9_]*(?:PASSWORD|TOKEN|SE
 //     → prints '***** [password]' — no secret in output
 // The outer-call anchor (console.* / logger.* / bare log() etc.) is mandatory
 // so we don't suppress unrelated calls like `Schema.field({ type: 'secret' })`.
-const REDACTED_LOG_CALL_REGEX = /\b(?:console\.(?:log|info|debug|warn|error)|logger(?:\.(?:log|info|debug|warn|error|trace))?|log|info|debug|warn)\s*\(\s*[A-Za-z_$][\w$]*\s*\([^)]*,\s*['"`](?:secret|redacted|mask(?:ed)?|hidden|private|censored|sensitive|obfuscated)['"`]\s*\)/;
+const REDACTED_LOG_CALL_REGEX =
+  /\b(?:console\.(?:log|info|debug|warn|error)|logger(?:\.(?:log|info|debug|warn|error|trace))?|log|info|debug|warn)\s*\(\s*[A-Za-z_$][\w$]*\s*\([^)]*,\s*['"`](?:secret|redacted|mask(?:ed)?|hidden|private|censored|sensitive|obfuscated)['"`]\s*\)/;
 
 // ── Named secret patterns (high precision) ─────────────────────────────────
 const SECRET_PATTERNS = [
   // ── Original 15 patterns ────────────────────────────────────────────────
-  { id: 'AWS_ACCESS_KEY',      severity: 'CRITICAL', impact: 10, pattern: /\bAKIA[0-9A-Z]{16}\b/,                              message: 'AWS Access Key ID detected.' },
-  { id: 'AWS_SECRET_KEY',      severity: 'CRITICAL', impact: 10, pattern: /aws[_-]?secret[_-]?(?:access[_-]?)?key\s*[:=]\s*['"`][A-Za-z0-9/+]{40}['"`]/i, message: 'AWS Secret Access Key detected.' },
-  { id: 'GITHUB_TOKEN',        severity: 'CRITICAL', impact: 10, pattern: /\bghp_[A-Za-z0-9]{36}\b|\bgho_[A-Za-z0-9]{36}\b|\bghs_[A-Za-z0-9]{36}\b/,     message: 'GitHub personal access or OAuth token detected.' },
-  { id: 'STRIPE_KEY',          severity: 'CRITICAL', impact: 10, pattern: /\b(sk|pk|rk)_(live|test)_[0-9a-zA-Z]{24,}\b/,      message: 'Stripe API key detected.' },
-  { id: 'OPENAI_KEY',          severity: 'CRITICAL', impact: 10, pattern: /\bsk-[A-Za-z0-9]{20,}\b/,                           message: 'OpenAI API key detected.' },
-  { id: 'ANTHROPIC_KEY',       severity: 'CRITICAL', impact: 10, pattern: /\bsk-ant-[A-Za-z0-9\-_]{40,}\b/,                    message: 'Anthropic API key detected.' },
-  { id: 'SLACK_TOKEN',         severity: 'CRITICAL', impact: 9,  pattern: /\bxox[bpoas]-[0-9A-Za-z\-]{10,}\b/,                 message: 'Slack API token detected.' },
-  { id: 'SENDGRID_KEY',        severity: 'HIGH',     impact: 9,  pattern: /\bSG\.[A-Za-z0-9\-_]{22,}\b/,                       message: 'SendGrid API key detected.' },
-  { id: 'TWILIO_KEY',          severity: 'HIGH',     impact: 9,  pattern: /\bAC[0-9a-fA-F]{32}\b/,                             message: 'Twilio Account SID detected.' },
-  { id: 'GCP_SERVICE_ACCOUNT', severity: 'CRITICAL', impact: 10, pattern: /"type"\s*:\s*"service_account"/,                     message: 'GCP service account JSON detected.' },
-  { id: 'PRIVATE_KEY_PEM',     severity: 'CRITICAL', impact: 10, pattern: /-----BEGIN (?:RSA |EC )?PRIVATE KEY-----/,           message: 'Private key (PEM) detected.' },
-  { id: 'BASIC_AUTH_URL',      severity: 'HIGH',     impact: 8,  pattern: /https?:\/\/[^\/@\s]{1,64}:[^\/@\s]{1,64}@/,         message: 'Credentials embedded in URL detected.' },
-  { id: 'JWT_SECRET',          severity: 'HIGH',     impact: 9,  pattern: /jwt[_-]?secret\s*[:=]\s*['"`][^'"`]{16,}['"`]/i,    message: 'JWT secret hardcoded; move to environment variable.' },
-  { id: 'DB_PASSWORD',         severity: 'HIGH',     impact: 9,  pattern: /(?:db|database|postgres|mysql|mongo)[_-]?(?:url|password|passwd|pwd)\s*[:=]\s*['"`][^'"`]{8,}['"`]/i, message: 'Database password or connection string hardcoded.' },
-  { id: 'GENERIC_SECRET',      severity: 'HIGH',     impact: 10, pattern: /(api[_-]?key|secret|token|password)\s*[:=]\s*['"`][^'"`]{12,}['"`]/i,          message: 'Potential hardcoded credential; move secrets into environment variables or a vault.' },
+  {
+    id: "AWS_ACCESS_KEY",
+    severity: "CRITICAL",
+    impact: 10,
+    pattern: /\bAKIA[0-9A-Z]{16}\b/,
+    message: "AWS Access Key ID detected.",
+  },
+  {
+    id: "AWS_SECRET_KEY",
+    severity: "CRITICAL",
+    impact: 10,
+    pattern:
+      /aws[_-]?secret[_-]?(?:access[_-]?)?key\s*[:=]\s*['"`][A-Za-z0-9/+]{40}['"`]/i,
+    message: "AWS Secret Access Key detected.",
+  },
+  {
+    id: "GITHUB_TOKEN",
+    severity: "CRITICAL",
+    impact: 10,
+    pattern:
+      /\bghp_[A-Za-z0-9]{36}\b|\bgho_[A-Za-z0-9]{36}\b|\bghs_[A-Za-z0-9]{36}\b/,
+    message: "GitHub personal access or OAuth token detected.",
+  },
+  {
+    id: "STRIPE_KEY",
+    severity: "CRITICAL",
+    impact: 10,
+    pattern: /\b(sk|pk|rk)_(live|test)_[0-9a-zA-Z]{24,}\b/,
+    message: "Stripe API key detected.",
+  },
+  {
+    id: "OPENAI_KEY",
+    severity: "CRITICAL",
+    impact: 10,
+    pattern: /\bsk-[A-Za-z0-9]{20,}\b/,
+    message: "OpenAI API key detected.",
+  },
+  {
+    id: "ANTHROPIC_KEY",
+    severity: "CRITICAL",
+    impact: 10,
+    pattern: /\bsk-ant-[A-Za-z0-9\-_]{40,}\b/,
+    message: "Anthropic API key detected.",
+  },
+  {
+    id: "SLACK_TOKEN",
+    severity: "CRITICAL",
+    impact: 9,
+    pattern: /\bxox[bpoas]-[0-9A-Za-z\-]{10,}\b/,
+    message: "Slack API token detected.",
+  },
+  {
+    id: "SENDGRID_KEY",
+    severity: "HIGH",
+    impact: 9,
+    pattern: /\bSG\.[A-Za-z0-9\-_]{22,}\b/,
+    message: "SendGrid API key detected.",
+  },
+  {
+    id: "TWILIO_KEY",
+    severity: "HIGH",
+    impact: 9,
+    pattern: /\bAC[0-9a-fA-F]{32}\b/,
+    message: "Twilio Account SID detected.",
+  },
+  {
+    id: "GCP_SERVICE_ACCOUNT",
+    severity: "CRITICAL",
+    impact: 10,
+    pattern: /"type"\s*:\s*"service_account"/,
+    message: "GCP service account JSON detected.",
+  },
+  {
+    id: "PRIVATE_KEY_PEM",
+    severity: "CRITICAL",
+    impact: 10,
+    pattern: /-----BEGIN (?:RSA |EC )?PRIVATE KEY-----/,
+    message: "Private key (PEM) detected.",
+  },
+  {
+    id: "BASIC_AUTH_URL",
+    severity: "HIGH",
+    impact: 8,
+    pattern: /https?:\/\/[^\/@\s]{1,64}:[^\/@\s]{1,64}@/,
+    message: "Credentials embedded in URL detected.",
+  },
+  {
+    id: "JWT_SECRET",
+    severity: "HIGH",
+    impact: 9,
+    pattern: /jwt[_-]?secret\s*[:=]\s*['"`][^'"`]{16,}['"`]/i,
+    message: "JWT secret hardcoded; move to environment variable.",
+  },
+  {
+    id: "DB_PASSWORD",
+    severity: "HIGH",
+    impact: 9,
+    pattern:
+      /(?:db|database|postgres|mysql|mongo)[_-]?(?:url|password|passwd|pwd)\s*[:=]\s*['"`][^'"`]{8,}['"`]/i,
+    message: "Database password or connection string hardcoded.",
+  },
+  {
+    id: "GENERIC_SECRET",
+    severity: "HIGH",
+    impact: 10,
+    pattern:
+      /(api[_-]?key|secret|token|password)\s*[:=]\s*['"`][^'"`]{12,}['"`]/i,
+    message:
+      "Potential hardcoded credential; move secrets into environment variables or a vault.",
+  },
 
   // ── Cloud Providers ──────────────────────────────────────────────────────
-  { id: 'AWS_SESSION_TOKEN',       severity: 'CRITICAL', impact: 10, pattern: /\bAsia[A-Z0-9]{16}\b/,                                                                                                               message: 'AWS Session Token detected.' }, // gitleaks-derived
-  { id: 'AZURE_STORAGE_KEY',       severity: 'CRITICAL', impact: 10, pattern: /(?:DefaultEndpointsProtocol|AccountKey)=[A-Za-z0-9+/=]{44,}/,                                                                       message: 'Azure Storage Account key or connection string detected.' }, // gitleaks-derived
-  { id: 'AZURE_CLIENT_SECRET',     severity: 'CRITICAL', impact: 10, pattern: /(?:azure|az)[_-]?(?:client[_-]?)?secret\s*[:=]\s*['"`][0-9A-Za-z~._\-]{34,}['"`]/i,                                               message: 'Azure client secret hardcoded; rotate immediately.' }, // gitleaks-derived
-  { id: 'DIGITALOCEAN_TOKEN',      severity: 'CRITICAL', impact: 10, pattern: /\bdop_v1_[A-Za-z0-9]{64}\b/,                                                                                                         message: 'DigitalOcean personal access token detected.' }, // gitleaks-derived
-  { id: 'CLOUDFLARE_API_TOKEN',    severity: 'CRITICAL', impact: 10, pattern: /(?:cloudflare|cf)[_-]?(?:api[_-]?)?token\s*[:=]\s*['"`][A-Za-z0-9_\-]{40}['"`]/i,                                                 message: 'Cloudflare API token hardcoded; revoke and rotate.' }, // gitleaks-derived
-  { id: 'CLOUDFLARE_GLOBAL_KEY',   severity: 'CRITICAL', impact: 10, pattern: /(?:cloudflare|cf)[_-]?(?:global[_-]?)?(?:api[_-]?)?key\s*[:=]\s*['"`][0-9a-f]{37}['"`]/i,                                        message: 'Cloudflare Global API key detected; use scoped API tokens instead.' }, // gitleaks-derived
-  { id: 'GCP_API_KEY',             severity: 'HIGH',     impact: 9,  pattern: /\bAIza[A-Za-z0-9\-_]{35}\b/,                                                                                                         message: 'GCP/Firebase API key (AIza prefix) detected.' }, // gitleaks-derived
-  { id: 'HEROKU_API_KEY',          severity: 'HIGH',     impact: 9,  pattern: /(?:heroku)[_-]?(?:api[_-]?)?key\s*[:=]\s*['"`][0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}['"`]/i,             message: 'Heroku API key detected.' }, // gitleaks-derived
-  { id: 'LINODE_ACCESS_TOKEN',     severity: 'HIGH',     impact: 9,  pattern: /(?:linode)[_-]?(?:access[_-]?)?token\s*[:=]\s*['"`][A-Za-z0-9]{64}['"`]/i,                                                         message: 'Linode personal access token detected.' }, // gitleaks-derived
+  {
+    id: "AWS_SESSION_TOKEN",
+    severity: "CRITICAL",
+    impact: 10,
+    pattern: /\bAsia[A-Z0-9]{16}\b/,
+    message: "AWS Session Token detected.",
+  }, // gitleaks-derived
+  {
+    id: "AZURE_STORAGE_KEY",
+    severity: "CRITICAL",
+    impact: 10,
+    pattern: /(?:DefaultEndpointsProtocol|AccountKey)=[A-Za-z0-9+/=]{44,}/,
+    message: "Azure Storage Account key or connection string detected.",
+  }, // gitleaks-derived
+  {
+    id: "AZURE_CLIENT_SECRET",
+    severity: "CRITICAL",
+    impact: 10,
+    pattern:
+      /(?:azure|az)[_-]?(?:client[_-]?)?secret\s*[:=]\s*['"`][0-9A-Za-z~._\-]{34,}['"`]/i,
+    message: "Azure client secret hardcoded; rotate immediately.",
+  }, // gitleaks-derived
+  {
+    id: "DIGITALOCEAN_TOKEN",
+    severity: "CRITICAL",
+    impact: 10,
+    pattern: /\bdop_v1_[A-Za-z0-9]{64}\b/,
+    message: "DigitalOcean personal access token detected.",
+  }, // gitleaks-derived
+  {
+    id: "CLOUDFLARE_API_TOKEN",
+    severity: "CRITICAL",
+    impact: 10,
+    pattern:
+      /(?:cloudflare|cf)[_-]?(?:api[_-]?)?token\s*[:=]\s*['"`][A-Za-z0-9_\-]{40}['"`]/i,
+    message: "Cloudflare API token hardcoded; revoke and rotate.",
+  }, // gitleaks-derived
+  {
+    id: "CLOUDFLARE_GLOBAL_KEY",
+    severity: "CRITICAL",
+    impact: 10,
+    pattern:
+      /(?:cloudflare|cf)[_-]?(?:global[_-]?)?(?:api[_-]?)?key\s*[:=]\s*['"`][0-9a-f]{37}['"`]/i,
+    message:
+      "Cloudflare Global API key detected; use scoped API tokens instead.",
+  }, // gitleaks-derived
+  {
+    id: "GCP_API_KEY",
+    severity: "HIGH",
+    impact: 9,
+    pattern: /\bAIza[A-Za-z0-9\-_]{35}\b/,
+    message: "GCP/Firebase API key (AIza prefix) detected.",
+  }, // gitleaks-derived
+  {
+    id: "HEROKU_API_KEY",
+    severity: "HIGH",
+    impact: 9,
+    pattern:
+      /(?:heroku)[_-]?(?:api[_-]?)?key\s*[:=]\s*['"`][0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}['"`]/i,
+    message: "Heroku API key detected.",
+  }, // gitleaks-derived
+  {
+    id: "LINODE_ACCESS_TOKEN",
+    severity: "HIGH",
+    impact: 9,
+    pattern:
+      /(?:linode)[_-]?(?:access[_-]?)?token\s*[:=]\s*['"`][A-Za-z0-9]{64}['"`]/i,
+    message: "Linode personal access token detected.",
+  }, // gitleaks-derived
 
   // ── Developer Tools ──────────────────────────────────────────────────────
-  { id: 'NPM_TOKEN',               severity: 'CRITICAL', impact: 10, pattern: /\bnpm_[A-Za-z0-9]{36}\b/,                                                                                                             message: 'npm publish token detected.' }, // gitleaks-derived
-  { id: 'PYPI_TOKEN',              severity: 'CRITICAL', impact: 10, pattern: /\bpypi-AgEIcHlwaS5vcmc[A-Za-z0-9\-_]{50,}\b/,                                                                                       message: 'PyPI upload token detected.' }, // gitleaks-derived
-  { id: 'GITLAB_TOKEN',            severity: 'CRITICAL', impact: 10, pattern: /\bglpat-[A-Za-z0-9\-_]{20}\b/,                                                                                                       message: 'GitLab personal access token detected.' }, // gitleaks-derived
-  { id: 'GITLAB_PIPELINE_TOKEN',   severity: 'HIGH',     impact: 9,  pattern: /\bglcbt-[A-Za-z0-9\-_]{20}\b|\bglptt-[A-Za-z0-9\-_]{20}\b/,                                                                       message: 'GitLab CI/CD or project trigger token detected.' }, // gitleaks-derived
-  { id: 'BITBUCKET_APP_PASSWORD',  severity: 'HIGH',     impact: 9,  pattern: /bitbucket[_\-. ]?(?:app[_-]?password|token)\s*[:=]\s*['"`][A-Za-z0-9+/=]{20,}['"`]/i,                                             message: 'Bitbucket app password or access token detected.' }, // gitleaks-derived
-  { id: 'DOCKER_HUB_PAT',          severity: 'HIGH',     impact: 9,  pattern: /\bdckr_pat_[A-Za-z0-9\-_]{27}\b/,                                                                                                   message: 'Docker Hub personal access token detected.' }, // gitleaks-derived
-  { id: 'TERRAFORM_CLOUD_TOKEN',   severity: 'CRITICAL', impact: 10, pattern: /\b[A-Za-z0-9]{14}\.atlasv1\.[A-Za-z0-9\-_]{67}\b/,                                                                                 message: 'Terraform Cloud / Terraform Enterprise API token detected.' }, // gitleaks-derived
-  { id: 'GITHUB_FINE_GRAINED_PAT', severity: 'CRITICAL', impact: 10, pattern: /\bgithub_pat_[A-Za-z0-9_]{82}\b/,                                                                                                   message: 'GitHub fine-grained personal access token detected.' }, // gitleaks-derived
-  { id: 'GITHUB_APP_TOKEN',        severity: 'CRITICAL', impact: 10, pattern: /\bghu_[A-Za-z0-9]{36}\b|\bghr_[A-Za-z0-9]{36}\b/,                                                                                 message: 'GitHub App user-to-server or refresh token detected.' }, // gitleaks-derived
-  { id: 'JFROG_ACCESS_TOKEN',      severity: 'HIGH',     impact: 9,  pattern: /(?:jfrog|artifactory)[_-]?(?:access[_-]?)?token\s*[:=]\s*['"`][A-Za-z0-9\-_]{64,}['"`]/i,                                        message: 'JFrog Artifactory access token detected.' }, // gitleaks-derived
+  {
+    id: "NPM_TOKEN",
+    severity: "CRITICAL",
+    impact: 10,
+    pattern: /\bnpm_[A-Za-z0-9]{36}\b/,
+    message: "npm publish token detected.",
+  }, // gitleaks-derived
+  {
+    id: "PYPI_TOKEN",
+    severity: "CRITICAL",
+    impact: 10,
+    pattern: /\bpypi-AgEIcHlwaS5vcmc[A-Za-z0-9\-_]{50,}\b/,
+    message: "PyPI upload token detected.",
+  }, // gitleaks-derived
+  {
+    id: "GITLAB_TOKEN",
+    severity: "CRITICAL",
+    impact: 10,
+    pattern: /\bglpat-[A-Za-z0-9\-_]{20}\b/,
+    message: "GitLab personal access token detected.",
+  }, // gitleaks-derived
+  {
+    id: "GITLAB_PIPELINE_TOKEN",
+    severity: "HIGH",
+    impact: 9,
+    pattern: /\bglcbt-[A-Za-z0-9\-_]{20}\b|\bglptt-[A-Za-z0-9\-_]{20}\b/,
+    message: "GitLab CI/CD or project trigger token detected.",
+  }, // gitleaks-derived
+  {
+    id: "BITBUCKET_APP_PASSWORD",
+    severity: "HIGH",
+    impact: 9,
+    pattern:
+      /bitbucket[_\-. ]?(?:app[_-]?password|token)\s*[:=]\s*['"`][A-Za-z0-9+/=]{20,}['"`]/i,
+    message: "Bitbucket app password or access token detected.",
+  }, // gitleaks-derived
+  {
+    id: "DOCKER_HUB_PAT",
+    severity: "HIGH",
+    impact: 9,
+    pattern: /\bdckr_pat_[A-Za-z0-9\-_]{27}\b/,
+    message: "Docker Hub personal access token detected.",
+  }, // gitleaks-derived
+  {
+    id: "TERRAFORM_CLOUD_TOKEN",
+    severity: "CRITICAL",
+    impact: 10,
+    pattern: /\b[A-Za-z0-9]{14}\.atlasv1\.[A-Za-z0-9\-_]{67}\b/,
+    message: "Terraform Cloud / Terraform Enterprise API token detected.",
+  }, // gitleaks-derived
+  {
+    id: "GITHUB_FINE_GRAINED_PAT",
+    severity: "CRITICAL",
+    impact: 10,
+    pattern: /\bgithub_pat_[A-Za-z0-9_]{82}\b/,
+    message: "GitHub fine-grained personal access token detected.",
+  }, // gitleaks-derived
+  {
+    id: "GITHUB_APP_TOKEN",
+    severity: "CRITICAL",
+    impact: 10,
+    pattern: /\bghu_[A-Za-z0-9]{36}\b|\bghr_[A-Za-z0-9]{36}\b/,
+    message: "GitHub App user-to-server or refresh token detected.",
+  }, // gitleaks-derived
+  {
+    id: "JFROG_ACCESS_TOKEN",
+    severity: "HIGH",
+    impact: 9,
+    pattern:
+      /(?:jfrog|artifactory)[_-]?(?:access[_-]?)?token\s*[:=]\s*['"`][A-Za-z0-9\-_]{64,}['"`]/i,
+    message: "JFrog Artifactory access token detected.",
+  }, // gitleaks-derived
 
   // ── Payment & Finance ────────────────────────────────────────────────────
-  { id: 'SHOPIFY_ACCESS_TOKEN',    severity: 'CRITICAL', impact: 10, pattern: /\bshpat_[A-Za-z0-9]{32}\b/,                                                                                                         message: 'Shopify admin API access token detected.' }, // gitleaks-derived
-  { id: 'SHOPIFY_PRIVATE_APP',     severity: 'CRITICAL', impact: 10, pattern: /\bshppa_[A-Za-z0-9]{32}\b/,                                                                                                         message: 'Shopify private app password detected.' }, // gitleaks-derived
-  { id: 'SHOPIFY_SHARED_SECRET',   severity: 'HIGH',     impact: 9,  pattern: /\bshpss_[A-Za-z0-9]{32}\b/,                                                                                                         message: 'Shopify shared secret detected.' }, // gitleaks-derived
-  { id: 'SQUARE_ACCESS_TOKEN',     severity: 'CRITICAL', impact: 10, pattern: /\bEAAAE[A-Za-z0-9\-_]{60,}\b/,                                                                                                     message: 'Square production access token detected.' }, // gitleaks-derived
-  { id: 'SQUARE_SANDBOX_TOKEN',    severity: 'HIGH',     impact: 8,  pattern: /\bEAAAA[A-Za-z0-9\-_]{60,}\b/,                                                                                                     message: 'Square sandbox access token detected.' }, // gitleaks-derived
-  { id: 'PAYPAL_BRAINTREE_TOKEN',  severity: 'CRITICAL', impact: 10, pattern: /access_token\$production\$[A-Za-z0-9]{16}\$[A-Za-z0-9]{32}/,                                                                       message: 'PayPal / Braintree production access token detected.' }, // gitleaks-derived
-  { id: 'RAZORPAY_KEY',            severity: 'HIGH',     impact: 9,  pattern: /\brzp_(?:live|test)_[A-Za-z0-9]{14,}\b/,                                                                                           message: 'Razorpay API key detected.' }, // gitleaks-derived
+  {
+    id: "SHOPIFY_ACCESS_TOKEN",
+    severity: "CRITICAL",
+    impact: 10,
+    pattern: /\bshpat_[A-Za-z0-9]{32}\b/,
+    message: "Shopify admin API access token detected.",
+  }, // gitleaks-derived
+  {
+    id: "SHOPIFY_PRIVATE_APP",
+    severity: "CRITICAL",
+    impact: 10,
+    pattern: /\bshppa_[A-Za-z0-9]{32}\b/,
+    message: "Shopify private app password detected.",
+  }, // gitleaks-derived
+  {
+    id: "SHOPIFY_SHARED_SECRET",
+    severity: "HIGH",
+    impact: 9,
+    pattern: /\bshpss_[A-Za-z0-9]{32}\b/,
+    message: "Shopify shared secret detected.",
+  }, // gitleaks-derived
+  {
+    id: "SQUARE_ACCESS_TOKEN",
+    severity: "CRITICAL",
+    impact: 10,
+    pattern: /\bEAAAE[A-Za-z0-9\-_]{60,}\b/,
+    message: "Square production access token detected.",
+  }, // gitleaks-derived
+  {
+    id: "SQUARE_SANDBOX_TOKEN",
+    severity: "HIGH",
+    impact: 8,
+    pattern: /\bEAAAA[A-Za-z0-9\-_]{60,}\b/,
+    message: "Square sandbox access token detected.",
+  }, // gitleaks-derived
+  {
+    id: "PAYPAL_BRAINTREE_TOKEN",
+    severity: "CRITICAL",
+    impact: 10,
+    pattern: /access_token\$production\$[A-Za-z0-9]{16}\$[A-Za-z0-9]{32}/,
+    message: "PayPal / Braintree production access token detected.",
+  }, // gitleaks-derived
+  {
+    id: "RAZORPAY_KEY",
+    severity: "HIGH",
+    impact: 9,
+    pattern: /\brzp_(?:live|test)_[A-Za-z0-9]{14,}\b/,
+    message: "Razorpay API key detected.",
+  }, // gitleaks-derived
 
   // ── Communication & Messaging ────────────────────────────────────────────
-  { id: 'TELEGRAM_BOT_TOKEN',      severity: 'CRITICAL', impact: 9,  pattern: /\b\d{8,10}:[A-Za-z0-9\-_]{35}\b/,                                                                                                 message: 'Telegram bot token detected.' }, // gitleaks-derived
-  { id: 'DISCORD_BOT_TOKEN',       severity: 'CRITICAL', impact: 9,  pattern: /\b[MNO][A-Za-z0-9]{23}\.[A-Za-z0-9\-_]{6}\.[A-Za-z0-9\-_]{27}\b/,                                                               message: 'Discord bot token detected.' }, // gitleaks-derived
-  { id: 'DISCORD_WEBHOOK',         severity: 'HIGH',     impact: 8,  pattern: /discord(?:app)?\.com\/api\/webhooks\/[0-9]{17,19}\/[A-Za-z0-9\-_]{68}/,                                                           message: 'Discord webhook URL with token detected.' }, // gitleaks-derived
-  { id: 'MAILGUN_API_KEY',         severity: 'HIGH',     impact: 9,  pattern: /\bkey-[0-9a-zA-Z]{32}\b/,                                                                                                         message: 'Mailgun API key detected.' }, // gitleaks-derived
-  { id: 'MAILCHIMP_API_KEY',       severity: 'HIGH',     impact: 9,  pattern: /\b[0-9a-f]{32}-us\d{1,2}\b/,                                                                                                       message: 'Mailchimp API key detected.' }, // gitleaks-derived
-  { id: 'HUBSPOT_API_KEY',         severity: 'HIGH',     impact: 9,  pattern: /(?:hubspot)[_-]?(?:api[_-]?)?key\s*[:=]\s*['"`][0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}['"`]/i,           message: 'HubSpot API key detected.' }, // gitleaks-derived
-  { id: 'ZENDESK_API_TOKEN',       severity: 'HIGH',     impact: 9,  pattern: /(?:zendesk)[_-]?(?:api[_-]?)?token\s*[:=]\s*['"`][A-Za-z0-9]{40,}['"`]/i,                                                       message: 'Zendesk API token detected.' }, // gitleaks-derived
-  { id: 'INTERCOM_ACCESS_TOKEN',   severity: 'HIGH',     impact: 9,  pattern: /(?:intercom)[_-]?(?:access[_-]?)?token\s*[:=]\s*['"`][A-Za-z0-9]{60,}['"`]/i,                                                   message: 'Intercom access token detected.' }, // gitleaks-derived
-  { id: 'TWILIO_AUTH_TOKEN',       severity: 'CRITICAL', impact: 10, pattern: /(?:twilio)[_-]?auth[_-]?token\s*[:=]\s*['"`][0-9a-f]{32}['"`]/i,                                                                 message: 'Twilio Auth Token detected.' }, // gitleaks-derived
+  {
+    id: "TELEGRAM_BOT_TOKEN",
+    severity: "CRITICAL",
+    impact: 9,
+    pattern: /\b\d{8,10}:[A-Za-z0-9\-_]{35}\b/,
+    message: "Telegram bot token detected.",
+  }, // gitleaks-derived
+  {
+    id: "DISCORD_BOT_TOKEN",
+    severity: "CRITICAL",
+    impact: 9,
+    pattern: /\b[MNO][A-Za-z0-9]{23}\.[A-Za-z0-9\-_]{6}\.[A-Za-z0-9\-_]{27}\b/,
+    message: "Discord bot token detected.",
+  }, // gitleaks-derived
+  {
+    id: "DISCORD_WEBHOOK",
+    severity: "HIGH",
+    impact: 8,
+    pattern:
+      /discord(?:app)?\.com\/api\/webhooks\/[0-9]{17,19}\/[A-Za-z0-9\-_]{68}/,
+    message: "Discord webhook URL with token detected.",
+  }, // gitleaks-derived
+  {
+    id: "MAILGUN_API_KEY",
+    severity: "HIGH",
+    impact: 9,
+    pattern: /\bkey-[0-9a-zA-Z]{32}\b/,
+    message: "Mailgun API key detected.",
+  }, // gitleaks-derived
+  {
+    id: "MAILCHIMP_API_KEY",
+    severity: "HIGH",
+    impact: 9,
+    pattern: /\b[0-9a-f]{32}-us\d{1,2}\b/,
+    message: "Mailchimp API key detected.",
+  }, // gitleaks-derived
+  {
+    id: "HUBSPOT_API_KEY",
+    severity: "HIGH",
+    impact: 9,
+    pattern:
+      /(?:hubspot)[_-]?(?:api[_-]?)?key\s*[:=]\s*['"`][0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}['"`]/i,
+    message: "HubSpot API key detected.",
+  }, // gitleaks-derived
+  {
+    id: "ZENDESK_API_TOKEN",
+    severity: "HIGH",
+    impact: 9,
+    pattern:
+      /(?:zendesk)[_-]?(?:api[_-]?)?token\s*[:=]\s*['"`][A-Za-z0-9]{40,}['"`]/i,
+    message: "Zendesk API token detected.",
+  }, // gitleaks-derived
+  {
+    id: "INTERCOM_ACCESS_TOKEN",
+    severity: "HIGH",
+    impact: 9,
+    pattern:
+      /(?:intercom)[_-]?(?:access[_-]?)?token\s*[:=]\s*['"`][A-Za-z0-9]{60,}['"`]/i,
+    message: "Intercom access token detected.",
+  }, // gitleaks-derived
+  {
+    id: "TWILIO_AUTH_TOKEN",
+    severity: "CRITICAL",
+    impact: 10,
+    pattern: /(?:twilio)[_-]?auth[_-]?token\s*[:=]\s*['"`][0-9a-f]{32}['"`]/i,
+    message: "Twilio Auth Token detected.",
+  }, // gitleaks-derived
 
   // ── Infrastructure & Secrets Management ─────────────────────────────────
   // Real Vault tokens are always stored as string literals. Require a quote
   // (single/double/backtick) immediately before the prefix so we don't match
   // JS property accesses like `s.someMethodNameWhichHappensToBeLong()`.
-  { id: 'VAULT_TOKEN',             severity: 'CRITICAL', impact: 10, pattern: /['"`](?:hvs|s)\.[A-Za-z0-9]{24,}['"`]/,                                                                                              message: 'HashiCorp Vault token detected.' }, // gitleaks-derived
-  { id: 'VAULT_BATCH_TOKEN',       severity: 'CRITICAL', impact: 10, pattern: /['"`]hvb\.[A-Za-z0-9]{24,}['"`]/,                                                                                                    message: 'HashiCorp Vault batch token detected.' }, // gitleaks-derived
-  { id: 'OPENSSH_PRIVATE_KEY',     severity: 'CRITICAL', impact: 10, pattern: /-----BEGIN OPENSSH PRIVATE KEY-----/,                                                                                             message: 'OpenSSH private key detected.' }, // gitleaks-derived
-  { id: 'PGP_PRIVATE_KEY',         severity: 'CRITICAL', impact: 10, pattern: /-----BEGIN PGP PRIVATE KEY BLOCK-----/,                                                                                           message: 'PGP private key block detected.' }, // gitleaks-derived
-  { id: 'AGE_SECRET_KEY',          severity: 'CRITICAL', impact: 10, pattern: /AGE-SECRET-KEY-1[A-Z0-9]{58}/,                                                                                                     message: 'Age encryption identity (secret key) detected.' }, // gitleaks-derived
-  { id: 'KUBERNETES_SECRET',       severity: 'HIGH',     impact: 9,  pattern: /(?:kubectl|k8s|kubernetes)[_-]?(?:token|secret|password)\s*[:=]\s*['"`][^'"`]{16,}['"`]/i,                                       message: 'Kubernetes credential hardcoded; use a Secret resource or vault.' }, // gitleaks-derived
-  { id: 'SSH_DSA_PRIVATE_KEY',     severity: 'CRITICAL', impact: 10, pattern: /-----BEGIN DSA PRIVATE KEY-----/,                                                                                                 message: 'DSA private key detected.' }, // gitleaks-derived
+  {
+    id: "VAULT_TOKEN",
+    severity: "CRITICAL",
+    impact: 10,
+    pattern: /['"`](?:hvs|s)\.[A-Za-z0-9]{24,}['"`]/,
+    message: "HashiCorp Vault token detected.",
+  }, // gitleaks-derived
+  {
+    id: "VAULT_BATCH_TOKEN",
+    severity: "CRITICAL",
+    impact: 10,
+    pattern: /['"`]hvb\.[A-Za-z0-9]{24,}['"`]/,
+    message: "HashiCorp Vault batch token detected.",
+  }, // gitleaks-derived
+  {
+    id: "OPENSSH_PRIVATE_KEY",
+    severity: "CRITICAL",
+    impact: 10,
+    pattern: /-----BEGIN OPENSSH PRIVATE KEY-----/,
+    message: "OpenSSH private key detected.",
+  }, // gitleaks-derived
+  {
+    id: "PGP_PRIVATE_KEY",
+    severity: "CRITICAL",
+    impact: 10,
+    pattern: /-----BEGIN PGP PRIVATE KEY BLOCK-----/,
+    message: "PGP private key block detected.",
+  }, // gitleaks-derived
+  {
+    id: "AGE_SECRET_KEY",
+    severity: "CRITICAL",
+    impact: 10,
+    pattern: /AGE-SECRET-KEY-1[A-Z0-9]{58}/,
+    message: "Age encryption identity (secret key) detected.",
+  }, // gitleaks-derived
+  {
+    id: "KUBERNETES_SECRET",
+    severity: "HIGH",
+    impact: 9,
+    pattern:
+      /(?:kubectl|k8s|kubernetes)[_-]?(?:token|secret|password)\s*[:=]\s*['"`][^'"`]{16,}['"`]/i,
+    message: "Kubernetes credential hardcoded; use a Secret resource or vault.",
+  }, // gitleaks-derived
+  {
+    id: "SSH_DSA_PRIVATE_KEY",
+    severity: "CRITICAL",
+    impact: 10,
+    pattern: /-----BEGIN DSA PRIVATE KEY-----/,
+    message: "DSA private key detected.",
+  }, // gitleaks-derived
 
   // ── Monitoring & Observability ───────────────────────────────────────────
-  { id: 'DATADOG_API_KEY',         severity: 'HIGH',     impact: 9,  pattern: /(?:datadog|dd)[_-]?api[_-]?key\s*[:=]\s*['"`][a-f0-9]{32}['"`]/i,                                                               message: 'Datadog API key detected.' }, // gitleaks-derived
-  { id: 'DATADOG_APP_KEY',         severity: 'HIGH',     impact: 9,  pattern: /(?:datadog|dd)[_-]?app[_-]?key\s*[:=]\s*['"`][a-f0-9]{40}['"`]/i,                                                               message: 'Datadog application key detected.' }, // gitleaks-derived
-  { id: 'NEWRELIC_LICENSE_KEY',    severity: 'HIGH',     impact: 9,  pattern: /(?:new[_-]?relic)[_-]?(?:license[_-]?)?key\s*[:=]\s*['"`][A-Za-z0-9]{40}['"`]/i,                                               message: 'New Relic license key detected.' }, // gitleaks-derived
-  { id: 'NEWRELIC_INSIGHTS_KEY',   severity: 'HIGH',     impact: 8,  pattern: /(?:new[_-]?relic)[_-]?(?:insights[_-]?)?(?:insert|query)[_-]?key\s*[:=]\s*['"`][A-Za-z0-9]{32,}['"`]/i,                       message: 'New Relic Insights insert/query key detected.' }, // gitleaks-derived
-  { id: 'SENTRY_AUTH_TOKEN',       severity: 'CRITICAL', impact: 10, pattern: /\bsntrys_[A-Za-z0-9]{64}\b/,                                                                                                     message: 'Sentry auth token detected.' }, // gitleaks-derived
-  { id: 'SENTRY_LEGACY_TOKEN',     severity: 'HIGH',     impact: 9,  pattern: /(?:sentry)[_-]?(?:auth[_-]?)?token\s*[:=]\s*['"`][a-f0-9]{64}['"`]/i,                                                           message: 'Sentry legacy auth token detected.' }, // gitleaks-derived
-  { id: 'GRAFANA_API_KEY',         severity: 'HIGH',     impact: 9,  pattern: /\beyJrIjoi[A-Za-z0-9+/=]{40,}\b/,                                                                                                 message: 'Grafana API key (base64-encoded) detected.' }, // gitleaks-derived
-  { id: 'ELASTIC_API_KEY',         severity: 'CRITICAL', impact: 10, pattern: /(?:elastic(?:search)?|es)[_-]?(?:api[_-]?)?key\s*[:=]\s*['"`][A-Za-z0-9\-_=]{40,}['"`]/i,                                     message: 'Elasticsearch / Elastic Cloud API key detected.' }, // gitleaks-derived
-  { id: 'SPLUNK_HEC_TOKEN',        severity: 'HIGH',     impact: 9,  pattern: /(?:splunk)[_-]?(?:hec[_-]?)?token\s*[:=]\s*['"`][0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}['"`]/i,       message: 'Splunk HEC token detected.' }, // gitleaks-derived
+  {
+    id: "DATADOG_API_KEY",
+    severity: "HIGH",
+    impact: 9,
+    pattern: /(?:datadog|dd)[_-]?api[_-]?key\s*[:=]\s*['"`][a-f0-9]{32}['"`]/i,
+    message: "Datadog API key detected.",
+  }, // gitleaks-derived
+  {
+    id: "DATADOG_APP_KEY",
+    severity: "HIGH",
+    impact: 9,
+    pattern: /(?:datadog|dd)[_-]?app[_-]?key\s*[:=]\s*['"`][a-f0-9]{40}['"`]/i,
+    message: "Datadog application key detected.",
+  }, // gitleaks-derived
+  {
+    id: "NEWRELIC_LICENSE_KEY",
+    severity: "HIGH",
+    impact: 9,
+    pattern:
+      /(?:new[_-]?relic)[_-]?(?:license[_-]?)?key\s*[:=]\s*['"`][A-Za-z0-9]{40}['"`]/i,
+    message: "New Relic license key detected.",
+  }, // gitleaks-derived
+  {
+    id: "NEWRELIC_INSIGHTS_KEY",
+    severity: "HIGH",
+    impact: 8,
+    pattern:
+      /(?:new[_-]?relic)[_-]?(?:insights[_-]?)?(?:insert|query)[_-]?key\s*[:=]\s*['"`][A-Za-z0-9]{32,}['"`]/i,
+    message: "New Relic Insights insert/query key detected.",
+  }, // gitleaks-derived
+  {
+    id: "SENTRY_AUTH_TOKEN",
+    severity: "CRITICAL",
+    impact: 10,
+    pattern: /\bsntrys_[A-Za-z0-9]{64}\b/,
+    message: "Sentry auth token detected.",
+  }, // gitleaks-derived
+  {
+    id: "SENTRY_LEGACY_TOKEN",
+    severity: "HIGH",
+    impact: 9,
+    pattern:
+      /(?:sentry)[_-]?(?:auth[_-]?)?token\s*[:=]\s*['"`][a-f0-9]{64}['"`]/i,
+    message: "Sentry legacy auth token detected.",
+  }, // gitleaks-derived
+  {
+    id: "GRAFANA_API_KEY",
+    severity: "HIGH",
+    impact: 9,
+    pattern: /\beyJrIjoi[A-Za-z0-9+/=]{40,}\b/,
+    message: "Grafana API key (base64-encoded) detected.",
+  }, // gitleaks-derived
+  {
+    id: "ELASTIC_API_KEY",
+    severity: "CRITICAL",
+    impact: 10,
+    pattern:
+      /(?:elastic(?:search)?|es)[_-]?(?:api[_-]?)?key\s*[:=]\s*['"`][A-Za-z0-9\-_=]{40,}['"`]/i,
+    message: "Elasticsearch / Elastic Cloud API key detected.",
+  }, // gitleaks-derived
+  {
+    id: "SPLUNK_HEC_TOKEN",
+    severity: "HIGH",
+    impact: 9,
+    pattern:
+      /(?:splunk)[_-]?(?:hec[_-]?)?token\s*[:=]\s*['"`][0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}['"`]/i,
+    message: "Splunk HEC token detected.",
+  }, // gitleaks-derived
 
   // ── OAuth / Social ───────────────────────────────────────────────────────
-  { id: 'FACEBOOK_ACCESS_TOKEN',   severity: 'HIGH',     impact: 9,  pattern: /\bEAAC[A-Za-z0-9]{80,}\b/,                                                                                                       message: 'Facebook / Meta access token detected.' }, // gitleaks-derived
-  { id: 'TWITTER_BEARER_TOKEN',    severity: 'HIGH',     impact: 9,  pattern: /\bAAAAAAAAAAAAAAAAAAAAA[A-Za-z0-9%]{80,}\b/,                                                                                     message: 'Twitter / X bearer token detected.' }, // gitleaks-derived
-  { id: 'LINKEDIN_CLIENT_SECRET',  severity: 'HIGH',     impact: 8,  pattern: /(?:linkedin)[_-]?client[_-]?secret\s*[:=]\s*['"`][A-Za-z0-9]{16}['"`]/i,                                                       message: 'LinkedIn OAuth client secret detected.' }, // gitleaks-derived
-  { id: 'GOOGLE_OAUTH_SECRET',     severity: 'CRITICAL', impact: 10, pattern: /GOCSPX-[A-Za-z0-9\-_]{28}/,                                                                                                     message: 'Google OAuth client secret detected.' }, // gitleaks-derived
-  { id: 'SPOTIFY_CLIENT_SECRET',   severity: 'HIGH',     impact: 8,  pattern: /(?:spotify)[_-]?client[_-]?secret\s*[:=]\s*['"`][A-Za-z0-9]{32}['"`]/i,                                                         message: 'Spotify client secret detected.' }, // gitleaks-derived
+  {
+    id: "FACEBOOK_ACCESS_TOKEN",
+    severity: "HIGH",
+    impact: 9,
+    pattern: /\bEAAC[A-Za-z0-9]{80,}\b/,
+    message: "Facebook / Meta access token detected.",
+  }, // gitleaks-derived
+  {
+    id: "TWITTER_BEARER_TOKEN",
+    severity: "HIGH",
+    impact: 9,
+    pattern: /\bAAAAAAAAAAAAAAAAAAAAA[A-Za-z0-9%]{80,}\b/,
+    message: "Twitter / X bearer token detected.",
+  }, // gitleaks-derived
+  {
+    id: "LINKEDIN_CLIENT_SECRET",
+    severity: "HIGH",
+    impact: 8,
+    pattern:
+      /(?:linkedin)[_-]?client[_-]?secret\s*[:=]\s*['"`][A-Za-z0-9]{16}['"`]/i,
+    message: "LinkedIn OAuth client secret detected.",
+  }, // gitleaks-derived
+  {
+    id: "GOOGLE_OAUTH_SECRET",
+    severity: "CRITICAL",
+    impact: 10,
+    pattern: /GOCSPX-[A-Za-z0-9\-_]{28}/,
+    message: "Google OAuth client secret detected.",
+  }, // gitleaks-derived
+  {
+    id: "SPOTIFY_CLIENT_SECRET",
+    severity: "HIGH",
+    impact: 8,
+    pattern:
+      /(?:spotify)[_-]?client[_-]?secret\s*[:=]\s*['"`][A-Za-z0-9]{32}['"`]/i,
+    message: "Spotify client secret detected.",
+  }, // gitleaks-derived
 ];
 
-const PLACEHOLDER_REGEX = /YOUR_|your[-_\w]*here|xxxx|xxx|<[A-Z_]+>|_PLACEHOLDER_|sk-test|pk_test|example|dummy|fake|mock|replace|change[_-]?me|todo|test-key|ct_key_|super-secret-token|TEST_KEY|randomString/i;
+const PLACEHOLDER_REGEX =
+  /YOUR_|your[-_\w]*here|xxxx|xxx|<[A-Z_]+>|_PLACEHOLDER_|sk-test|pk_test|example|dummy|fake|mock|replace|change[_-]?me|todo|test-key|ct_key_|super-secret-token|TEST_KEY|randomString/i;
 
 // Marker-string secrets: constants whose VALUE is the same shape as an
 // enum/marker/error code — e.g. `const INVALID_API_KEY = "INVALID_API_KEY"`,
@@ -237,7 +706,7 @@ function looksLikeConfigUrlAssignment(val) {
 }
 
 function stripQuotedStrings(line) {
-  return line.replace(/(['"`])(?:\\.|(?!\1)[\s\S])*?\1/g, '\'\'');
+  return line.replace(/(['"`])(?:\\.|(?!\1)[\s\S])*?\1/g, "''");
 }
 
 function isSensitiveConsoleLog(line) {
@@ -259,16 +728,105 @@ function isSensitiveConsoleLog(line) {
  * @returns {'js'|'ts'|'python'|'go'|'other'}
  */
 function detectLanguage(filePath) {
-  const ext = (filePath.split('.').pop() || '').toLowerCase();
-  if (['ts', 'tsx'].includes(ext)) return 'ts';
-  if (['js', 'jsx', 'mjs', 'cjs'].includes(ext)) return 'js';
-  if (ext === 'py') return 'python';
-  if (ext === 'go') return 'go';
-  if (ext === 'rs') return 'rust';
-  if (ext === 'java') return 'java';
-  if (ext === 'php') return 'php';
-  if (ext === 'cs') return 'csharp';
-  return 'other';
+  const ext = (filePath.split(".").pop() || "").toLowerCase();
+  if (["ts", "tsx"].includes(ext)) return "ts";
+  if (["js", "jsx", "mjs", "cjs"].includes(ext)) return "js";
+  if (ext === "py") return "python";
+  if (ext === "go") return "go";
+  if (ext === "rs") return "rust";
+  if (ext === "java") return "java";
+  if (ext === "php") return "php";
+  if (ext === "cs") return "csharp";
+  return "other";
+}
+
+/**
+ * Check whether a `codetitan-suppress` directive (or recognized tool-suppression
+ * comment) is present in the source-line window adjacent to `index`. Used by
+ * every security-rule emission site so the suppression contract is honored
+ * uniformly across loops.
+ *
+ * Default behavior: scan the previous line only, for exact `codetitan-suppress:
+ * <id>` matches where `id ∈ ids`. Options:
+ *
+ * - `sameLine` — also scan `lines[index]`. Used by the empty-catch site.
+ * - `nextLine` — also scan `lines[index + 1]`. Used by the empty-catch site.
+ * - `requireLineCommentPrefix` — the codetitan-suppress token must follow `//`
+ *   on the same line. Preserves the existing empty-catch contract.
+ * - `allowAnyCodetitan` — match `codetitan-suppress: <any-non-space-token>`,
+ *   not just ids in `ids`. Used only by the extended-rules site so custom
+ *   markers like `codetitan-suppress: my-custom-marker` keep working.
+ * - `includeToolSuppressions` — additionally match recognized
+ *   `biome-ignore` / `eslint-disable` comments. Used only by the extended-rules
+ *   site.
+ *
+ * Ids are escaped before being interpolated into regexes; callers can pass a
+ * single id string or an array.
+ *
+ * @param {string[]} lines  source lines (1-indexed match comes from `index`)
+ * @param {number} index    the 0-based line index of the would-be finding
+ * @param {string|string[]} [ids]  id(s) to match exactly after `codetitan-suppress:`
+ * @param {object} [options]
+ */
+function hasSuppressionDirective(lines, index, ids = [], options = {}) {
+  const {
+    sameLine = false,
+    nextLine = false,
+    requireLineCommentPrefix = false,
+    allowAnyCodetitan = false,
+    includeToolSuppressions = false,
+  } = options;
+
+  const window = [];
+  window.push(lines[index - 1] || "");
+  if (sameLine) window.push(lines[index] || "");
+  if (nextLine) window.push(lines[index + 1] || "");
+  const haystack = window.join("\n");
+
+  if (includeToolSuppressions) {
+    const TOOL_RE =
+      /(?:biome-ignore\s+lint(?:\/[A-Za-z]+)*\/(?:noDangerouslySetInnerHtml|noGlobalEval|noExplicitAny|security\/[A-Za-z]+)|eslint-disable(?:-next-line|-line)?\s+(?:react\/no-danger|security\/detect-[A-Za-z-]+|no-eval|no-script-url))/;
+    if (TOOL_RE.test(haystack)) return true;
+  }
+
+  const prefix = requireLineCommentPrefix ? "\\/\\/\\s*" : "";
+
+  if (allowAnyCodetitan) {
+    const ANY_RE = new RegExp(`${prefix}codetitan-suppress:\\s*\\S+`);
+    if (ANY_RE.test(haystack)) return true;
+  }
+
+  const idList = Array.isArray(ids) ? ids : [ids];
+  for (const id of idList) {
+    if (!id) continue;
+    const escaped = String(id).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const ID_RE = new RegExp(`${prefix}codetitan-suppress:\\s*${escaped}\\b`);
+    if (ID_RE.test(haystack)) return true;
+  }
+  return false;
+}
+
+/**
+ * Classify a file path against the suppression-relevant regex set in one pass.
+ * Every security loop inside `detectSecurityIssues` consumed the same flags
+ * inline before — this consolidates that into one helper so detectors can share
+ * the result and future loops don't drift on which flags they consult.
+ * Pure: depends only on the input path + module-level regex constants.
+ */
+function getSecurityFileFlags(filePath) {
+  const normalizedFilePath = filePath.replace(/\\/g, "/");
+  return {
+    normalizedFilePath,
+    isTestFile: TEST_FILE_REGEX.test(normalizedFilePath),
+    isBenchDir: BENCH_DIR_REGEX.test(normalizedFilePath),
+    isDocFile: DOC_FILE_REGEX.test(normalizedFilePath),
+    isExampleConfigFile: EXAMPLE_CONFIG_FILE_REGEX.test(normalizedFilePath),
+    isInfraExecFile: INFRA_EXEC_FILE_REGEX.test(normalizedFilePath),
+    isMinifiedFile: MINIFIED_FILE_REGEX.test(normalizedFilePath),
+    isLocaleFile: LOCALE_FILE_REGEX.test(normalizedFilePath),
+    isVendoredBundle: VENDORED_BUNDLE_REGEX.test(normalizedFilePath),
+    isSeedFixtureFile: SEED_FIXTURE_FILE_REGEX.test(normalizedFilePath),
+  };
 }
 
 /**
@@ -282,22 +840,25 @@ function stripTypeScriptSyntax(content) {
   // them with N-1 blank lines so rule matches on later code still report the
   // correct source line. Single-line replacements (`: Type`, `as Type`, `<T>`,
   // `x!`) don't add or remove newlines, so line count is preserved naturally.
-  const preserveLines = (match) => '\n'.repeat((match.match(/\n/g) || []).length);
+  const preserveLines = (match) =>
+    "\n".repeat((match.match(/\n/g) || []).length);
   // The earlier broad regex for `interface|type` declaration bodies could greedily
   // eat the `/**` openers of nested JSDoc inside a `type Foo = { ... }` block while
   // leaving the `*/` closers intact, breaking downstream multi-line comment tracking
   // (real fallout: console.log inside a JSDoc code-fence on `got` flagged as a HIGH
   // sensitive-console FP). Drop that pass — the per-line type-annotation strips
   // below cover the actual FP cases (e.g. `: SomeType` matching code patterns).
-  return content
-    // Remove type annotations after parameter/variable names: `: SomeType`
-    .replace(/:\s*[A-Z]\w*(?:<[^>]*>)?(?:\s*[|&]\s*\w+(?:<[^>]*>)?)*/g, '')
-    // Remove `as Type` assertions
-    .replace(/\bas\s+[A-Z]\w*(?:<[^>]*>)?/g, '')
-    // Remove generic type parameters from function signatures: `function foo<T>(`
-    .replace(/<[A-Z]\w*(?:\s*,\s*[A-Z]\w*)*>/g, '')
-    // Remove `!` non-null assertions
-    .replace(/(\w)!/g, '$1');
+  return (
+    content
+      // Remove type annotations after parameter/variable names: `: SomeType`
+      .replace(/:\s*[A-Z]\w*(?:<[^>]*>)?(?:\s*[|&]\s*\w+(?:<[^>]*>)?)*/g, "")
+      // Remove `as Type` assertions
+      .replace(/\bas\s+[A-Z]\w*(?:<[^>]*>)?/g, "")
+      // Remove generic type parameters from function signatures: `function foo<T>(`
+      .replace(/<[A-Z]\w*(?:\s*,\s*[A-Z]\w*)*>/g, "")
+      // Remove `!` non-null assertions
+      .replace(/(\w)!/g, "$1")
+  );
 }
 
 /**
@@ -316,20 +877,31 @@ function analyzeDomain(god, filePath, content, projectRoot) {
 
   // Guard: skip oversized files before doing any work — they are always bundled/generated
   if (content.length > MAX_ANALYSIS_BYTES) {
-    return { issues: [], linesAnalyzed: 0, metadata: {}, executionTime: Date.now() - start };
+    return {
+      issues: [],
+      linesAnalyzed: 0,
+      metadata: {},
+      executionTime: Date.now() - start,
+    };
   }
 
   const language = detectLanguage(filePath);
 
   // Strip TypeScript syntax before heuristic analysis to prevent false positives
   // from type annotations that look like code (e.g. `: string` matching patterns)
-  const analysisContent = language === 'ts' ? stripTypeScriptSyntax(content) : content;
+  const analysisContent =
+    language === "ts" ? stripTypeScriptSyntax(content) : content;
 
   const lines = analysisContent.split(/\r?\n/);
 
   // Guard: also enforce a line count ceiling (catches files with very long lines)
   if (lines.length > MAX_ANALYSIS_LINES) {
-    return { issues: [], linesAnalyzed: 0, metadata: {}, executionTime: Date.now() - start };
+    return {
+      issues: [],
+      linesAnalyzed: 0,
+      metadata: {},
+      executionTime: Date.now() - start,
+    };
   }
   const context = buildContext(lines, filePath, projectRoot, analysisContent);
   // Attach language for language-specific rules
@@ -337,19 +909,19 @@ function analyzeDomain(god, filePath, content, projectRoot) {
   let issues = [];
 
   switch (god) {
-    case 'security-god':
+    case "security-god":
       issues = detectSecurityIssues(context);
       break;
-    case 'performance-god':
+    case "performance-god":
       issues = detectPerformanceIssues(context);
       break;
-    case 'test-god':
+    case "test-god":
       issues = detectTestingGaps(context);
       break;
-    case 'refactoring-god':
+    case "refactoring-god":
       issues = detectRefactoringHotspots(context);
       break;
-    case 'documentation-god':
+    case "documentation-god":
       issues = detectDocumentationGaps(context);
       break;
     default:
@@ -363,16 +935,18 @@ function analyzeDomain(god, filePath, content, projectRoot) {
       nonEmptyLines: context.nonEmptyLines,
       commentLines: context.commentLines,
       exportedSymbols: context.exportedSymbols,
-      hasTests: context.hasCompanionTest
+      hasTests: context.hasCompanionTest,
     },
-    executionTime: Date.now() - start
+    executionTime: Date.now() - start,
   };
 }
 
 function buildContext(lines, filePath, projectRoot, content) {
-  const trimmedLines = lines.map(line => line.trim());
-  const commentLines = trimmedLines.filter(line => COMMENT_REGEX.test(line)).length;
-  const nonEmptyLines = trimmedLines.filter(line => line.length > 0).length;
+  const trimmedLines = lines.map((line) => line.trim());
+  const commentLines = trimmedLines.filter((line) =>
+    COMMENT_REGEX.test(line),
+  ).length;
+  const nonEmptyLines = trimmedLines.filter((line) => line.length > 0).length;
   const exportedSymbols = detectExportedSymbols(content);
   const hasCompanionTest = lookForCompanionTests(filePath, projectRoot);
 
@@ -385,12 +959,12 @@ function buildContext(lines, filePath, projectRoot, content) {
     nonEmptyLines,
     exportedSymbols,
     hasCompanionTest,
-    content
+    content,
   };
 }
 
 function escapeRegExp(value) {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function getCallWindow(lines, startIndex, maxLines = 6) {
@@ -398,15 +972,19 @@ function getCallWindow(lines, startIndex, maxLines = 6) {
   let parenBalance = 0;
   let started = false;
 
-  for (let i = startIndex; i < Math.min(lines.length, startIndex + maxLines); i++) {
+  for (
+    let i = startIndex;
+    i < Math.min(lines.length, startIndex + maxLines);
+    i++
+  ) {
     const line = lines[i];
     collected.push(line);
 
     for (const char of line) {
-      if (char === '(') {
+      if (char === "(") {
         parenBalance++;
         started = true;
-      } else if (char === ')') {
+      } else if (char === ")") {
         parenBalance = Math.max(0, parenBalance - 1);
       }
     }
@@ -416,7 +994,7 @@ function getCallWindow(lines, startIndex, maxLines = 6) {
     }
   }
 
-  return collected.join(' ');
+  return collected.join(" ");
 }
 
 function extractStaticCommandLiteral(expression) {
@@ -424,12 +1002,15 @@ function extractStaticCommandLiteral(expression) {
   if (trimmed.length < 2) return null;
 
   const quote = trimmed[0];
-  if ((quote !== '\'' && quote !== '"' && quote !== '`') || trimmed[trimmed.length - 1] !== quote) {
+  if (
+    (quote !== "'" && quote !== '"' && quote !== "`") ||
+    trimmed[trimmed.length - 1] !== quote
+  ) {
     return null;
   }
 
   const rawCommand = trimmed.slice(1, -1);
-  if (quote === '`' && rawCommand.includes('${')) {
+  if (quote === "`" && rawCommand.includes("${")) {
     return null;
   }
 
@@ -441,12 +1022,12 @@ function isSafeStaticExecProbe(line) {
   if (!literalMatch) return false;
 
   const [, , quote, rawCommand] = literalMatch;
-  if (quote === '`' && rawCommand.includes('${')) {
+  if (quote === "`" && rawCommand.includes("${")) {
     return false;
   }
 
   const normalizedCommand = rawCommand
-    .replace(SAFE_EXEC_REDIRECTION_SUFFIX_REGEX, ' ')
+    .replace(SAFE_EXEC_REDIRECTION_SUFFIX_REGEX, " ")
     .trim();
 
   if (!normalizedCommand) return false;
@@ -470,7 +1051,7 @@ function isStaticLiteralEval(line) {
   const m = /\beval\s*\(\s*(['"`])((?:\\.|(?!\1)[\s\S])*)\1\s*\)/.exec(line);
   if (!m) return false;
   const [, quote, body] = m;
-  if (quote === '`' && body.includes('${')) return false;
+  if (quote === "`" && body.includes("${")) return false;
   if (/\brequire\s*(?:\(|\.main\b)/.test(body)) return true;
   if (/^(?:__filename|__dirname)$/.test(body.trim())) return true;
   return false;
@@ -479,19 +1060,37 @@ function isStaticLiteralEval(line) {
 function isFunctionLikeDefinition(line) {
   const normalized = line.trim();
   // Bare function call shaped like a definition: `spawn(cmd, args) {`
-  if (/^(?:async\s+)?(?:exec|execSync|spawn|spawnSync)\s*\([^)]*\)\s*\{?$/.test(normalized)) return true;
-  if (/^(?:async\s+)?[A-Za-z_$][\w$]*\s*\([^)]*\)\s*\{?$/.test(normalized)) return true;
+  if (
+    /^(?:async\s+)?(?:exec|execSync|spawn|spawnSync)\s*\([^)]*\)\s*\{?$/.test(
+      normalized,
+    )
+  )
+    return true;
+  if (/^(?:async\s+)?[A-Za-z_$][\w$]*\s*\([^)]*\)\s*\{?$/.test(normalized))
+    return true;
   // Named function declarations: `function spawn(`, `export function spawn(`, `export async function spawn(`
-  if (/^(?:export\s+)?(?:async\s+)?function\s+(?:exec|execSync|spawn|spawnSync)\b/.test(normalized)) return true;
+  if (
+    /^(?:export\s+)?(?:async\s+)?function\s+(?:exec|execSync|spawn|spawnSync)\b/.test(
+      normalized,
+    )
+  )
+    return true;
   // Private class methods: `async #spawn(`, `#spawn(`
-  if (/^(?:async\s+)?#(?:exec|execSync|spawn|spawnSync)\s*\(/.test(normalized)) return true;
+  if (/^(?:async\s+)?#(?:exec|execSync|spawn|spawnSync)\s*\(/.test(normalized))
+    return true;
   return false;
 }
 
 function isSafeProcessExecPathAlias(lines, index, variableName) {
-  const assignmentRegex = new RegExp(`\\b${escapeRegExp(variableName)}\\b\\s*=`);
-  const safeAssignmentRegex = new RegExp(`^(?:(?:const|let|var)\\s+)?${escapeRegExp(variableName)}\\s*=\\s*process\\.execPath\\s*;?$`);
-  const compoundAssignmentRegex = new RegExp(`\\b${escapeRegExp(variableName)}\\b\\s*[+\\-*/%]=`);
+  const assignmentRegex = new RegExp(
+    `\\b${escapeRegExp(variableName)}\\b\\s*=`,
+  );
+  const safeAssignmentRegex = new RegExp(
+    `^(?:(?:const|let|var)\\s+)?${escapeRegExp(variableName)}\\s*=\\s*process\\.execPath\\s*;?$`,
+  );
+  const compoundAssignmentRegex = new RegExp(
+    `\\b${escapeRegExp(variableName)}\\b\\s*[+\\-*/%]=`,
+  );
   const scanStart = Math.max(0, index - 12);
   let safeAssignments = 0;
 
@@ -520,7 +1119,7 @@ function isSafeSpawnCommandExpression(lines, index, expression) {
     return true;
   }
 
-  if (trimmed === 'process.execPath') {
+  if (trimmed === "process.execPath") {
     return true;
   }
 
@@ -533,12 +1132,14 @@ function isSafeSpawnCommandExpression(lines, index, expression) {
 
 function extractArgvCommandArrayExpression(expression) {
   const trimmed = expression.trim();
-  const bracketMatch = /^([A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*)\s*\[\s*0\s*\]$/.exec(trimmed);
+  const bracketMatch =
+    /^([A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*)\s*\[\s*0\s*\]$/.exec(trimmed);
   if (bracketMatch) {
     return bracketMatch[1];
   }
 
-  const atMatch = /^([A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*)\.at\(\s*0\s*\)$/.exec(trimmed);
+  const atMatch =
+    /^([A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*)\.at\(\s*0\s*\)$/.exec(trimmed);
   if (atMatch) {
     return atMatch[1];
   }
@@ -557,7 +1158,7 @@ function isSafeBashScriptArgExpression(expression) {
   const staticCommand = extractStaticCommandLiteral(trimmed);
   if (staticCommand !== null) {
     const normalizedCommand = staticCommand.trim();
-    if (!normalizedCommand || normalizedCommand.startsWith('-')) return false;
+    if (!normalizedCommand || normalizedCommand.startsWith("-")) return false;
     if (/[|&;<>$`]/.test(normalizedCommand)) return false;
     return true;
   }
@@ -570,11 +1171,11 @@ function isSafeShellToolSpawnArgvCall(commandExpression, argsExpression) {
   if (staticCommand === null) return false;
 
   const normalizedCommand = staticCommand.trim().toLowerCase();
-  if (normalizedCommand === 'ssh') {
-    return argsExpression.trim().startsWith('[');
+  if (normalizedCommand === "ssh") {
+    return argsExpression.trim().startsWith("[");
   }
 
-  if (normalizedCommand !== 'bash' && normalizedCommand !== 'sh') {
+  if (normalizedCommand !== "bash" && normalizedCommand !== "sh") {
     return false;
   }
 
@@ -593,7 +1194,9 @@ function isSafeSharedArgvDecomposition(commandExpression, argsExpression) {
   }
 
   const trimmedArgs = argsExpression.trim();
-  const slicePattern = new RegExp(`^${escapeRegExp(arrayExpression)}\\.slice\\(\\s*1\\s*(?:,\\s*\\d+\\s*)?\\)(?=[,)\\s]|$)`);
+  const slicePattern = new RegExp(
+    `^${escapeRegExp(arrayExpression)}\\.slice\\(\\s*1\\s*(?:,\\s*\\d+\\s*)?\\)(?=[,)\\s]|$)`,
+  );
   return slicePattern.test(trimmedArgs);
 }
 
@@ -603,31 +1206,54 @@ function isSafeSpawnArgvCall(lines, index) {
   if (!callMatch) return false;
 
   const commandExpression = callMatch[2];
-  const argsExpression = callWindow.slice(callMatch.index + callMatch[0].length).trim();
-  const safeSharedArgvDecomposition = isSafeSharedArgvDecomposition(commandExpression, argsExpression);
+  const argsExpression = callWindow
+    .slice(callMatch.index + callMatch[0].length)
+    .trim();
+  const safeSharedArgvDecomposition = isSafeSharedArgvDecomposition(
+    commandExpression,
+    argsExpression,
+  );
 
   if (/shell\s*:\s*true/.test(callWindow)) return false;
 
   // Static literal command + static array args: no injection vector regardless of command name
   // e.g. spawn("powershell", [...]) or spawn("git", ["push"]) — both args are compile-time constants
   const staticCmd = extractStaticCommandLiteral(commandExpression.trim());
-  if (staticCmd !== null && argsExpression.trim().startsWith('[')) return true;
+  if (staticCmd !== null && argsExpression.trim().startsWith("[")) return true;
 
   // Variable command + static array args with only safe flag-style elements: no shell injection risk
   // e.g. spawn(exe, ["--version"]) — variable command but args are hardcoded flags, no user input
-  if (argsExpression.trim().startsWith('[') && /^\[\s*['"`][^'"`]*['"`](?:\s*,\s*['"`][^'"`]*['"`])*\s*\]/.test(argsExpression.trim())) return true;
+  if (
+    argsExpression.trim().startsWith("[") &&
+    /^\[\s*['"`][^'"`]*['"`](?:\s*,\s*['"`][^'"`]*['"`])*\s*\]/.test(
+      argsExpression.trim(),
+    )
+  )
+    return true;
 
   // Spawn wrapper passthrough: both command and args are bare parameter-like identifiers
   // e.g. spawnSync(cmd, args, {...}) — this is a thin wrapper forwarding its own args, not user input
   const cmdTrimmed = commandExpression.trim();
   const argsTrimmed = argsExpression.trim();
-  if (/^[a-z][A-Za-z]*$/.test(cmdTrimmed) && /^(?:args|argv)\b/.test(argsTrimmed)) return true;
+  if (
+    /^[a-z][A-Za-z]*$/.test(cmdTrimmed) &&
+    /^(?:args|argv)\b/.test(argsTrimmed)
+  )
+    return true;
 
-  if (!isSafeSpawnCommandExpression(lines, index, commandExpression)
-    && !isSafeShellToolSpawnArgvCall(commandExpression, argsExpression)
-    && !safeSharedArgvDecomposition) return false;
-  if (!safeSharedArgvDecomposition
-    && !/^(?:\[|(?:args|argv)\b|[A-Za-z_$][\w$]*(?:Args|Argv|argv|args)\b)/.test(argsExpression)) return false;
+  if (
+    !isSafeSpawnCommandExpression(lines, index, commandExpression) &&
+    !isSafeShellToolSpawnArgvCall(commandExpression, argsExpression) &&
+    !safeSharedArgvDecomposition
+  )
+    return false;
+  if (
+    !safeSharedArgvDecomposition &&
+    !/^(?:\[|(?:args|argv)\b|[A-Za-z_$][\w$]*(?:Args|Argv|argv|args)\b)/.test(
+      argsExpression,
+    )
+  )
+    return false;
 
   return true;
 }
@@ -638,7 +1264,9 @@ function parseStringLiteralAssignment(line, variableName) {
     return { assigned: false, dynamic: false, value: null };
   }
 
-  const assignmentRegex = new RegExp(`^(?:(?:const|let|var)\\s+)?${escapeRegExp(variableName)}\\s*=\\s*(.+?)\\s*;?$`);
+  const assignmentRegex = new RegExp(
+    `^(?:(?:const|let|var)\\s+)?${escapeRegExp(variableName)}\\s*=\\s*(.+?)\\s*;?$`,
+  );
   const match = assignmentRegex.exec(trimmed);
   if (!match) {
     return { assigned: false, dynamic: false, value: null };
@@ -650,7 +1278,7 @@ function parseStringLiteralAssignment(line, variableName) {
   }
 
   const quote = rhs[0];
-  if ((quote === '\'' || quote === '"') && rhs[rhs.length - 1] === quote) {
+  if ((quote === "'" || quote === '"') && rhs[rhs.length - 1] === quote) {
     return { assigned: true, dynamic: false, value: rhs.slice(1, -1) };
   }
 
@@ -663,7 +1291,9 @@ function isSafeLiteralAllowlistedExec(lines, index) {
   if (!identifierMatch) return false;
 
   const variableName = identifierMatch[2];
-  const compoundAssignmentRegex = new RegExp(`\\b${escapeRegExp(variableName)}\\b\\s*[+\\-*/%]=`);
+  const compoundAssignmentRegex = new RegExp(
+    `\\b${escapeRegExp(variableName)}\\b\\s*[+\\-*/%]=`,
+  );
   const scanStart = Math.max(0, index - 12);
   let literalAssignments = 0;
 
@@ -677,7 +1307,7 @@ function isSafeLiteralAllowlistedExec(lines, index) {
     if (parsed.dynamic || !parsed.value) return false;
 
     const normalizedCommand = parsed.value
-      .replace(SAFE_EXEC_REDIRECTION_SUFFIX_REGEX, ' ')
+      .replace(SAFE_EXEC_REDIRECTION_SUFFIX_REGEX, " ")
       .trim();
 
     if (!normalizedCommand) return false;
@@ -695,59 +1325,67 @@ function detectSecurityIssues(context) {
 
   const rules = [
     {
-      id: 'EVAL_USAGE',
-      severity: 'HIGH',
+      id: "EVAL_USAGE",
+      severity: "HIGH",
       pattern: /\beval\s*\(/,
-      message: 'Avoid dynamic evaluation; prefer safer parsing or explicit logic.',
+      message:
+        "Avoid dynamic evaluation; prefer safer parsing or explicit logic.",
       impact: 8,
-      skipDoc: true,  // don't fire in blog/docs/examples showing bad patterns
-      skipTest: true  // test files legitimately exercise dynamic evaluation paths
+      skipDoc: true, // don't fire in blog/docs/examples showing bad patterns
+      skipTest: true, // test files legitimately exercise dynamic evaluation paths
     },
     {
-      id: 'FUNCTION_CONSTRUCTOR',
-      severity: 'HIGH',
+      id: "FUNCTION_CONSTRUCTOR",
+      severity: "HIGH",
       pattern: /\bnew\s+Function\s*\(/,
-      message: 'Dynamic Function constructor executes arbitrary code.',
+      message: "Dynamic Function constructor executes arbitrary code.",
       impact: 8,
-      skipTest: true
+      skipTest: true,
     },
     {
-      id: 'COMMAND_EXEC',
-      severity: 'HIGH',
+      id: "COMMAND_EXEC",
+      severity: "HIGH",
       // Require child_process. prefix OR that exec/spawn is NOT preceded by a dot or # (method/private method call)
-      pattern: /(?:child_process\.|(?<![.#\w]))(exec|execSync|spawn|spawnSync)\s*\(/,
-      message: 'Command execution opens the door to injection attacks. Validate or sandbox inputs.',
+      pattern:
+        /(?:child_process\.|(?<![.#\w]))(exec|execSync|spawn|spawnSync)\s*\(/,
+      message:
+        "Command execution opens the door to injection attacks. Validate or sandbox inputs.",
       impact: 9,
-      skipTest: true  // test files use exec/spawn to run the CLI under test
+      skipTest: true, // test files use exec/spawn to run the CLI under test
     },
     {
-      id: 'INSECURE_HTTP',
-      severity: 'MEDIUM',
+      id: "INSECURE_HTTP",
+      severity: "MEDIUM",
       // Exclude localhost/127.0.0.1/::1 — HTTP is fine for local dev/test traffic
-      pattern: /(fetch|axios\.get|axios\.post|axios\.request)\s*\(\s*['"]http:\/\/(?!localhost[:/]|127\.0\.0\.1[:/]|\[::1\])/,
-      message: 'HTTP request to external URL detected. Prefer HTTPS to protect data in transit.',
-      impact: 5
+      pattern:
+        /(fetch|axios\.get|axios\.post|axios\.request)\s*\(\s*['"]http:\/\/(?!localhost[:/]|127\.0\.0\.1[:/]|\[::1\])/,
+      message:
+        "HTTP request to external URL detected. Prefer HTTPS to protect data in transit.",
+      impact: 5,
     },
     // Note: hardcoded secrets are detected below by SECRET_PATTERNS + entropy scan
     {
-      id: 'DISABLE_LINT_SECURITY',
-      severity: 'MEDIUM',
+      id: "DISABLE_LINT_SECURITY",
+      severity: "MEDIUM",
       pattern: /eslint-disable-(next-line|line)\s+(no-eval|security\/\w+)/,
-      message: 'Security lint rule disabled. Ensure there is a reviewed justification.',
-      impact: 6
-    }
+      message:
+        "Security lint rule disabled. Ensure there is a reviewed justification.",
+      impact: 6,
+    },
   ];
 
-  const normalizedFilePath = context.filePath.replace(/\\/g, '/');
-  const isTestFile = TEST_FILE_REGEX.test(normalizedFilePath);
-  const isBenchDir = BENCH_DIR_REGEX.test(normalizedFilePath);
-  const isDocFile = DOC_FILE_REGEX.test(normalizedFilePath);
-  const isExampleConfigFile = EXAMPLE_CONFIG_FILE_REGEX.test(normalizedFilePath);
-  const isInfraExecFile = INFRA_EXEC_FILE_REGEX.test(normalizedFilePath);
-  const isMinifiedFile = MINIFIED_FILE_REGEX.test(normalizedFilePath);
-  const isLocaleFile = LOCALE_FILE_REGEX.test(normalizedFilePath);
-  const isVendoredBundle = VENDORED_BUNDLE_REGEX.test(normalizedFilePath);
-  const isSeedFixtureFile = SEED_FIXTURE_FILE_REGEX.test(normalizedFilePath);
+  const {
+    normalizedFilePath,
+    isTestFile,
+    isBenchDir,
+    isDocFile,
+    isExampleConfigFile,
+    isInfraExecFile,
+    isMinifiedFile,
+    isLocaleFile,
+    isVendoredBundle,
+    isSeedFixtureFile,
+  } = getSecurityFileFlags(context.filePath);
   // True for lines that look like rule metadata rather than executable code.
   // Covers three shapes:
   //   1. Key-value rule entries: `pattern: /.../`, `message: '...'`, `name: 'eval()'`.
@@ -757,9 +1395,11 @@ function detectSecurityIssues(context) {
   //      `'Avoid eval() / Function constructor. It is unsafe and breaks CSP.',`
   //      These are prose descriptions that mention dangerous APIs, not calls.
   const isRuleMetadataLine = (value) =>
-    /\b(?:pattern|message|description|scenario|fix|why|badCode|goodCode|code|name|title|label|id)\s*:/.test(value)
-    || /^\s*['"`][\w$]*\s*[\(\[{.]/.test(value)
-    || /^\s*['"`][A-Z][^'"`]{10,}['"`]\s*,\s*$/.test(value);
+    /\b(?:pattern|message|description|scenario|fix|why|badCode|goodCode|code|name|title|label|id)\s*:/.test(
+      value,
+    ) ||
+    /^\s*['"`][\w$]*\s*[\(\[{.]/.test(value) ||
+    /^\s*['"`][A-Z][^'"`]{10,}['"`]\s*,\s*$/.test(value);
 
   context.lines.forEach((line, index) => {
     const normalized = line.trim();
@@ -769,10 +1409,18 @@ function detectSecurityIssues(context) {
     if (isRuleMetadataLine(normalized)) return;
     if (line.length > MINIFIED_LINE_LENGTH) return;
 
-    rules.forEach(rule => {
+    rules.forEach((rule) => {
       // Use exec() to get match position
       const match = rule.pattern.exec(line);
       if (!match) return;
+
+      // ── Per-rule codetitan-suppress directive on previous line ──────────
+      // The maintainer has reviewed this pattern and explicitly opted out.
+      // Tied to rule.id (not generic \S+) so the audit trail names which
+      // rule was suppressed; matches what users write in practice, e.g.
+      //   // codetitan-suppress: COMMAND_EXEC
+      //   const child = spawn(step.command, { shell: true });
+      if (hasSuppressionDirective(context.lines, index, rule.id)) return;
 
       // ── Skip minified/dist files — vendored, not user-owned code ───────────
       if (isMinifiedFile) return;
@@ -782,86 +1430,152 @@ function detectSecurityIssues(context) {
 
       // ── Per-rule doc-file skip ───────────────────────────────────────────
       if (rule.skipDoc && isDocFile) return;
-      if (isExampleConfigFile && !['HIGH', 'CRITICAL'].includes(rule.severity)) return;
-      if (rule.id === 'COMMAND_EXEC' && (
-        isFunctionLikeDefinition(line)
-        || isSafeStaticExecProbe(line)
-        || isSafeSpawnArgvCall(context.lines, index)
-        || isSafeLiteralAllowlistedExec(context.lines, index)
-        || isInfraExecFile  // engine infra files intentionally call exec
-        || isMinifiedFile   // minified/dist files are not user-owned code
-        // No child_process import → exec() is almost always a SQLite-shaped
-        // execute(), a TypeScript interface method signature, or a custom
-        // method named `exec`. Mirrors taint-analyzer.js's CHILD_PROCESS_
-        // IMPORT_REGEX gate on TAINT_COMMAND_INJECTION; closes Remix
-        // adapter.ts:32 (DatabaseSync.exec interface) + Drizzle bun-sqlite
-        // session.ts:45 (Bun SQLite exec method) FPs from 2026-05-10
-        // re-baseline.
-        || !/require\s*\(\s*['"`](?:node:)?child_process['"`]\s*\)|from\s+['"`](?:node:)?child_process['"`]|import\s+['"`](?:node:)?child_process['"`]/.test(context.content)
-      )) return;
+      if (isExampleConfigFile && !["HIGH", "CRITICAL"].includes(rule.severity))
+        return;
+      if (
+        rule.id === "COMMAND_EXEC" &&
+        (isFunctionLikeDefinition(line) ||
+          isSafeStaticExecProbe(line) ||
+          isSafeSpawnArgvCall(context.lines, index) ||
+          isSafeLiteralAllowlistedExec(context.lines, index) ||
+          isInfraExecFile || // engine infra files intentionally call exec
+          isMinifiedFile || // minified/dist files are not user-owned code
+          // No child_process import → exec() is almost always a SQLite-shaped
+          // execute(), a TypeScript interface method signature, or a custom
+          // method named `exec`. Mirrors taint-analyzer.js's CHILD_PROCESS_
+          // IMPORT_REGEX gate on TAINT_COMMAND_INJECTION; closes Remix
+          // adapter.ts:32 (DatabaseSync.exec interface) + Drizzle bun-sqlite
+          // session.ts:45 (Bun SQLite exec method) FPs from 2026-05-10
+          // re-baseline.
+          !/require\s*\(\s*['"`](?:node:)?child_process['"`]\s*\)|from\s+['"`](?:node:)?child_process['"`]|import\s+['"`](?:node:)?child_process['"`]/.test(
+            context.content,
+          ))
+      )
+        return;
       // eval('literal') and eval(`literal ${nothing} else`) are bundler/CJS-ESM
       // workarounds, not dynamic eval. Suppress when the argument is a single
       // quoted literal with no interpolation.
-      if (rule.id === 'EVAL_USAGE' && isStaticLiteralEval(line)) return;
+      if (rule.id === "EVAL_USAGE" && isStaticLiteralEval(line)) return;
+      // G3a guard (2026-05-19): EVAL_USAGE / COMMAND_EXEC fire on Flask's
+      // documented lifecycle APIs (PYTHONSTARTUP exec in `flask shell`,
+      // from_pyfile config loader). Both are framework-controlled paths,
+      // not user-derived. Closes Codex baseline FPs at flask/cli.py:1023
+      // and flask/config.py:209.
+      // Source: docs/plans/2026-05-19-lang-canary-baseline.md Recommended Step 1-2.
+      if (rule.id === "EVAL_USAGE" || rule.id === "COMMAND_EXEC") {
+        // Wider backward window (10 lines) to catch enclosing function
+        // signatures like `def from_pyfile(...)`; tighter forward window
+        // (3 lines) to keep guard scope local.
+        const wstart = Math.max(0, index - 10);
+        const wend = Math.min(context.lines.length - 1, index + 3);
+        for (let i = wstart; i <= wend; i++) {
+          if (/\bPYTHONSTARTUP\b/.test(context.lines[i])) return;
+          if (/\bfrom_pyfile\b|\bfrom_file\b/.test(context.lines[i])) return;
+        }
+      }
       const column = match.index;
       const matchLength = match[0].length;
 
-      issues.push(formatIssue({
-        line: index + 1,
-        column,
-        endLine: index + 1,
-        endColumn: column + matchLength,
-        severity: rule.severity,
-        category: rule.id,
-        message: rule.message,
-        impact: rule.impact,
-        snippet: normalized,
-        context: getContextLines(context.lines, index, 2)
-      }));
+      issues.push(
+        formatIssue({
+          line: index + 1,
+          column,
+          endLine: index + 1,
+          endColumn: column + matchLength,
+          severity: rule.severity,
+          category: rule.id,
+          message: rule.message,
+          impact: rule.impact,
+          snippet: normalized,
+          context: getContextLines(context.lines, index, 2),
+        }),
+      );
     });
 
     // ── Additional security heuristics ──────────────────────────────────────
     // Prototype pollution
-    const protoPollutionMatch = /(?:__proto__|constructor\.prototype|Object\.prototype)\s*\[/.exec(line);
-    if (protoPollutionMatch && !COMMENT_REGEX.test(normalized)) {
-      issues.push(formatIssue({
-        line: index + 1, column: protoPollutionMatch.index,
-        endLine: index + 1, endColumn: protoPollutionMatch.index + protoPollutionMatch[0].length,
-        severity: 'HIGH', category: 'PROTOTYPE_POLLUTION',
-        message: 'Prototype pollution: dynamic property assignment on __proto__ or Object.prototype.',
-        impact: 8, snippet: normalized, context: getContextLines(context.lines, index, 2)
-      }));
+    const protoPollutionMatch =
+      /(?:__proto__|constructor\.prototype|Object\.prototype)\s*\[/.exec(line);
+    if (
+      protoPollutionMatch &&
+      !COMMENT_REGEX.test(normalized) &&
+      !hasSuppressionDirective(context.lines, index, "PROTOTYPE_POLLUTION")
+    ) {
+      issues.push(
+        formatIssue({
+          line: index + 1,
+          column: protoPollutionMatch.index,
+          endLine: index + 1,
+          endColumn: protoPollutionMatch.index + protoPollutionMatch[0].length,
+          severity: "HIGH",
+          category: "PROTOTYPE_POLLUTION",
+          message:
+            "Prototype pollution: dynamic property assignment on __proto__ or Object.prototype.",
+          impact: 8,
+          snippet: normalized,
+          context: getContextLines(context.lines, index, 2),
+        }),
+      );
     }
 
     // Regex injection — user data in RegExp constructor.
     // Skip in benchmark / CI-script paths: `process.argv` here is a
     // developer-supplied filter pattern, not an HTTP-request vector.
     const isBenchOrScriptPath =
-      /(?:^|\/)(?:scripts|benchmarks?|bench)\//.test(normalizedFilePath)
-      || /\.bench\.[jt]sx?$/.test(normalizedFilePath);
+      /(?:^|\/)(?:scripts|benchmarks?|bench)\//.test(normalizedFilePath) ||
+      /\.bench\.[jt]sx?$/.test(normalizedFilePath);
     const regexInjMatch = !isBenchOrScriptPath
-      ? /new\s+RegExp\s*\(\s*(?:req\.|request\.|params\.|query\.|body\.|process\.argv|userInput)/.exec(line)
+      ? /new\s+RegExp\s*\(\s*(?:req\.|request\.|params\.|query\.|body\.|process\.argv|userInput)/.exec(
+          line,
+        )
       : null;
-    if (regexInjMatch && !COMMENT_REGEX.test(normalized)) {
-      issues.push(formatIssue({
-        line: index + 1, column: regexInjMatch.index,
-        endLine: index + 1, endColumn: regexInjMatch.index + regexInjMatch[0].length,
-        severity: 'HIGH', category: 'REGEX_INJECTION',
-        message: 'User input passed to RegExp constructor — ReDoS or regex injection risk.',
-        impact: 7, snippet: normalized, context: getContextLines(context.lines, index, 2)
-      }));
+    if (
+      regexInjMatch &&
+      !COMMENT_REGEX.test(normalized) &&
+      !hasSuppressionDirective(context.lines, index, "REGEX_INJECTION")
+    ) {
+      issues.push(
+        formatIssue({
+          line: index + 1,
+          column: regexInjMatch.index,
+          endLine: index + 1,
+          endColumn: regexInjMatch.index + regexInjMatch[0].length,
+          severity: "HIGH",
+          category: "REGEX_INJECTION",
+          message:
+            "User input passed to RegExp constructor — ReDoS or regex injection risk.",
+          impact: 7,
+          snippet: normalized,
+          context: getContextLines(context.lines, index, 2),
+        }),
+      );
     }
 
     // Timing attack: non-constant-time string compare for secrets
-    const timingMatch = /(?:password|token|secret|apiKey|api_key|hash)\s*===?\s*(?:req\.|request\.|input\.|params\.)/.exec(line);
-    if (timingMatch && !COMMENT_REGEX.test(normalized)) {
-      issues.push(formatIssue({
-        line: index + 1, column: timingMatch.index,
-        endLine: index + 1, endColumn: timingMatch.index + timingMatch[0].length,
-        severity: 'MEDIUM', category: 'TIMING_ATTACK',
-        message: 'String comparison of secret/token may be vulnerable to timing attack. Use crypto.timingSafeEqual().',
-        impact: 6, snippet: normalized, context: getContextLines(context.lines, index, 2)
-      }));
+    const timingMatch =
+      /(?:password|token|secret|apiKey|api_key|hash)\s*===?\s*(?:req\.|request\.|input\.|params\.)/.exec(
+        line,
+      );
+    if (
+      timingMatch &&
+      !COMMENT_REGEX.test(normalized) &&
+      !hasSuppressionDirective(context.lines, index, "TIMING_ATTACK")
+    ) {
+      issues.push(
+        formatIssue({
+          line: index + 1,
+          column: timingMatch.index,
+          endLine: index + 1,
+          endColumn: timingMatch.index + timingMatch[0].length,
+          severity: "MEDIUM",
+          category: "TIMING_ATTACK",
+          message:
+            "String comparison of secret/token may be vulnerable to timing attack. Use crypto.timingSafeEqual().",
+          impact: 6,
+          snippet: normalized,
+          context: getContextLines(context.lines, index, 2),
+        }),
+      );
     }
 
     // Unsigned JWT algorithm ("none" algorithm).
@@ -877,19 +1591,44 @@ function detectSecurityIssues(context) {
     // algorithm-config keyword (`alg:`, `algorithm:`) on the same line.
     // Bare `sign`/`verify` as words (word-boundary flanked) don't count.
     const unsignedAlgorithmPattern = new RegExp(
-      ['\\balg\\b\\s*[:=]\\s*["\']' + 'no' + 'ne["\']', '\\balgorithm\\b\\s*[:=]\\s*["\']' + 'no' + 'ne["\']', '\\balgorithms?\\b\\s*[:=]\\s*\\[\\s*["\']' + 'no' + 'ne["\']'].join('|'),
-      'i'
+      [
+        "\\balg\\b\\s*[:=]\\s*[\"']" + "no" + "ne[\"']",
+        "\\balgorithm\\b\\s*[:=]\\s*[\"']" + "no" + "ne[\"']",
+        "\\balgorithms?\\b\\s*[:=]\\s*\\[\\s*[\"']" + "no" + "ne[\"']",
+      ].join("|"),
+      "i",
     );
-    const authTokenPattern = new RegExp(['\\bjwt\\.(?:sign|verify|decode)\\b', '\\bjose\\.[A-Za-z]*(?:sign|verify|decode)', '\\bjsonwebtoken\\b'].join('|'), 'i');
+    const authTokenPattern = new RegExp(
+      [
+        "\\bjwt\\.(?:sign|verify|decode)\\b",
+        "\\bjose\\.[A-Za-z]*(?:sign|verify|decode)",
+        "\\bjsonwebtoken\\b",
+      ].join("|"),
+      "i",
+    );
     const unsignedAlgorithmMatch = unsignedAlgorithmPattern.exec(line);
-    if (unsignedAlgorithmMatch && authTokenPattern.test(line) && !COMMENT_REGEX.test(normalized)) {
-      issues.push(formatIssue({
-        line: index + 1, column: unsignedAlgorithmMatch.index,
-        endLine: index + 1, endColumn: unsignedAlgorithmMatch.index + unsignedAlgorithmMatch[0].length,
-        severity: 'CRITICAL', category: 'JWT_NONE_ALGORITHM',
-        message: 'Unsigned JWT algorithm allows forged tokens without signature verification.',
-        impact: 10, snippet: normalized, context: getContextLines(context.lines, index, 2)
-      }));
+    if (
+      unsignedAlgorithmMatch &&
+      authTokenPattern.test(line) &&
+      !COMMENT_REGEX.test(normalized) &&
+      !hasSuppressionDirective(context.lines, index, "JWT_NONE_ALGORITHM")
+    ) {
+      issues.push(
+        formatIssue({
+          line: index + 1,
+          column: unsignedAlgorithmMatch.index,
+          endLine: index + 1,
+          endColumn:
+            unsignedAlgorithmMatch.index + unsignedAlgorithmMatch[0].length,
+          severity: "CRITICAL",
+          category: "JWT_NONE_ALGORITHM",
+          message:
+            "Unsigned JWT algorithm allows forged tokens without signature verification.",
+          impact: 10,
+          snippet: normalized,
+          context: getContextLines(context.lines, index, 2),
+        }),
+      );
     }
 
     // XXE: XML parser without disabling external entities.
@@ -902,26 +1641,56 @@ function detectSecurityIssues(context) {
     // resolution either — that's XML-only behavior. HTML parsing of untrusted
     // input is its own risk (XSS via innerHTML sinks), but not XXE. Suppress
     // when the parseFromString call passes a literal "text/html" as 2nd arg.
-    const xxeMatch = /new\s+(?:DOMParser|XMLParser|xml2js|libxmljs|sax)\s*\(|parseFromString\s*\(/.exec(line);
-    const importsFastXmlParser = /from\s+['"]fast-xml-parser['"]|require\s*\(\s*['"]fast-xml-parser['"]/.test(context.content);
+    const xxeMatch =
+      /new\s+(?:DOMParser|XMLParser|xml2js|libxmljs|sax)\s*\(|parseFromString\s*\(/.exec(
+        line,
+      );
+    const importsFastXmlParser =
+      /from\s+['"]fast-xml-parser['"]|require\s*\(\s*['"]fast-xml-parser['"]/.test(
+        context.content,
+      );
     // Look ahead a small window — typical pattern splits `new DOMParser()` and
     // `parser.parseFromString(input, "text/html")` across 1-3 lines. Allow the
     // 2nd arg to sit after arbitrary text (not just `[^)]*`) so nested calls
     // like `parser.parseFromString(node.getText(), "text/html")` don't trip
     // the closing paren before we reach the MIME-type argument.
-    const xxeWindow = context.lines.slice(index, Math.min(context.lines.length, index + 4)).join('\n');
-    const isHtmlParse = /parseFromString\s*\([\s\S]{0,200}?['"`]text\/html['"`]/.test(xxeWindow);
-    if (xxeMatch && !isHtmlParse && !COMMENT_REGEX.test(normalized) && !isTestFile && !importsFastXmlParser) {
+    const xxeWindow = context.lines
+      .slice(index, Math.min(context.lines.length, index + 4))
+      .join("\n");
+    const isHtmlParse =
+      /parseFromString\s*\([\s\S]{0,200}?['"`]text\/html['"`]/.test(xxeWindow);
+    if (
+      xxeMatch &&
+      !isHtmlParse &&
+      !COMMENT_REGEX.test(normalized) &&
+      !isTestFile &&
+      !importsFastXmlParser &&
+      !hasSuppressionDirective(context.lines, index, "POTENTIAL_XXE")
+    ) {
       // Only flag if there's no entity disabling nearby
-      const ctxBlock = context.lines.slice(Math.max(0, index - 5), index + 5).join('\n');
-      if (!/(noent|allowExternalEntities.*false|resolveExternalEntities.*false|FEATURE_EXTERNAL_GENERAL_ENTITIES)/.test(ctxBlock)) {
-        issues.push(formatIssue({
-          line: index + 1, column: xxeMatch.index,
-          endLine: index + 1, endColumn: xxeMatch.index + xxeMatch[0].length,
-          severity: 'MEDIUM', category: 'POTENTIAL_XXE',
-          message: 'XML parser usage detected — ensure external entity resolution is disabled to prevent XXE.',
-          impact: 7, snippet: normalized, context: getContextLines(context.lines, index, 2)
-        }));
+      const ctxBlock = context.lines
+        .slice(Math.max(0, index - 5), index + 5)
+        .join("\n");
+      if (
+        !/(noent|allowExternalEntities.*false|resolveExternalEntities.*false|FEATURE_EXTERNAL_GENERAL_ENTITIES)/.test(
+          ctxBlock,
+        )
+      ) {
+        issues.push(
+          formatIssue({
+            line: index + 1,
+            column: xxeMatch.index,
+            endLine: index + 1,
+            endColumn: xxeMatch.index + xxeMatch[0].length,
+            severity: "MEDIUM",
+            category: "POTENTIAL_XXE",
+            message:
+              "XML parser usage detected — ensure external entity resolution is disabled to prevent XXE.",
+            impact: 7,
+            snippet: normalized,
+            context: getContextLines(context.lines, index, 2),
+          }),
+        );
       }
     }
 
@@ -937,31 +1706,46 @@ function detectSecurityIssues(context) {
       // Intentionally excludes "token" alone — too overloaded (lex tokens,
       // payment tokens, GitHub/API tokens, cancellation tokens). Qualified
       // auth-token names (authToken, sessionToken, bearer) match instead.
-      const CRYPTO_CONTEXT = /\b(password|session|jwt|hmac|signature|apiKey|apiSecret|hashPassword|signPayload|authToken|sessionToken|sessionKey|bearer)\b/i;
+      const CRYPTO_CONTEXT =
+        /\b(password|session|jwt|hmac|signature|apiKey|apiSecret|hashPassword|signPayload|authToken|sessionToken|sessionKey|bearer)\b/i;
       const inCryptoContext = CRYPTO_CONTEXT.test(context.content);
       // Known non-crypto uses of md5 on a line-by-line basis:
       //   - Gravatar / email-hash canonicalization (md5 of lowercased email)
       //   - Cache keys / ETags / fingerprints on content
       // These are deterministic identifiers, not credentials.
-      const isEmailMd5 = /\bmd5[^)]*\)\s*\.update\s*\([^)]*\b(?:email|emailAddress|gravatar|md5Email|emailMd5)\b/i.test(line);
-      const isFingerprintMd5 = /\b(?:fingerprint|cacheKey|etag|contentHash|checksum|dedupe(?:Key|Hash)?)\b/i.test(line);
+      const isEmailMd5 =
+        /\bmd5[^)]*\)\s*\.update\s*\([^)]*\b(?:email|emailAddress|gravatar|md5Email|emailMd5)\b/i.test(
+          line,
+        );
+      const isFingerprintMd5 =
+        /\b(?:fingerprint|cacheKey|etag|contentHash|checksum|dedupe(?:Key|Hash)?)\b/i.test(
+          line,
+        );
 
-      if (inCryptoContext && !isEmailMd5 && !isFingerprintMd5) {
+      if (
+        inCryptoContext &&
+        !isEmailMd5 &&
+        !isFingerprintMd5 &&
+        !hasSuppressionDirective(context.lines, index, "WEAK_HASH")
+      ) {
         const column = md5Match.index;
         const matchLength = md5Match[0].length;
 
-        issues.push(formatIssue({
-          line: index + 1,
-          column,
-          endLine: index + 1,
-          endColumn: column + matchLength,
-          severity: 'MEDIUM',
-          category: 'WEAK_HASH',
-          message: 'MD5 used in a file with auth/crypto terms — MD5 is broken for cryptographic purposes. Use SHA-256 or bcrypt/argon2 for passwords.',
-          impact: 6,
-          snippet: normalized,
-          context: getContextLines(context.lines, index, 2)
-        }));
+        issues.push(
+          formatIssue({
+            line: index + 1,
+            column,
+            endLine: index + 1,
+            endColumn: column + matchLength,
+            severity: "MEDIUM",
+            category: "WEAK_HASH",
+            message:
+              "MD5 used in a file with auth/crypto terms — MD5 is broken for cryptographic purposes. Use SHA-256 or bcrypt/argon2 for passwords.",
+            impact: 6,
+            snippet: normalized,
+            context: getContextLines(context.lines, index, 2),
+          }),
+        );
       }
     }
   });
@@ -977,11 +1761,23 @@ function detectSecurityIssues(context) {
       if (DYNAMIC_RHS_REGEX.test(line)) return;
       if (SECRET_PATTERN_DEFINITION_REGEX.test(line)) return;
       // Skip error/log message lines — they mention "token"/"password" in messages, not assignments
-      if (/(?:throw|Error\(|console\.|log\(|warn\(|debug\(|info\()/.test(line)) return;
+      if (/(?:throw|Error\(|console\.|log\(|warn\(|debug\(|info\()/.test(line))
+        return;
       let matchedNamedSecret = false;
+
+      // ── codetitan-suppress directive on previous line ───────────────────
+      // Two checks: by surfaced category (HARDCODED_SECRET — what users see
+      // in reports and write in suppress comments) AND by rule.id (the
+      // specific pattern like STRIPE_KEY for finer-grained audit trails).
+      // Category-level returns from the line callback so the entropy fallback
+      // below is also covered; rule.id-level `continue`s the named loop so a
+      // STRIPE_KEY suppression does not silence a different secret family.
+      if (hasSuppressionDirective(context.lines, index, "HARDCODED_SECRET"))
+        return;
 
       for (const rule of SECRET_PATTERNS) {
         if (foundSecretCategories.has(rule.id)) continue;
+        if (hasSuppressionDirective(context.lines, index, rule.id)) continue;
         if (isMinifiedFile) continue; // dist/bundled files contain vendored code — never surface secrets from them
         if (isBenchDir) continue; // bench dirs contain bundled fixtures — always FPs for secrets
         if (isTestFile) continue; // test files suppress ALL secret severities (loosened 2026-05-11)
@@ -997,7 +1793,11 @@ function detectSecurityIssues(context) {
         // pre-commit hooks scanning staged content + secret-rotation
         // policies, not by SAST flagging every test fixture.
         // See docs/plans/2026-05-11-engine-fp-baseline.md.
-        if (isExampleConfigFile && !['HIGH', 'CRITICAL'].includes(rule.severity)) continue;
+        if (
+          isExampleConfigFile &&
+          !["HIGH", "CRITICAL"].includes(rule.severity)
+        )
+          continue;
         const match = rule.pattern.exec(line);
         if (!match) continue;
         // OpenAPI / JSON-schema / TypeScript-decorator example fields:
@@ -1007,11 +1807,26 @@ function detectSecurityIssues(context) {
         // before checking the assigned value. Also covers the nested-object
         // form `@ApiProperty({ example: { clientSecret: "..." } })` — backward
         // window detects the enclosing example/@ApiProperty on a prior line.
-        const isOpenApiFile = /\bApiProperty|swagger|openapi|@ApiProperty|@Schema/i.test(context.content);
+        const isOpenApiFile =
+          /\bApiProperty|swagger|openapi|@ApiProperty|@Schema/i.test(
+            context.content,
+          );
         if (isOpenApiFile) {
-          if (/(?:^|[\s{,(])(?:example|default|defaultValue|sample|mock)\s*:\s*['"`{[]/.test(line)) continue;
-          const openApiBackWindow = context.lines.slice(Math.max(0, index - 4), index).join('\n');
-          if (/@ApiProperty\s*\(|(?:^|[\s{,(])(?:example|default|defaultValue|sample|mock)\s*:\s*\{/.test(openApiBackWindow)) continue;
+          if (
+            /(?:^|[\s{,(])(?:example|default|defaultValue|sample|mock)\s*:\s*['"`{[]/.test(
+              line,
+            )
+          )
+            continue;
+          const openApiBackWindow = context.lines
+            .slice(Math.max(0, index - 4), index)
+            .join("\n");
+          if (
+            /@ApiProperty\s*\(|(?:^|[\s{,(])(?:example|default|defaultValue|sample|mock)\s*:\s*\{/.test(
+              openApiBackWindow,
+            )
+          )
+            continue;
         }
         // Generated `.env`-template strings: an outer-quoted envelope holds
         // a `KEY="<value>"` pair where the value is a non-credential URI
@@ -1020,7 +1835,12 @@ function detectSecurityIssues(context) {
         // extractAssignedStringLiteral would return only `DATABASE_URL=`.
         // Measured 2026-05-10: create-t3-app cli/src/installers/envVars.ts FP.
         if (/=\s*"file:[^"]+"/i.test(line)) continue;
-        if (/=\s*"(?:postgres(?:ql)?|mysql|mongodb|redis):\/\/[^"@]*@(?:localhost|127\.0\.0\.1|0\.0\.0\.0)(?::\d+)?[^"]*"/i.test(line)) continue;
+        if (
+          /=\s*"(?:postgres(?:ql)?|mysql|mongodb|redis):\/\/[^"@]*@(?:localhost|127\.0\.0\.1|0\.0\.0\.0)(?::\d+)?[^"]*"/i.test(
+            line,
+          )
+        )
+          continue;
 
         const assignedSecretValue = extractAssignedStringLiteral(line);
         if (assignedSecretValue) {
@@ -1028,11 +1848,16 @@ function detectSecurityIssues(context) {
           if (MARKER_STRING_REGEX.test(assignedSecretValue)) continue;
           if (hasLowSecretEntropy(assignedSecretValue)) continue;
           if (/^file:/i.test(assignedSecretValue)) continue;
-          if (/^(?:postgres(?:ql)?|mysql|mongodb|redis):\/\/[^@]*@(?:localhost|127\.0\.0\.1|0\.0\.0\.0)(?::\d+)?\b/i.test(assignedSecretValue)) continue;
+          if (
+            /^(?:postgres(?:ql)?|mysql|mongodb|redis):\/\/[^@]*@(?:localhost|127\.0\.0\.1|0\.0\.0\.0)(?::\d+)?\b/i.test(
+              assignedSecretValue,
+            )
+          )
+            continue;
         }
 
         // For GENERIC_SECRET, apply extra FP guards
-        if (rule.id === 'GENERIC_SECRET') {
+        if (rule.id === "GENERIC_SECRET") {
           const rhsMatch = line.match(/[:=]\s*['"`]([^'"`]{12,})['"`]/);
           if (rhsMatch) {
             const val = rhsMatch[1];
@@ -1047,31 +1872,50 @@ function detectSecurityIssues(context) {
           // When the same const/object literal contains an appId field,
           // suppress the apiKey match. Measured 2026-05-10: create-t3-app
           // www/src/config.ts FP.
-          const algoliaWindow = context.lines.slice(Math.max(0, index - 4), Math.min(context.lines.length, index + 5)).join('\n');
-          if (/\b(?:appId|applicationId|ALGOLIA)\b/.test(algoliaWindow)
-              && /\bapiKey\s*:/.test(line)) continue;
+          const algoliaWindow = context.lines
+            .slice(
+              Math.max(0, index - 4),
+              Math.min(context.lines.length, index + 5),
+            )
+            .join("\n");
+          if (
+            /\b(?:appId|applicationId|ALGOLIA)\b/.test(algoliaWindow) &&
+            /\bapiKey\s*:/.test(line)
+          )
+            continue;
         }
 
         foundSecretCategories.add(rule.id);
         matchedNamedSecret = true;
         const column = match.index;
-        issues.push(formatIssue({
-          line: index + 1,
-          column,
-          endLine: index + 1,
-          endColumn: column + match[0].length,
-          severity: rule.severity,
-          category: 'HARDCODED_SECRET',
-          message: rule.message,
-          impact: rule.impact,
-          snippet: line.trim(),
-          context: getContextLines(context.lines, index, 2)
-        }));
+        issues.push(
+          formatIssue({
+            line: index + 1,
+            column,
+            endLine: index + 1,
+            endColumn: column + match[0].length,
+            severity: rule.severity,
+            category: "HARDCODED_SECRET",
+            message: rule.message,
+            impact: rule.impact,
+            snippet: line.trim(),
+            context: getContextLines(context.lines, index, 2),
+          }),
+        );
         break; // one finding per line per priority order
       }
 
       // Entropy scan: find quoted strings ≥ 20 chars with high entropy
-      if (matchedNamedSecret || isTestFile || isBenchDir || isExampleConfigFile || isLocaleFile || isVendoredBundle || isSeedFixtureFile) return;
+      if (
+        matchedNamedSecret ||
+        isTestFile ||
+        isBenchDir ||
+        isExampleConfigFile ||
+        isLocaleFile ||
+        isVendoredBundle ||
+        isSeedFixtureFile
+      )
+        return;
       // JSX `data-*=` attributes hold third-party publishable IDs (Plausible,
       // Meticulous, PostHog, Segment, etc.) that happen to be high-entropy
       // by design. Attribute name prefix `data-` is the convention.
@@ -1079,15 +1923,26 @@ function detectSecurityIssues(context) {
       // OpenAPI nested example blocks: `@ApiProperty({ example: { k: "..." } })`.
       // Entropy scan would hit the inner string without this — the SECRET_PATTERNS
       // loop above suppresses the named-secret form; this mirrors it for entropy.
-      const openApiBackWindow = context.lines.slice(Math.max(0, index - 4), index).join('\n');
-      if (/\bApiProperty|swagger|openapi|@ApiProperty|@Schema/i.test(context.content)
-          && /@ApiProperty\s*\(|(?:^|[\s{,(])(?:example|default|defaultValue|sample|mock)\s*:\s*\{/.test(openApiBackWindow)) return;
+      const openApiBackWindow = context.lines
+        .slice(Math.max(0, index - 4), index)
+        .join("\n");
+      if (
+        /\bApiProperty|swagger|openapi|@ApiProperty|@Schema/i.test(
+          context.content,
+        ) &&
+        /@ApiProperty\s*\(|(?:^|[\s{,(])(?:example|default|defaultValue|sample|mock)\s*:\s*\{/.test(
+          openApiBackWindow,
+        )
+      )
+        return;
       // nanoid `customAlphabet(alphabet, size)` takes a high-entropy alphabet
       // string as its first argument. The alphabet may sit on the same line
       // or on the next line in a multi-line call. Suppress the entropy scan
       // when the import or call is in scope.
       if (/\bcustomAlphabet\s*\(/.test(line)) return;
-      const customAlphabetBackWindow = context.lines.slice(Math.max(0, index - 2), index).join('\n');
+      const customAlphabetBackWindow = context.lines
+        .slice(Math.max(0, index - 2), index)
+        .join("\n");
       if (/\bcustomAlphabet\s*\(\s*$/.test(customAlphabetBackWindow)) return;
       const quotedStrings = line.matchAll(/['"`]([^'"`\s]{20,})['"`]/g);
       for (const qm of quotedStrings) {
@@ -1098,46 +1953,166 @@ function detectSecurityIssues(context) {
         if (/[^\x00-\x7F]/.test(val) && /_/.test(val)) continue; // non-ASCII underscore-delimited strings (locale word lists, e.g. month names)
         if (/^phc_[A-Za-z0-9]+$/.test(val)) continue; // PostHog publishable client key — designed to ship in browser bundle
         if (/^s2s\.[a-z0-9]+\.[a-z0-9]+$/i.test(val)) continue; // Jitsu server-to-server publishable telemetry key — designed to ship in browser bundle (Cal.com FP CC3, 2026-05-12)
-        if (/^\d+-[A-Za-z0-9_-]+\.apps\.googleusercontent\.com$/.test(val)) continue; // Google OAuth client ID — public by OAuth spec (Plane FP P4, 2026-05-12). Anchored at end to prevent attacker-domain suffix tricks.
+        if (/^\d+-[A-Za-z0-9_-]+\.apps\.googleusercontent\.com$/.test(val))
+          continue; // Google OAuth client ID — public by OAuth spec (Plane FP P4, 2026-05-12). Anchored at end to prevent attacker-domain suffix tricks.
         // Google Client Secret form-placeholder (Plane FP v5-A, 2026-05-13).
         // Two-condition skip: line context is `placeholder:` field assignment AND
         // value matches GOCSPX-shape (lenient on typo neighbors per Plane's GOCShX-:
         // [Ss] covers case typos, [PpHh] covers P/H swap typo).
         // The GOOGLE_OAUTH_SECRET named pattern at line 159 still fires on real
         // GOCSPX- assignments outside placeholder context — see test cases.
-        if (/^\s*placeholder:\s*['"`]/.test(line) && /^GOC[Ss][PpHh]X-[A-Za-z0-9_-]+$/.test(val)) continue;
+        if (
+          /^\s*placeholder:\s*['"`]/.test(line) &&
+          /^GOC[Ss][PpHh]X-[A-Za-z0-9_-]+$/.test(val)
+        )
+          continue;
         if (!looksLikeSecret(val)) continue;
-        if (foundSecretCategories.has('HIGH_ENTROPY_SECRET')) continue;
-        foundSecretCategories.add('HIGH_ENTROPY_SECRET');
-        issues.push(formatIssue({
-          line: index + 1,
-          column: qm.index,
-          endLine: index + 1,
-          endColumn: qm.index + qm[0].length,
-          severity: 'HIGH',
-          category: 'HARDCODED_SECRET',
-          message: `High-entropy string detected (entropy=${shannonEntropy(val).toFixed(2)}); may be a hardcoded secret.`,
-          impact: 8,
-          snippet: line.trim(),
-          context: getContextLines(context.lines, index, 2)
-        }));
+        if (foundSecretCategories.has("HIGH_ENTROPY_SECRET")) continue;
+        foundSecretCategories.add("HIGH_ENTROPY_SECRET");
+        issues.push(
+          formatIssue({
+            line: index + 1,
+            column: qm.index,
+            endLine: index + 1,
+            endColumn: qm.index + qm[0].length,
+            severity: "HIGH",
+            category: "HARDCODED_SECRET",
+            message: `High-entropy string detected (entropy=${shannonEntropy(val).toFixed(2)}); may be a hardcoded secret.`,
+            impact: 8,
+            snippet: line.trim(),
+            context: getContextLines(context.lines, index, 2),
+          }),
+        );
       }
     });
   }
 
   // ── Python-specific security rules ──────────────────────────────────────
-  if (context.language === 'python' && !isTestFile && !isDocFile) {
+  if (context.language === "python" && !isTestFile && !isDocFile) {
     const pyRules = [
-      { pattern: /\beval\s*\(/, category: 'EVAL_USAGE', severity: 'HIGH', impact: 8, message: 'Avoid eval() in Python; use ast.literal_eval() for safe data parsing.' },
-      { pattern: /\bexec\s*\(/, category: 'COMMAND_EXEC', severity: 'HIGH', impact: 9, message: 'exec() executes arbitrary code; avoid or sanitize all inputs strictly.' },
-      { pattern: /\bos\.system\s*\(/, category: 'COMMAND_EXEC', severity: 'HIGH', impact: 9, message: 'os.system() is vulnerable to shell injection; use subprocess with a list of args.' },
-      { pattern: /\bsubprocess\.(call|run|Popen)\s*\(.*shell\s*=\s*True/, category: 'COMMAND_EXEC', severity: 'HIGH', impact: 9, message: 'subprocess with shell=True is vulnerable to injection; use shell=False with a list.' },
-      { pattern: /\bpickle\.loads?\s*\(/, category: 'INSECURE_DESERIALIZATION', severity: 'HIGH', impact: 9, message: 'pickle.load() can execute arbitrary code; never unpickle untrusted data.' },
-      { pattern: /\byaml\.load\s*\((?!.*Loader)/, category: 'INSECURE_DESERIALIZATION', severity: 'HIGH', impact: 8, message: 'yaml.load() without Loader is unsafe; use yaml.safe_load() instead.' },
-      { pattern: /\bcursor\.execute\s*\(\s*[f'""].*%.*['""]\s*%/, category: 'SQL_INJECTION', severity: 'HIGH', impact: 10, message: 'String-formatted SQL query; use parameterized queries (?, %s) instead.' },
-      { pattern: /\bcursor\.execute\s*\(\s*f['"]/, category: 'SQL_INJECTION', severity: 'HIGH', impact: 10, message: 'f-string interpolated SQL query is vulnerable to SQL injection.' },
-      { pattern: /\b__import__\s*\(/, category: 'DYNAMIC_IMPORT', severity: 'MEDIUM', impact: 7, message: '__import__() with dynamic strings can load arbitrary modules.' },
-      { pattern: /\bgetattr\s*\(\s*\w+\s*,\s*(?:request|input|argv|environ)/, category: 'DYNAMIC_ATTRIBUTE', severity: 'HIGH', impact: 8, message: 'Dynamic attribute access from user input can lead to property injection.' },
+      {
+        pattern: /\beval\s*\(/,
+        category: "EVAL_USAGE",
+        severity: "HIGH",
+        impact: 8,
+        message:
+          "Avoid eval() in Python; use ast.literal_eval() for safe data parsing.",
+        // G3a guard (2026-05-19): suppress when PYTHONSTARTUP appears in
+        // ±10-line backward / ±3-line forward context — this is the Flask
+        // shell's documented behavior of executing the user's local
+        // startup script, not request-derived code execution. Wider back
+        // window catches enclosing function signatures.
+        // Closes Codex FP at flask/cli.py:1023.
+        // Source: docs/plans/2026-05-19-lang-canary-baseline.md Recommended Step 1.
+        guard: (line, idx, lines) => {
+          const start = Math.max(0, idx - 10);
+          const end = Math.min(lines.length - 1, idx + 3);
+          for (let i = start; i <= end; i++) {
+            if (/\bPYTHONSTARTUP\b/.test(lines[i])) return true;
+          }
+          return false;
+        },
+      },
+      {
+        pattern: /\bexec\s*\(/,
+        category: "COMMAND_EXEC",
+        severity: "HIGH",
+        impact: 9,
+        message:
+          "exec() executes arbitrary code; avoid or sanitize all inputs strictly.",
+        // G3a + G3b guards (2026-05-19): suppress when PYTHONSTARTUP is in
+        // context (Flask shell lifecycle) OR when the surrounding code is
+        // a from_pyfile/from_file framework config loader. Closes Codex
+        // FPs at flask/cli.py:1023 (PYTHONSTARTUP) and flask/config.py:209
+        // (from_pyfile is Flask's documented config mechanism, not RCE).
+        // Source: docs/plans/2026-05-19-lang-canary-baseline.md Recommended Step 1.
+        // Wider backward window (10 lines) to catch enclosing function
+        // signature like `def from_pyfile(...)`; tighter forward window
+        // (3 lines) to keep guard scope local.
+        guard: (line, idx, lines) => {
+          const start = Math.max(0, idx - 10);
+          const end = Math.min(lines.length - 1, idx + 3);
+          for (let i = start; i <= end; i++) {
+            if (/\bPYTHONSTARTUP\b/.test(lines[i])) return true;
+            if (/\bfrom_pyfile\b|\bfrom_file\b/.test(lines[i])) return true;
+          }
+          return false;
+        },
+      },
+      {
+        pattern: /\bos\.system\s*\(/,
+        category: "COMMAND_EXEC",
+        severity: "HIGH",
+        impact: 9,
+        message:
+          "os.system() is vulnerable to shell injection; use subprocess with a list of args.",
+      },
+      {
+        pattern: /\bsubprocess\.(call|run|Popen)\s*\(.*shell\s*=\s*True/,
+        category: "COMMAND_EXEC",
+        severity: "HIGH",
+        impact: 9,
+        message:
+          "subprocess with shell=True is vulnerable to injection; use shell=False with a list.",
+      },
+      {
+        pattern: /\bpickle\.loads?\s*\(/,
+        category: "INSECURE_DESERIALIZATION",
+        severity: "HIGH",
+        impact: 9,
+        message:
+          "pickle.load() can execute arbitrary code; never unpickle untrusted data.",
+      },
+      {
+        pattern: /\byaml\.load\s*\((?!.*Loader)/,
+        category: "INSECURE_DESERIALIZATION",
+        severity: "HIGH",
+        impact: 8,
+        message:
+          "yaml.load() without Loader is unsafe; use yaml.safe_load() instead.",
+      },
+      {
+        pattern: /\bcursor\.execute\s*\(\s*[f'""].*%.*['""]\s*%/,
+        category: "SQL_INJECTION",
+        severity: "HIGH",
+        impact: 10,
+        message:
+          "String-formatted SQL query; use parameterized queries (?, %s) instead.",
+      },
+      {
+        pattern: /\bcursor\.execute\s*\(\s*f['"]/,
+        category: "SQL_INJECTION",
+        severity: "HIGH",
+        impact: 10,
+        message:
+          "f-string interpolated SQL query is vulnerable to SQL injection.",
+      },
+      {
+        pattern: /\b__import__\s*\(/,
+        category: "DYNAMIC_IMPORT",
+        severity: "MEDIUM",
+        impact: 7,
+        message:
+          "__import__() with dynamic strings can load arbitrary modules.",
+      },
+      {
+        pattern: /\bgetattr\s*\(\s*\w+\s*,\s*(?:request|input|argv|environ)/,
+        category: "DYNAMIC_ATTRIBUTE",
+        severity: "HIGH",
+        impact: 8,
+        message:
+          "Dynamic attribute access from user input can lead to property injection.",
+        // G3c guard (2026-05-19): suppress when the second argument is
+        // `request.method` / `request.method.lower()` — these are
+        // constrained by Flask/Django to HTTP verb names (GET|POST|PUT|...)
+        // and the resulting attribute lookup is framework dispatch (e.g.
+        // class-based views calling `getattr(self, request.method.lower())`).
+        // Closes Codex FP at flask/views.py:183.
+        // Source: docs/plans/2026-05-19-lang-canary-baseline.md Recommended Step 2.
+        guard: (line) => {
+          return /\bgetattr\s*\([^,]+,\s*request\.method\b/.test(line);
+        },
+      },
     ];
 
     context.lines.forEach((line, index) => {
@@ -1147,23 +2122,65 @@ function detectSecurityIssues(context) {
       for (const rule of pyRules) {
         const match = rule.pattern.exec(line);
         if (!match) continue;
+        if (hasSuppressionDirective(context.lines, index, rule.category))
+          continue;
+        // G3 guards (2026-05-19): per-rule context check returning `true`
+        // suppresses a confirmed-FP shape. Rules without a `guard` always
+        // emit on match.
+        if (
+          typeof rule.guard === "function" &&
+          rule.guard(line, index, context.lines)
+        )
+          continue;
         const col = match.index;
-        issues.push(formatIssue({
-          line: index + 1, column: col, endLine: index + 1, endColumn: col + match[0].length,
-          severity: rule.severity, category: rule.category, message: rule.message,
-          impact: rule.impact, snippet: normalized, context: getContextLines(context.lines, index, 2)
-        }));
+        issues.push(
+          formatIssue({
+            line: index + 1,
+            column: col,
+            endLine: index + 1,
+            endColumn: col + match[0].length,
+            severity: rule.severity,
+            category: rule.category,
+            message: rule.message,
+            impact: rule.impact,
+            snippet: normalized,
+            context: getContextLines(context.lines, index, 2),
+          }),
+        );
         break; // one finding per line
       }
     });
   }
 
   // ── Go-specific security rules ────────────────────────────────────────────
-  if (context.language === 'go' && !isTestFile && !isDocFile) {
+  if (context.language === "go" && !isTestFile && !isDocFile) {
     const goRules = [
-      { pattern: /\bexec\.Command\s*\(\s*(?:cmd|command|input|args|userInput|req)/, category: 'COMMAND_EXEC', severity: 'HIGH', impact: 9, message: 'exec.Command with user-controlled input is vulnerable to command injection.' },
-      { pattern: /\bfmt\.Sprintf\s*\(.*(?:query|sql|SELECT|INSERT|UPDATE|DELETE)/, category: 'SQL_INJECTION', severity: 'HIGH', impact: 10, message: 'fmt.Sprintf used to build SQL query; use parameterized queries (?, $1) instead.' },
-      { pattern: /os\.Getenv\s*\(\s*["']\w*(?:SECRET|KEY|PASSWORD|TOKEN|API)/, category: 'HARDCODED_SECRET', severity: 'MEDIUM', impact: 6, message: 'Consider using a secrets manager instead of bare environment variable access for credentials.' },
+      {
+        pattern:
+          /\bexec\.Command\s*\(\s*(?:cmd|command|input|args|userInput|req)/,
+        category: "COMMAND_EXEC",
+        severity: "HIGH",
+        impact: 9,
+        message:
+          "exec.Command with user-controlled input is vulnerable to command injection.",
+      },
+      {
+        pattern:
+          /\bfmt\.Sprintf\s*\(.*(?:query|sql|SELECT|INSERT|UPDATE|DELETE)/,
+        category: "SQL_INJECTION",
+        severity: "HIGH",
+        impact: 10,
+        message:
+          "fmt.Sprintf used to build SQL query; use parameterized queries (?, $1) instead.",
+      },
+      {
+        pattern: /os\.Getenv\s*\(\s*["']\w*(?:SECRET|KEY|PASSWORD|TOKEN|API)/,
+        category: "HARDCODED_SECRET",
+        severity: "MEDIUM",
+        impact: 6,
+        message:
+          "Consider using a secrets manager instead of bare environment variable access for credentials.",
+      },
     ];
 
     context.lines.forEach((line, index) => {
@@ -1173,29 +2190,52 @@ function detectSecurityIssues(context) {
       for (const rule of goRules) {
         const match = rule.pattern.exec(line);
         if (!match) continue;
+        if (hasSuppressionDirective(context.lines, index, rule.category))
+          continue;
         const col = match.index;
-        issues.push(formatIssue({
-          line: index + 1, column: col, endLine: index + 1, endColumn: col + match[0].length,
-          severity: rule.severity, category: rule.category, message: rule.message,
-          impact: rule.impact, snippet: normalized, context: getContextLines(context.lines, index, 2)
-        }));
+        issues.push(
+          formatIssue({
+            line: index + 1,
+            column: col,
+            endLine: index + 1,
+            endColumn: col + match[0].length,
+            severity: rule.severity,
+            category: rule.category,
+            message: rule.message,
+            impact: rule.impact,
+            snippet: normalized,
+            context: getContextLines(context.lines, index, 2),
+          }),
+        );
         break;
       }
     });
   }
 
   // ── Rust-specific security rules ─────────────────────────────────────────
-  if (context.language === 'rust' && !isTestFile && !isDocFile) {
+  if (context.language === "rust" && !isTestFile && !isDocFile) {
     try {
       const rustIssues = analyzeRust(context.content, context.filePath);
       for (const r of rustIssues) {
-        issues.push(formatIssue({
-          line: r.line, column: r.column || 0,
-          endLine: r.endLine || r.line, endColumn: r.endColumn || 0,
-          severity: r.severity, category: r.category, message: r.message,
-          impact: r.impact, snippet: r.snippet,
-          context: getContextLines(context.lines, r.line - 1, 2)
-        }));
+        // Adapter-time suppression: filter on the surfaced finding line +
+        // emitted category. Source-level suppression would hide downstream
+        // sinks the sibling analyzer didn't surface.
+        if (hasSuppressionDirective(context.lines, r.line - 1, r.category))
+          continue;
+        issues.push(
+          formatIssue({
+            line: r.line,
+            column: r.column || 0,
+            endLine: r.endLine || r.line,
+            endColumn: r.endColumn || 0,
+            severity: r.severity,
+            category: r.category,
+            message: r.message,
+            impact: r.impact,
+            snippet: r.snippet,
+            context: getContextLines(context.lines, r.line - 1, 2),
+          }),
+        );
       }
     } catch (_) {}
   }
@@ -1203,22 +2243,47 @@ function detectSecurityIssues(context) {
   // ── Java / PHP / C# security rules ───────────────────────────────────────
   if (!isTestFile && !isDocFile) {
     const langAnalyzers = [
-      { lang: 'java', fn: analyzeJavaSecurity },
-      { lang: 'php', fn: analyzePhpSecurity },
-      { lang: 'csharp', fn: analyzeCSharpSecurity },
+      { lang: "java", fn: analyzeJavaSecurity },
+      { lang: "php", fn: analyzePhpSecurity },
+      { lang: "csharp", fn: analyzeCSharpSecurity },
     ];
     for (const { lang, fn } of langAnalyzers) {
       if (context.language !== lang) continue;
       try {
         const langIssues = fn(context.content, context.filePath);
         for (const r of langIssues) {
-          issues.push(formatIssue({
-            line: r.line, column: r.column || 0,
-            endLine: r.endLine || r.line, endColumn: r.endColumn || 0,
-            severity: r.severity, category: r.category, message: r.message,
-            impact: r.impact, snippet: r.snippet,
-            context: getContextLines(context.lines, r.line - 1, 2)
-          }));
+          // Adapter-time suppression by surfaced category (Java/PHP/C#
+          // analyzers emit category=rule.id so this matches user intent).
+          if (hasSuppressionDirective(context.lines, r.line - 1, r.category))
+            continue;
+          // B1 (2026-05-19): strip language prefix so emitted category matches
+          // the canonical names in `classifyFinding`'s allowlist in
+          // `packages/cli/src/lib/mvp.ts`. Pre-fix, every `JAVA_*` (and
+          // structurally `PHP_*`/`CSHARP_*`) finding was silently filtered out
+          // of the default CLI surface because the allowlist requires exact
+          // canonical names (e.g. `COMMAND_INJECTION`, not `JAVA_COMMAND_INJECTION`).
+          // Opus-2 §4.5 + Opus-1 confirmed empirically that every
+          // JAVA_*-stripped name exists in the allowlist — blanket
+          // prefix-strip is safe; no per-rule mapping needed.
+          // See docs/plans/2026-05-19-lang-canary-engine-internals-opus.md §4.5.
+          const canonicalCategory = r.category.replace(
+            /^(?:JAVA_|PHP_|CSHARP_)/,
+            "",
+          );
+          issues.push(
+            formatIssue({
+              line: r.line,
+              column: r.column || 0,
+              endLine: r.endLine || r.line,
+              endColumn: r.endColumn || 0,
+              severity: r.severity,
+              category: canonicalCategory,
+              message: r.message,
+              impact: r.impact,
+              snippet: r.snippet,
+              context: getContextLines(context.lines, r.line - 1, 2),
+            }),
+          );
         }
       } catch (_) {}
     }
@@ -1229,26 +2294,28 @@ function detectSecurityIssues(context) {
   if (!isTestFile && !isDocFile && !isInfraExecFile && !isMinifiedFile) {
     const aiRules = [
       {
-        id: 'AI_CODE_RISK_EMPTY_CATCH',
-        severity: 'MEDIUM',
+        id: "AI_CODE_RISK_EMPTY_CATCH",
+        severity: "MEDIUM",
         // Match empty catch bodies — but exempt the `catch (_)` / `catch (_err)` convention
         // (ESLint no-unused-vars leading-underscore = intentional-ignore).
         // Matches: `catch {}`, `catch (err) {}`, `catch (err, ctx) {}`.
         // Skips:   `catch (_) {}`, `catch (_err) {}`, `catch (_: any) {}`.
         pattern: /catch\s*(?:\(\s*(?!_)[^)]*\))?\s*\{\s*\}/,
-        message: 'Empty catch block swallows errors — a common LLM pattern. Add error handling or logging.',
-        impact: 6
+        message:
+          "Empty catch block swallows errors — a common LLM pattern. Add error handling or logging.",
+        impact: 6,
       },
       {
-        id: 'AI_CODE_RISK_PERMISSIVE_CORS',
-        severity: 'HIGH',
+        id: "AI_CODE_RISK_PERMISSIVE_CORS",
+        severity: "HIGH",
         pattern: /(?:origin|Access-Control-Allow-Origin)\s*[:=]\s*['"`]\*['"`]/,
-        message: 'Wildcard CORS origin (*) allows any domain to access this resource. Restrict to trusted origins.',
-        impact: 8
+        message:
+          "Wildcard CORS origin (*) allows any domain to access this resource. Restrict to trusted origins.",
+        impact: 8,
       },
       {
-        id: 'AI_CODE_RISK_DEFAULT_CREDENTIALS',
-        severity: 'CRITICAL',
+        id: "AI_CODE_RISK_DEFAULT_CREDENTIALS",
+        severity: "CRITICAL",
         // Only fire on password-shape keys (not `secret:` which is heavily
         // reused in test fixtures and config validation — e.g. playwright
         // `fillOtp({ page, secret: "123456" })`). A literal value of "admin"
@@ -1260,20 +2327,23 @@ function detectSecurityIssues(context) {
         // ~line 1378 can distinguish enum/constant identifiers (`PASSWORD =
         // "PASSWORD"` — all-caps SCREAMING_SNAKE_CASE) from real lowercase
         // credential assignments. Plane FP P1 from Week 2 baseline (2026-05-12).
-        pattern: /(password|passwd|pwd)\s*[:=]\s*['"`](?:admin|password|123456|test|root|letmein|welcome|changeme|default)['"`]/i,
-        message: 'Default or example credential detected — frequently inserted by AI code generators.',
-        impact: 10
+        pattern:
+          /(password|passwd|pwd)\s*[:=]\s*['"`](?:admin|password|123456|test|root|letmein|welcome|changeme|default)['"`]/i,
+        message:
+          "Default or example credential detected — frequently inserted by AI code generators.",
+        impact: 10,
       },
       {
-        id: 'AI_CODE_RISK_CONSOLE_SENSITIVE',
-        severity: 'HIGH',
+        id: "AI_CODE_RISK_CONSOLE_SENSITIVE",
+        severity: "HIGH",
         pattern: /console\.(?:log|info|debug)\s*\(/,
-        message: 'Sensitive data logged to console — AI models often insert debug logging around credentials.',
-        impact: 8
+        message:
+          "Sensitive data logged to console — AI models often insert debug logging around credentials.",
+        impact: 8,
       },
       {
-        id: 'AI_CODE_RISK_TODO_SECURITY',
-        severity: 'MEDIUM',
+        id: "AI_CODE_RISK_TODO_SECURITY",
+        severity: "MEDIUM",
         // Match security-critical TODOs without over-matching benign keywords.
         // Bare `token` matches "design token" / "component token" (keystone v3
         // FP #2). Bare `auth` matches "author" / "authority". `validat` /
@@ -1285,19 +2355,23 @@ function detectSecurityIssues(context) {
         //   - high-precision keywords kept: secret, password, credential,
         //     permission, encrypt, decrypt, signature, hmac, oauth, jwt, csrf,
         //     xss, sql injection, hardcod
-        pattern: /\/\/\s*(?:TODO|FIXME|HACK)\s*[:\-]?\s*[^\n]*\b(?:secret|password|credential|permission|encrypt|decrypt|signature|hmac|oauth|jwt|csrf|xss|sql\s*injection|hardcod|bypass\s+(?:auth|security|check)|disable[d]?\s+(?:auth|security|check)|(?:jwt|api|access|refresh|bearer|csrf|session|auth)[-_\s]*token)\b/i,
+        pattern:
+          /\/\/\s*(?:TODO|FIXME|HACK)\s*[:\-]?\s*[^\n]*\b(?:secret|password|credential|permission|encrypt|decrypt|signature|hmac|oauth|jwt|csrf|xss|sql\s*injection|hardcod|bypass\s+(?:auth|security|check)|disable[d]?\s+(?:auth|security|check)|(?:jwt|api|access|refresh|bearer|csrf|session|auth)[-_\s]*token)\b/i,
         // Message text matches the rule's actual mechanism — flags TODOs
         // *containing* security keywords, not TODOs *located in* auth paths
         // (the rule has no path-based attribution).
-        message: 'Security-critical TODO/FIXME — placeholders for auth, encryption, or credentials should be resolved before merge.',
-        impact: 7
+        message:
+          "Security-critical TODO/FIXME — placeholders for auth, encryption, or credentials should be resolved before merge.",
+        impact: 7,
       },
       {
-        id: 'AI_CODE_RISK_HARDCODED_IV',
-        severity: 'HIGH',
-        pattern: /(?:iv|nonce|salt)\s*[:=]\s*(?:Buffer\.from\s*\(\s*['"`][A-Fa-f0-9]{16,}['"`]|['"`][A-Fa-f0-9]{16,}['"`])/,
-        message: 'Hardcoded IV/nonce/salt for cryptographic operation. Always generate these randomly.',
-        impact: 9
+        id: "AI_CODE_RISK_HARDCODED_IV",
+        severity: "HIGH",
+        pattern:
+          /(?:iv|nonce|salt)\s*[:=]\s*(?:Buffer\.from\s*\(\s*['"`][A-Fa-f0-9]{16,}['"`]|['"`][A-Fa-f0-9]{16,}['"`])/,
+        message:
+          "Hardcoded IV/nonce/salt for cryptographic operation. Always generate these randomly.",
+        impact: 9,
       },
       {
         // Intentionally does NOT match `rejectUnauthorized: false` — that's
@@ -1305,12 +2379,13 @@ function detectSecurityIssues(context) {
         // at the same severity, so firing both creates duplicate noise on the
         // same line. This rule targets the other common spelling (`verify`)
         // used by requests-like HTTP clients and some SDK configs.
-        id: 'AI_CODE_RISK_SKIP_SSL_VERIFY',
-        severity: 'HIGH',
+        id: "AI_CODE_RISK_SKIP_SSL_VERIFY",
+        severity: "HIGH",
         pattern: /\bverify\s*[:=]\s*false\b/,
-        message: 'SSL/TLS verification disabled — dangerous in production, often added by AI for "quick testing".',
-        impact: 9
-      }
+        message:
+          'SSL/TLS verification disabled — dangerous in production, often added by AI for "quick testing".',
+        impact: 9,
+      },
     ];
 
     let inBlockComment = false;
@@ -1319,11 +2394,11 @@ function detectSecurityIssues(context) {
       if (!normalized) return;
       // Track multi-line block comment state (handles JSDoc /** ... */ blocks)
       if (inBlockComment) {
-        if (normalized.includes('*/')) inBlockComment = false;
+        if (normalized.includes("*/")) inBlockComment = false;
         return;
       }
-      if (normalized.startsWith('/*')) {
-        if (!normalized.includes('*/')) inBlockComment = true;
+      if (normalized.startsWith("/*")) {
+        if (!normalized.includes("*/")) inBlockComment = true;
         return;
       }
       if (COMMENT_REGEX.test(normalized)) return;
@@ -1336,7 +2411,11 @@ function detectSecurityIssues(context) {
         if (isSeedFixtureFile) continue; // seed/fixture/sample-data — credentials by design (2026-05-12)
         const match = rule.pattern.exec(line);
         if (!match) continue;
-        if (rule.id === 'AI_CODE_RISK_CONSOLE_SENSITIVE' && !isSensitiveConsoleLog(line)) continue;
+        if (
+          rule.id === "AI_CODE_RISK_CONSOLE_SENSITIVE" &&
+          !isSensitiveConsoleLog(line)
+        )
+          continue;
         // DEFAULT_CREDENTIALS: skip when the captured key name is all-caps —
         // SCREAMING_SNAKE_CASE convention marks enum members / env-var names,
         // NOT credential assignments (e.g. `PASSWORD = "PASSWORD"` in Plane's
@@ -1347,25 +2426,36 @@ function detectSecurityIssues(context) {
         // Pre-flight grep across 5 corpus clones found zero MY_API_PASSWORD =
         // "default" instances, so SCREAMING_SNAKE_CASE env-var-shape false-
         // positives are theoretical — accept the trade-off.
-        if (rule.id === 'AI_CODE_RISK_DEFAULT_CREDENTIALS' && match[1] === match[1].toUpperCase()) continue;
+        if (
+          rule.id === "AI_CODE_RISK_DEFAULT_CREDENTIALS" &&
+          match[1] === match[1].toUpperCase()
+        )
+          continue;
         // EMPTY_CATCH: suppress when the preceding try-block wraps a
         // well-known feature-detect API whose failure path is *supposed* to
         // be a silent fallback. These are not "LLM-pattern empty catches" —
         // they're the documented-correct way to use the browser/runtime API.
-        if (rule.id === 'AI_CODE_RISK_EMPTY_CATCH') {
-          const tryBlock = context.lines.slice(Math.max(0, index - 8), index + 1).join('\n');
-          const isFeatureDetect = /\b(?:fs\.accessSync|structuredClone|matchMedia|atob|require\.resolve|localStorage\.(?:getItem|setItem|removeItem)|sessionStorage\.(?:getItem|setItem|removeItem)|navigator\.clipboard|document\.execCommand|performance\.mark|performance\.measure)\s*\(|\bawait\s+import\s*\(/.test(tryBlock);
+        if (rule.id === "AI_CODE_RISK_EMPTY_CATCH") {
+          const tryBlock = context.lines
+            .slice(Math.max(0, index - 8), index + 1)
+            .join("\n");
+          const isFeatureDetect =
+            /\b(?:fs\.accessSync|structuredClone|matchMedia|atob|require\.resolve|localStorage\.(?:getItem|setItem|removeItem)|sessionStorage\.(?:getItem|setItem|removeItem)|navigator\.clipboard|document\.execCommand|performance\.mark|performance\.measure)\s*\(|\bawait\s+import\s*\(/.test(
+              tryBlock,
+            );
           if (isFeatureDetect) continue;
           // Allow explicit opt-out for cases the heuristic misses — use
           // sparingly and only when a throw would genuinely break the UX.
-          // Marker must be on the same line as the `catch` or the line above.
-          const suppressMarker = /\/\/\s*codetitan-suppress:\s*empty-catch\b/;
-          const nearbyComment = [
-            context.lines[index] || '',
-            context.lines[index - 1] || '',
-            context.lines[index + 1] || '',
-          ].join('\n');
-          if (suppressMarker.test(nearbyComment)) continue;
+          // Marker must be on `//` line — same line as `catch`, the line
+          // above, or the line below — preserving the existing 3-line window.
+          if (
+            hasSuppressionDirective(context.lines, index, "empty-catch", {
+              sameLine: true,
+              nextLine: true,
+              requireLineCommentPrefix: true,
+            })
+          )
+            continue;
           // Non-production code paths: CLI bootstrap probes, CI publish
           // scripts, package-manager version fetchers, codegen cache-signal
           // writers. These swallow by design — a thrown error means
@@ -1389,16 +2479,21 @@ function detectSecurityIssues(context) {
         // not a user deployment). File-path heuristic is strong: filename ends
         // in `cors/index.{js,ts}` and the surrounding lines contain
         // `const defaults` / `DEFAULT_OPTIONS` / `defaultConfig` near the match.
-        if (rule.id === 'AI_CODE_RISK_PERMISSIVE_CORS') {
+        if (rule.id === "AI_CODE_RISK_PERMISSIVE_CORS") {
           // CORS-library file shapes:
           //   - cors/index.{js,ts,mjs,cjs,jsx,tsx} (Hono H1: src/middleware/cors/index.ts)
           //   - <anywhere>/cors.{js,ts,mjs,cjs,jsx,tsx} (Documenso D2: apps/openpage-api/lib/cors.ts)
           //   - <anywhere>/cors/<name>.{ext} (sibling library shapes)
           // 2026-05-12: broadened from cors/index.[jt]sx only to also cover the
           // bare cors.[ext] filename pattern (Documenso D2) + extended .mjs/.cjs.
-          const isCorsLibraryFile = /(?:^|[/\\])cors[/\\][^/\\]+\.[mc]?[jt]sx?$|(?:^|[/\\])cors\.[mc]?[jt]sx?$/i.test(normalizedFilePath);
+          const isCorsLibraryFile =
+            /(?:^|[/\\])cors[/\\][^/\\]+\.[mc]?[jt]sx?$|(?:^|[/\\])cors\.[mc]?[jt]sx?$/i.test(
+              normalizedFilePath,
+            );
           if (isCorsLibraryFile) {
-            const ctxBlock = context.lines.slice(Math.max(0, index - 5), index + 2).join('\n');
+            const ctxBlock = context.lines
+              .slice(Math.max(0, index - 5), index + 2)
+              .join("\n");
             // Library-default surrounding-code shapes:
             //   - `const defaults` / `defaultOptions` / `defaultConfig` (existing, Documenso D2)
             //   - `const opts` / `let opts` / `var opts` (Hono H1: `const opts = { origin: '*', ..., ...options }`)
@@ -1406,15 +2501,30 @@ function detectSecurityIssues(context) {
             // engine's context-line normalizer strips TS type annotations,
             // making them an unreliable signal here. const-defaults shape
             // alone covers both real Phase 1 Week 2 FPs.)
-            if (/\b(?:const|let|var)\s+(?:default(?:s|Options|Config)?|opts)\b/i.test(ctxBlock)) continue;
+            if (
+              /\b(?:const|let|var)\s+(?:default(?:s|Options|Config)?|opts)\b/i.test(
+                ctxBlock,
+              )
+            )
+              continue;
           }
         }
+        if (hasSuppressionDirective(context.lines, index, rule.id)) continue;
         const col = match.index;
-        issues.push(formatIssue({
-          line: index + 1, column: col, endLine: index + 1, endColumn: col + match[0].length,
-          severity: rule.severity, category: rule.id, message: rule.message,
-          impact: rule.impact, snippet: normalized, context: getContextLines(context.lines, index, 2)
-        }));
+        issues.push(
+          formatIssue({
+            line: index + 1,
+            column: col,
+            endLine: index + 1,
+            endColumn: col + match[0].length,
+            severity: rule.severity,
+            category: rule.id,
+            message: rule.message,
+            impact: rule.impact,
+            snippet: normalized,
+            context: getContextLines(context.lines, index, 2),
+          }),
+        );
         break; // one finding per line
       }
     });
@@ -1425,18 +2535,25 @@ function detectSecurityIssues(context) {
     try {
       const taintIssues = analyzeTaint(context.filePath, context.content);
       for (const t of taintIssues) {
-        issues.push(formatIssue({
-          line: t.line,
-          column: t.column || 0,
-          endLine: t.line,
-          endColumn: (t.column || 0) + (t.snippet?.length || 0),
-          severity: t.severity,
-          category: t.category,
-          message: t.message,
-          impact: t.impact,
-          snippet: t.snippet,
-          context: getContextLines(context.lines, t.line - 1, 2)
-        }));
+        // Adapter-time suppression at the surfaced sink line. Per #226 plan:
+        // do NOT suppress at taint-source discovery; that would hide multiple
+        // downstream sinks with one suppression directive.
+        if (hasSuppressionDirective(context.lines, t.line - 1, t.category))
+          continue;
+        issues.push(
+          formatIssue({
+            line: t.line,
+            column: t.column || 0,
+            endLine: t.line,
+            endColumn: (t.column || 0) + (t.snippet?.length || 0),
+            severity: t.severity,
+            category: t.category,
+            message: t.message,
+            impact: t.impact,
+            snippet: t.snippet,
+            context: getContextLines(context.lines, t.line - 1, 2),
+          }),
+        );
       }
     } catch (_) {
       // Taint analysis is best-effort — never crash the main scan
@@ -1444,17 +2561,30 @@ function detectSecurityIssues(context) {
   }
 
   // ── Python taint analysis ──────────────────────────────────────────────────
-  if (!isTestFile && !isDocFile && context.filePath.endsWith('.py')) {
+  if (!isTestFile && !isDocFile && context.filePath.endsWith(".py")) {
     try {
-      const pythonTaintIssues = analyzePythonTaint(context.content, context.filePath);
+      const pythonTaintIssues = analyzePythonTaint(
+        context.content,
+        context.filePath,
+      );
       for (const t of pythonTaintIssues) {
-        issues.push(formatIssue({
-          line: t.line, column: t.column || 0,
-          endLine: t.line, endColumn: (t.column || 0) + (t.snippet?.length || 0),
-          severity: t.severity, category: t.category, message: t.message,
-          impact: t.impact, snippet: t.snippet,
-          context: getContextLines(context.lines, t.line - 1, 2)
-        }));
+        // Adapter-time suppression at the surfaced sink line.
+        if (hasSuppressionDirective(context.lines, t.line - 1, t.category))
+          continue;
+        issues.push(
+          formatIssue({
+            line: t.line,
+            column: t.column || 0,
+            endLine: t.line,
+            endColumn: (t.column || 0) + (t.snippet?.length || 0),
+            severity: t.severity,
+            category: t.category,
+            message: t.message,
+            impact: t.impact,
+            snippet: t.snippet,
+            context: getContextLines(context.lines, t.line - 1, 2),
+          }),
+        );
       }
     } catch (_) {
       // Best-effort
@@ -1464,20 +2594,30 @@ function detectSecurityIssues(context) {
   // ── Supply chain / malicious pattern analysis ─────────────────────────────
   // Detects obfuscation, exfiltration channels, Trojan Source, dynamic require
   try {
-    const scIssues = analyzeSupplyChain(context.filePath, context.content, { isTestFile });
+    const scIssues = analyzeSupplyChain(context.filePath, context.content, {
+      isTestFile,
+    });
     for (const sc of scIssues) {
-      issues.push(formatIssue({
-        line: sc.line,
-        column: sc.column || 0,
-        endLine: sc.endLine || sc.line,
-        endColumn: sc.endColumn || (sc.column || 0) + (sc.snippet?.length || 0),
-        severity: sc.severity,
-        category: sc.category,
-        message: sc.message,
-        impact: sc.impact,
-        snippet: sc.snippet,
-        context: getContextLines(context.lines, sc.line - 1, 2)
-      }));
+      // Adapter-time suppression at the surfaced finding line + exact emitted
+      // category. Supply-chain categories include high-impact malware classes
+      // — do NOT widen to allowAnyCodetitan here.
+      if (hasSuppressionDirective(context.lines, sc.line - 1, sc.category))
+        continue;
+      issues.push(
+        formatIssue({
+          line: sc.line,
+          column: sc.column || 0,
+          endLine: sc.endLine || sc.line,
+          endColumn:
+            sc.endColumn || (sc.column || 0) + (sc.snippet?.length || 0),
+          severity: sc.severity,
+          category: sc.category,
+          message: sc.message,
+          impact: sc.impact,
+          snippet: sc.snippet,
+          context: getContextLines(context.lines, sc.line - 1, 2),
+        }),
+      );
     }
   } catch (_) {
     // Supply chain analysis is best-effort — never crash the main scan
@@ -1491,23 +2631,24 @@ function detectSecurityIssues(context) {
     // Track multi-line block comments (handles JSDoc /** ... */ blocks with
     // markdown code fences inside, common in TS libraries like got/axios).
     if (extInBlockComment) {
-      if (normalized.includes('*/')) extInBlockComment = false;
+      if (normalized.includes("*/")) extInBlockComment = false;
       return;
     }
-    if (normalized.startsWith('/*')) {
-      if (!normalized.includes('*/')) extInBlockComment = true;
+    if (normalized.startsWith("/*")) {
+      if (!normalized.includes("*/")) extInBlockComment = true;
       return;
     }
     if (COMMENT_REGEX.test(normalized)) return;
 
-    EXTENDED_SECURITY_RULES.forEach(rule => {
+    EXTENDED_SECURITY_RULES.forEach((rule) => {
       if (rule.skipTest && isTestFile) return;
       if (rule.skipDoc && isDocFile) return;
       if (isLocaleFile) return; // i18n/locale text data — all extended pattern rules are structural FPs here (2026-05-12)
       if (isVendoredBundle) return; // vendored PWA bundles — library code (2026-05-12)
       if (isSeedFixtureFile) return; // seed/fixture/sample-data files (2026-05-12)
       if (isInfraExecFile) return; // engine infra files intentionally contain dangerous patterns
-      if (rule.filePathPattern && !rule.filePathPattern.test(context.filePath)) return;
+      if (rule.filePathPattern && !rule.filePathPattern.test(context.filePath))
+        return;
       if (isRuleMetadataLine(normalized)) return;
 
       // fileRequires: a regex that MUST match the whole file for the rule to
@@ -1528,17 +2669,24 @@ function detectSecurityIssues(context) {
       // If the line above carries a biome-ignore / eslint-disable / codetitan-
       // suppress directive, the maintainer has already reviewed the pattern;
       // re-flagging it is noise. Look only one line back to avoid distance-
-      // based false suppression.
-      const prevLine = context.lines[index - 1] || '';
-      const SUPPRESS_COMMENT_REGEX = /(?:biome-ignore\s+lint(?:\/[A-Za-z]+)*\/(?:noDangerouslySetInnerHtml|noGlobalEval|noExplicitAny|security\/[A-Za-z]+)|eslint-disable(?:-next-line|-line)?\s+(?:react\/no-danger|security\/detect-[A-Za-z-]+|no-eval|no-script-url)|codetitan-suppress:\s*\S+)/;
-      if (SUPPRESS_COMMENT_REGEX.test(prevLine)) return;
+      // based false suppression. Accepts any non-space token after
+      // codetitan-suppress: (preserves custom markers like
+      // `codetitan-suppress: my-custom-marker`) plus recognized biome /
+      // eslint security-rule disables.
+      if (
+        hasSuppressionDirective(context.lines, index, [], {
+          allowAnyCodetitan: true,
+          includeToolSuppressions: true,
+        })
+      )
+        return;
 
       // SENSITIVE_DATA_CONSOLE_LOG: the rule's pattern matches any keyword
       // inside a console.log, including informational string-literal text like
       // `console.log('Checking for hardcoded secrets...')`. Suppress when the
       // sensitive keyword only appears inside quoted strings — real leaks are
       // variable refs that survive `stripQuotedStrings`.
-      if (rule.id === 'BEARER_TOKEN_LOGGED') {
+      if (rule.id === "BEARER_TOKEN_LOGGED") {
         // Require the credential keyword to appear OUTSIDE any quoted strings
         // — that is, as a variable reference or property access, not as
         // message text. The pre-fix rule fired on lines like
@@ -1546,13 +2694,21 @@ function detectSecurityIssues(context) {
         // where "JWT" is purely a description of what the code is about to do,
         // no token being logged.
         const codeOnly = stripQuotedStrings(line);
-        if (!/\bauthorization\b|\bbearer\b|\bjwt\b|\b(?:access|id|refresh|session|api|bearer|auth)Token\b/i.test(codeOnly)) return;
+        if (
+          !/\bauthorization\b|\bbearer\b|\bjwt\b|\b(?:access|id|refresh|session|api|bearer|auth)Token\b/i.test(
+            codeOnly,
+          )
+        )
+          return;
         // Also exempt boolean-coercion patterns: `!!accessToken`, `Boolean(accessToken)`,
         // `hasToken: !!accessToken`. These log truthiness, not the token value.
         // Detect by checking each token ref is adjacent to `!!` or inside `Boolean(`.
-        const tokenMatches = codeOnly.match(/\b(?:access|id|refresh|session|api|bearer|auth)Token\b/gi) || [];
+        const tokenMatches =
+          codeOnly.match(
+            /\b(?:access|id|refresh|session|api|bearer|auth)Token\b/gi,
+          ) || [];
         if (tokenMatches.length > 0) {
-          const everyTokenCoerced = tokenMatches.every(tok => {
+          const everyTokenCoerced = tokenMatches.every((tok) => {
             const idx = codeOnly.indexOf(tok);
             const prefix = codeOnly.slice(Math.max(0, idx - 16), idx);
             return /!!\s*$|Boolean\s*\(\s*$/.test(prefix);
@@ -1560,13 +2716,18 @@ function detectSecurityIssues(context) {
           if (everyTokenCoerced) return;
         }
       }
-      if (rule.id === 'SENSITIVE_DATA_CONSOLE_LOG') {
+      if (rule.id === "SENSITIVE_DATA_CONSOLE_LOG") {
         // Same redaction-helper exemption as AI_CODE_RISK_CONSOLE_SENSITIVE
         // (see REDACTED_LOG_CALL_REGEX). If the call wraps a redactor with a
         // redaction-flag literal, the secret is masked before output.
         if (REDACTED_LOG_CALL_REGEX.test(line)) return;
         const codeOnly = stripQuotedStrings(line);
-        if (!/password|passwd|ssn|creditCard|cvv|privateKey|secret|authToken/i.test(codeOnly)) return;
+        if (
+          !/password|passwd|ssn|creditCard|cvv|privateKey|secret|authToken/i.test(
+            codeOnly,
+          )
+        )
+          return;
         // Narrow suppression: only skip when the ONLY sensitive-keyword tokens
         // are AGGREGATION containers (counts, totals, stats). A variable or
         // property named `apiSecret` / `myAuthToken` may hold the actual secret
@@ -1574,13 +2735,18 @@ function detectSecurityIssues(context) {
         // Suppress only when every match is preceded by an aggregation hint
         // (`stats.`, `counts.`, `total`, `num`, `count`, `found`, `detected`)
         // or has the canonical count-container tail (`...Secrets`, `...Passwords`).
-        const allMatches = codeOnly.match(/\b\w*(?:password|passwd|ssn|creditCard|cvv|privateKey|secret|authToken)\w*\b/gi) || [];
+        const allMatches =
+          codeOnly.match(
+            /\b\w*(?:password|passwd|ssn|creditCard|cvv|privateKey|secret|authToken)\w*\b/gi,
+          ) || [];
         if (allMatches.length > 0) {
-          const everyMatchLooksAggregate = allMatches.every(m => {
+          const everyMatchLooksAggregate = allMatches.every((m) => {
             // Pluralized forms are almost always count containers: `hardcodedSecrets`, `apiPasswords`
             if (/(?:Secrets|Passwords)$/.test(m)) return true;
             // Otherwise require an aggregation prefix in the compound name
-            return /^(?:total|num|count|found|detected|stats?|counts?|has|is|n)\w*(?:Password|Passwd|Ssn|SSN|CreditCard|Cvv|CVV|PrivateKey|Secret|AuthToken)$/.test(m);
+            return /^(?:total|num|count|found|detected|stats?|counts?|has|is|n)\w*(?:Password|Passwd|Ssn|SSN|CreditCard|Cvv|CVV|PrivateKey|Secret|AuthToken)$/.test(
+              m,
+            );
           });
           if (everyMatchLooksAggregate) return;
         }
@@ -1592,18 +2758,20 @@ function detectSecurityIssues(context) {
       const column = match.index;
       const matchLength = match[0].length;
 
-      issues.push(formatIssue({
-        line: index + 1,
-        column,
-        endLine: index + 1,
-        endColumn: column + matchLength,
-        severity: rule.severity,
-        category: rule.id,
-        message: rule.message,
-        impact: rule.impact,
-        snippet: normalized,
-        context: getContextLines(context.lines, index, 2)
-      }));
+      issues.push(
+        formatIssue({
+          line: index + 1,
+          column,
+          endLine: index + 1,
+          endColumn: column + matchLength,
+          severity: rule.severity,
+          category: rule.id,
+          message: rule.message,
+          impact: rule.impact,
+          snippet: normalized,
+          context: getContextLines(context.lines, index, 2),
+        }),
+      );
     });
   });
 
@@ -1620,6 +2788,11 @@ function analyzePythonTaint(content, filePath) {
 
   const PY_SOURCES = [
     /\brequest\.(args|form|json|data|values|files|cookies|headers|environ)\b/,
+    // A0 (2026-05-19): Django uses UPPERCASE on request attributes
+    // (`request.GET/POST/COOKIES/META/FILES`). Without this, every Django
+    // app produced zero taint findings regardless of vulnerability density.
+    // Opus-2 §3.2 documented; Opus-1 fixtures #py-django-* validate.
+    /\brequest\.(GET|POST|COOKIES|META|FILES)\b/,
     /\brequest\.get\s*\(/,
     /os\.environ\.get\s*\(/,
     /os\.getenv\s*\(/,
@@ -1628,21 +2801,84 @@ function analyzePythonTaint(content, filePath) {
   ];
 
   const PY_SINKS = [
-    { pattern: /\bexecute\s*\(/, category: 'TAINT_SQL_INJECTION', severity: 'HIGH', impact: 9, message: 'Python: tainted user input in SQL execute() — use parameterized queries.' },
-    { pattern: /\bexecutemany\s*\(/, category: 'TAINT_SQL_INJECTION', severity: 'HIGH', impact: 9, message: 'Python: tainted user input in SQL executemany() — use parameterized queries.' },
-    { pattern: /\bos\.system\s*\(|\bsubprocess\.(run|call|Popen|check_output|check_call)\s*\(/, category: 'TAINT_COMMAND_INJECTION', severity: 'HIGH', impact: 10, message: 'Python: tainted user input in subprocess/os.system — command injection risk.' },
-    { pattern: /\beval\s*\(/, category: 'TAINT_EVAL', severity: 'HIGH', impact: 10, message: 'Python: tainted user input in eval().' },
-    { pattern: /\bexec\s*\(/, category: 'TAINT_EVAL', severity: 'HIGH', impact: 9, message: 'Python: tainted user input in exec().' },
-    { pattern: /\bopen\s*\(/, category: 'TAINT_PATH_TRAVERSAL', severity: 'HIGH', impact: 9, message: 'Python: tainted user input in open() — path traversal risk.' },
-    { pattern: /\brender_template_string\s*\(/, category: 'TAINT_TEMPLATE_INJECTION', severity: 'CRITICAL', impact: 10, message: 'Python: tainted user input in render_template_string — SSTI vulnerability.' },
-    { pattern: /\bpickle\.loads?\s*\(/, category: 'TAINT_INSECURE_DESERIALIZATION', severity: 'CRITICAL', impact: 10, message: 'Python: tainted user input in pickle.load — arbitrary code execution.' },
+    {
+      pattern: /\bexecute\s*\(/,
+      category: "TAINT_SQL_INJECTION",
+      severity: "HIGH",
+      impact: 9,
+      message:
+        "Python: tainted user input in SQL execute() — use parameterized queries.",
+    },
+    {
+      pattern: /\bexecutemany\s*\(/,
+      category: "TAINT_SQL_INJECTION",
+      severity: "HIGH",
+      impact: 9,
+      message:
+        "Python: tainted user input in SQL executemany() — use parameterized queries.",
+    },
+    {
+      pattern:
+        /\bos\.system\s*\(|\bsubprocess\.(run|call|Popen|check_output|check_call)\s*\(/,
+      category: "TAINT_COMMAND_INJECTION",
+      severity: "HIGH",
+      impact: 10,
+      message:
+        "Python: tainted user input in subprocess/os.system — command injection risk.",
+    },
+    {
+      pattern: /\beval\s*\(/,
+      category: "TAINT_EVAL",
+      severity: "HIGH",
+      impact: 10,
+      message: "Python: tainted user input in eval().",
+    },
+    {
+      pattern: /\bexec\s*\(/,
+      category: "TAINT_EVAL",
+      severity: "HIGH",
+      impact: 9,
+      message: "Python: tainted user input in exec().",
+    },
+    {
+      pattern: /\bopen\s*\(/,
+      category: "TAINT_PATH_TRAVERSAL",
+      severity: "HIGH",
+      impact: 9,
+      message: "Python: tainted user input in open() — path traversal risk.",
+    },
+    {
+      pattern: /\brender_template_string\s*\(/,
+      category: "TAINT_TEMPLATE_INJECTION",
+      severity: "CRITICAL",
+      impact: 10,
+      message:
+        "Python: tainted user input in render_template_string — SSTI vulnerability.",
+    },
+    {
+      pattern: /\bpickle\.loads?\s*\(/,
+      category: "TAINT_INSECURE_DESERIALIZATION",
+      severity: "CRITICAL",
+      impact: 10,
+      message:
+        "Python: tainted user input in pickle.load — arbitrary code execution.",
+    },
   ];
 
   const PY_SANITIZERS = [
-    /\bint\s*\(/, /\bfloat\s*\(/, /\bstr\s*\(/, /\babs\s*\(/,
-    /\.strip\s*\(/, /\bescape\s*\(/, /\bquote\s*\(/, /\bmarkup\s*\(/i,
-    /\bvalidat/i, /\bsanit/i, /\bwhitelist\b/i, /\ballowlist\b/i,
-    /,\s*\(.*\)\s*$/,  // tuple param style: cursor.execute("... %s", (val,))
+    /\bint\s*\(/,
+    /\bfloat\s*\(/,
+    /\bstr\s*\(/,
+    /\babs\s*\(/,
+    /\.strip\s*\(/,
+    /\bescape\s*\(/,
+    /\bquote\s*\(/,
+    /\bmarkup\s*\(/i,
+    /\bvalidat/i,
+    /\bsanit/i,
+    /\bwhitelist\b/i,
+    /\ballowlist\b/i,
+    /,\s*\(.*\)\s*$/, // tuple param style: cursor.execute("... %s", (val,))
     /\bsafe_load\b/,
   ];
 
@@ -1652,11 +2888,17 @@ function analyzePythonTaint(content, filePath) {
   // Pass 1: find tainted sources
   lines.forEach((line, idx) => {
     const trimmed = line.trim();
-    if (!trimmed || trimmed.startsWith('#')) return;
+    if (!trimmed || trimmed.startsWith("#")) return;
+    // G3a guard (2026-05-19): PYTHONSTARTUP is a local-developer env
+    // variable read by Flask's `flask shell` lifecycle, not request-derived
+    // attacker input. Don't tag aliases of it as tainted. Closes the
+    // TAINT_EVAL / TAINT_PATH_TRAVERSAL FPs Codex measured on flask/cli.py.
+    // Source: docs/plans/2026-05-19-lang-canary-baseline.md Recommended Step 1.
+    if (/\bPYTHONSTARTUP\b/.test(line)) return;
     for (const src of PY_SOURCES) {
       if (!src.test(line)) continue;
       const m = line.match(/\b(\w+)\s*=\s*.+/);
-      if (m && m[1] !== 'if' && m[1] !== 'while') {
+      if (m && m[1] !== "if" && m[1] !== "while") {
         taintedVars.add(m[1]);
         taintedLineMap.set(m[1], idx + 1);
       }
@@ -1686,19 +2928,28 @@ function analyzePythonTaint(content, filePath) {
   const seen = new Set();
   lines.forEach((line, idx) => {
     const trimmed = line.trim();
-    if (!trimmed || trimmed.startsWith('#') || seen.has(idx)) return;
+    if (!trimmed || trimmed.startsWith("#") || seen.has(idx)) return;
     for (const sink of PY_SINKS) {
       if (!sink.pattern.test(line)) continue;
-      const foundVar = [...taintedVars].find(v => new RegExp(`\\b${v}\\b`).test(line));
+      const foundVar = [...taintedVars].find((v) =>
+        new RegExp(`\\b${v}\\b`).test(line),
+      );
       if (!foundVar) continue;
-      if (PY_SANITIZERS.some(s => s.test(line))) continue;
-      const ctx = lines.slice(Math.max(0, idx - 3), idx).join('\n');
-      if (PY_SANITIZERS.some(s => s.test(ctx)) && new RegExp(`\\b${foundVar}\\b`).test(ctx)) continue;
+      if (PY_SANITIZERS.some((s) => s.test(line))) continue;
+      const ctx = lines.slice(Math.max(0, idx - 3), idx).join("\n");
+      if (
+        PY_SANITIZERS.some((s) => s.test(ctx)) &&
+        new RegExp(`\\b${foundVar}\\b`).test(ctx)
+      )
+        continue;
       issues.push({
-        line: idx + 1, column: 0,
-        severity: sink.severity, category: sink.category,
-        message: `${sink.message} Variable \`${foundVar}\` from user input (line ${taintedLineMap.get(foundVar) || '?'}).`,
-        impact: sink.impact, snippet: trimmed,
+        line: idx + 1,
+        column: 0,
+        severity: sink.severity,
+        category: sink.category,
+        message: `${sink.message} Variable \`${foundVar}\` from user input (line ${taintedLineMap.get(foundVar) || "?"}).`,
+        impact: sink.impact,
+        snippet: trimmed,
       });
       seen.add(idx);
       break;
@@ -1723,18 +2974,21 @@ function detectPerformanceIssues(context) {
       const column = syncIoMatch.index;
       const matchLength = syncIoMatch[0].length;
 
-      issues.push(formatIssue({
-        line: index + 1,
-        column,
-        endLine: index + 1,
-        endColumn: column + matchLength,
-        severity: 'MEDIUM',
-        category: 'SYNC_IO',
-        message: 'Synchronous fs operation blocks the event loop. Consider async alternatives.',
-        impact: 4,
-        snippet: normalized,
-        context: getContextLines(context.lines, index, 2)
-      }));
+      issues.push(
+        formatIssue({
+          line: index + 1,
+          column,
+          endLine: index + 1,
+          endColumn: column + matchLength,
+          severity: "MEDIUM",
+          category: "SYNC_IO",
+          message:
+            "Synchronous fs operation blocks the event loop. Consider async alternatives.",
+          impact: 4,
+          snippet: normalized,
+          context: getContextLines(context.lines, index, 2),
+        }),
+      );
     }
 
     // Sync file parse detection
@@ -1744,40 +2998,47 @@ function detectPerformanceIssues(context) {
       const column = syncFileParseMatch.index;
       const matchLength = syncFileParseMatch[0].length;
 
-      issues.push(formatIssue({
-        line: index + 1,
-        column,
-        endLine: index + 1,
-        endColumn: column + matchLength,
-        severity: 'MEDIUM',
-        category: 'SYNC_FILE_PARSE',
-        message: 'Parsing large files synchronously can block the event loop.',
-        impact: 7,
-        snippet: normalized,
-        context: getContextLines(context.lines, index, 2)
-      }));
+      issues.push(
+        formatIssue({
+          line: index + 1,
+          column,
+          endLine: index + 1,
+          endColumn: column + matchLength,
+          severity: "MEDIUM",
+          category: "SYNC_FILE_PARSE",
+          message:
+            "Parsing large files synchronously can block the event loop.",
+          impact: 7,
+          snippet: normalized,
+          context: getContextLines(context.lines, index, 2),
+        }),
+      );
     }
 
     // Await in loop detection
     const awaitInLoopPattern1 = /await\s+.*for\s*\(/;
     const awaitInLoopPattern2 = /for\s*\(.*\)\s*{[^}]*await/;
-    const awaitInLoopMatch = awaitInLoopPattern1.exec(line) || awaitInLoopPattern2.exec(line);
+    const awaitInLoopMatch =
+      awaitInLoopPattern1.exec(line) || awaitInLoopPattern2.exec(line);
     if (awaitInLoopMatch) {
       const column = awaitInLoopMatch.index;
       const matchLength = awaitInLoopMatch[0].length;
 
-      issues.push(formatIssue({
-        line: index + 1,
-        column,
-        endLine: index + 1,
-        endColumn: column + matchLength,
-        severity: 'MEDIUM',
-        category: 'AWAIT_IN_LOOP',
-        message: 'Await inside loops runs sequentially; batch with Promise.all if possible.',
-        impact: 5,
-        snippet: normalized,
-        context: getContextLines(context.lines, index, 2)
-      }));
+      issues.push(
+        formatIssue({
+          line: index + 1,
+          column,
+          endLine: index + 1,
+          endColumn: column + matchLength,
+          severity: "MEDIUM",
+          category: "AWAIT_IN_LOOP",
+          message:
+            "Await inside loops runs sequentially; batch with Promise.all if possible.",
+          impact: 5,
+          snippet: normalized,
+          context: getContextLines(context.lines, index, 2),
+        }),
+      );
     }
 
     // Async timeout detection
@@ -1787,40 +3048,47 @@ function detectPerformanceIssues(context) {
       const column = asyncTimeoutMatch.index;
       const matchLength = asyncTimeoutMatch[0].length;
 
-      issues.push(formatIssue({
-        line: index + 1,
-        column,
-        endLine: index + 1,
-        endColumn: column + matchLength,
-        severity: 'LOW',
-        category: 'ASYNC_TIMEOUT',
-        message: 'Async logic inside setTimeout can hide rejections; ensure errors surface.',
-        impact: 2,
-        snippet: normalized,
-        context: getContextLines(context.lines, index, 2)
-      }));
+      issues.push(
+        formatIssue({
+          line: index + 1,
+          column,
+          endLine: index + 1,
+          endColumn: column + matchLength,
+          severity: "LOW",
+          category: "ASYNC_TIMEOUT",
+          message:
+            "Async logic inside setTimeout can hide rejections; ensure errors surface.",
+          impact: 2,
+          snippet: normalized,
+          context: getContextLines(context.lines, index, 2),
+        }),
+      );
     }
   });
 
   const content = context.content;
-  const nestedLoopMatch = nestedLoopRegex.exec(content) || nestedWhileRegex.exec(content);
+  const nestedLoopMatch =
+    nestedLoopRegex.exec(content) || nestedWhileRegex.exec(content);
   if (nestedLoopMatch) {
     const firstLine = getLineNumber(context.content, nestedLoopMatch.index);
-    const lineContent = context.lines[firstLine - 1] || '';
+    const lineContent = context.lines[firstLine - 1] || "";
     const column = lineContent.indexOf(nestedLoopMatch[0].substring(0, 10)); // Find approximate column
 
-    issues.push(formatIssue({
-      line: firstLine,
-      column: column >= 0 ? column : 0,
-      endLine: firstLine,
-      endColumn: column >= 0 ? column + 10 : 10,
-      severity: 'MEDIUM',
-      category: 'NESTED_LOOPS',
-      message: 'Nested loops detected; confirm complexity is acceptable for expected data size.',
-      impact: 6,
-      snippet: context.lines[firstLine - 1]?.trim() || '',
-      context: getContextLines(context.lines, firstLine - 1, 2)
-    }));
+    issues.push(
+      formatIssue({
+        line: firstLine,
+        column: column >= 0 ? column : 0,
+        endLine: firstLine,
+        endColumn: column >= 0 ? column + 10 : 10,
+        severity: "MEDIUM",
+        category: "NESTED_LOOPS",
+        message:
+          "Nested loops detected; confirm complexity is acceptable for expected data size.",
+        impact: 6,
+        snippet: context.lines[firstLine - 1]?.trim() || "",
+        context: getContextLines(context.lines, firstLine - 1, 2),
+      }),
+    );
   }
 
   return issues;
@@ -1836,13 +3104,17 @@ function detectTestingGaps(context) {
   // ...) blocks where `.only()` is the system-under-test). Detection is content-
   // based (file mentions `describe('describe.only'...)` or similar) so it
   // generalizes across any test framework's self-tests, not just Remix's.
-  const isTestFrameworkSelfTest = /\b(?:describe|it|test|context|suite|each)\s*\(\s*['"`](?:describe|it|test|context|suite|each)\.(?:only|skip|todo|each|concurrent)\b/.test(context.content);
+  const isTestFrameworkSelfTest =
+    /\b(?:describe|it|test|context|suite|each)\s*\(\s*['"`](?:describe|it|test|context|suite|each)\.(?:only|skip|todo|each|concurrent)\b/.test(
+      context.content,
+    );
 
   // Require a test-framework identifier before `.only(`. Bare `.only(` matches
   // React's `Children.only(...)` API (Hono FP #2 from 2026-05-10 re-baseline)
   // and any other library that exposes a method named `only`. Test runners
   // gate `.only()` on `describe|it|test|context|suite|each`-shaped callers.
-  const focusedTestPattern = /\b(?:describe|it|test|context|suite|each)\s*\.\s*only\s*\(/;
+  const focusedTestPattern =
+    /\b(?:describe|it|test|context|suite|each)\s*\.\s*only\s*\(/;
 
   // Track JSDoc / block-comment state. Test-framework docs frequently embed
   // `describe.only(...)` examples inside `/** ... */` (Remix FP #4). Mirrors
@@ -1857,12 +3129,12 @@ function detectTestingGaps(context) {
     // `describe.only(...)` examples there (Remix FP #4 from 2026-05-10).
     let isCommentLine = false;
     if (inBlockComment) {
-      if (normalized.includes('*/')) inBlockComment = false;
+      if (normalized.includes("*/")) inBlockComment = false;
       isCommentLine = true;
-    } else if (normalized.startsWith('/*')) {
-      if (!normalized.includes('*/')) inBlockComment = true;
+    } else if (normalized.startsWith("/*")) {
+      if (!normalized.includes("*/")) inBlockComment = true;
       isCommentLine = true;
-    } else if (normalized.startsWith('*')) {
+    } else if (normalized.startsWith("*")) {
       // JSDoc continuation line (` * something`)
       isCommentLine = true;
     }
@@ -1874,25 +3146,28 @@ function detectTestingGaps(context) {
     // Skip block-comment lines AND `//` line-comments (FOCUSED_TEST fires on
     // executable code, not comments). Skip entirely when the file is a
     // test-framework self-test (`.only` is the system-under-test).
-    const focusedTestMatch = !isCommentLine && !normalized.startsWith('//') && !isTestFrameworkSelfTest
-      ? focusedTestPattern.exec(line)
-      : null;
+    const focusedTestMatch =
+      !isCommentLine && !normalized.startsWith("//") && !isTestFrameworkSelfTest
+        ? focusedTestPattern.exec(line)
+        : null;
     if (isTestFile && focusedTestMatch) {
       const column = focusedTestMatch.index;
       const matchLength = focusedTestMatch[0].length;
 
-      issues.push(formatIssue({
-        line: index + 1,
-        column,
-        endLine: index + 1,
-        endColumn: column + matchLength,
-        severity: 'HIGH',
-        category: 'FOCUSED_TEST',
-        message: 'Remove .only() to avoid skipping other tests.',
-        impact: 7,
-        snippet: normalized,
-        context: getContextLines(context.lines, index, 2)
-      }));
+      issues.push(
+        formatIssue({
+          line: index + 1,
+          column,
+          endLine: index + 1,
+          endColumn: column + matchLength,
+          severity: "HIGH",
+          category: "FOCUSED_TEST",
+          message: "Remove .only() to avoid skipping other tests.",
+          impact: 7,
+          snippet: normalized,
+          context: getContextLines(context.lines, index, 2),
+        }),
+      );
     }
 
     // TODO test detection
@@ -1902,34 +3177,43 @@ function detectTestingGaps(context) {
       const column = todoTestMatch.index;
       const matchLength = todoTestMatch[0].length;
 
-      issues.push(formatIssue({
-        line: index + 1,
-        column,
-        endLine: index + 1,
-        endColumn: column + matchLength,
-        severity: 'MEDIUM',
-        category: 'TODO_TESTS',
-        message: 'TODO indicates missing test coverage.',
-        impact: 4,
-        snippet: normalized,
-        context: getContextLines(context.lines, index, 2)
-      }));
+      issues.push(
+        formatIssue({
+          line: index + 1,
+          column,
+          endLine: index + 1,
+          endColumn: column + matchLength,
+          severity: "MEDIUM",
+          category: "TODO_TESTS",
+          message: "TODO indicates missing test coverage.",
+          impact: 4,
+          snippet: normalized,
+          context: getContextLines(context.lines, index, 2),
+        }),
+      );
     }
   });
 
-  if (!isTestFile && context.exportedSymbols.length > 0 && context.lines.length > 40 && !context.hasCompanionTest) {
-    issues.push(formatIssue({
-      line: 1,
-      column: 0,
-      endLine: 1,
-      endColumn: 0,
-      severity: 'MEDIUM',
-      category: 'MISSING_TESTS',
-      message: `No companion test file found for exported module "${context.exportedSymbols[0]}".`,
-      impact: 5,
-      snippet: path.basename(context.filePath),
-      context: getContextLines(context.lines, 0, 2)
-    }));
+  if (
+    !isTestFile &&
+    context.exportedSymbols.length > 0 &&
+    context.lines.length > 40 &&
+    !context.hasCompanionTest
+  ) {
+    issues.push(
+      formatIssue({
+        line: 1,
+        column: 0,
+        endLine: 1,
+        endColumn: 0,
+        severity: "MEDIUM",
+        category: "MISSING_TESTS",
+        message: `No companion test file found for exported module "${context.exportedSymbols[0]}".`,
+        impact: 5,
+        snippet: path.basename(context.filePath),
+        context: getContextLines(context.lines, 0, 2),
+      }),
+    );
   }
 
   return issues;
@@ -1940,18 +3224,20 @@ function detectRefactoringHotspots(context) {
   const { lines } = context;
 
   if (lines.length > 400) {
-    issues.push(formatIssue({
-      line: 1,
-      column: 0,
-      endLine: 1,
-      endColumn: 0,
-      severity: 'MEDIUM',
-      category: 'FILE_TOO_LONG',
-      message: `File is ${lines.length} lines. Consider splitting responsibilities.`,
-      impact: 6,
-      snippet: path.basename(context.filePath),
-      context: getContextLines(lines, 0, 2)
-    }));
+    issues.push(
+      formatIssue({
+        line: 1,
+        column: 0,
+        endLine: 1,
+        endColumn: 0,
+        severity: "MEDIUM",
+        category: "FILE_TOO_LONG",
+        message: `File is ${lines.length} lines. Consider splitting responsibilities.`,
+        impact: 6,
+        snippet: path.basename(context.filePath),
+        context: getContextLines(lines, 0, 2),
+      }),
+    );
   }
 
   let longLineCount = 0;
@@ -1961,22 +3247,25 @@ function detectRefactoringHotspots(context) {
       const column = 140;
       longLineCount++;
 
-      issues.push(formatIssue({
-        line: index + 1,
-        column,
-        endLine: index + 1,
-        endColumn: line.length,
-        severity: 'LOW',
-        category: 'LONG_LINE',
-        message: 'Line exceeds 140 characters; break into smaller pieces for readability.',
-        impact: 2,
-        snippet: line.trim(),
-        context: getContextLines(lines, index, 2)
-      }));
+      issues.push(
+        formatIssue({
+          line: index + 1,
+          column,
+          endLine: index + 1,
+          endColumn: line.length,
+          severity: "LOW",
+          category: "LONG_LINE",
+          message:
+            "Line exceeds 140 characters; break into smaller pieces for readability.",
+          impact: 2,
+          snippet: line.trim(),
+          context: getContextLines(lines, index, 2),
+        }),
+      );
     }
   });
 
-  detectLongFunctions(lines).forEach(fnIssue => issues.push(fnIssue));
+  detectLongFunctions(lines).forEach((fnIssue) => issues.push(fnIssue));
 
   return issues;
 }
@@ -1987,40 +3276,51 @@ function detectDocumentationGaps(context) {
   const commentRatio = nonEmptyLines === 0 ? 0 : commentLines / nonEmptyLines;
 
   if (exportedSymbols.length > 0 && commentRatio < 0.04 && nonEmptyLines > 50) {
-    issues.push(formatIssue({
-      line: 1,
-      column: 0,
-      endLine: 1,
-      endColumn: 0,
-      severity: 'MEDIUM',
-      category: 'POOR_DOCUMENTATION',
-      message: 'Exported module lacks inline documentation. Add JSDoc or doc comments for maintainability.',
-      impact: 4,
-      snippet: exportedSymbols[0],
-      context: getContextLines(context.lines, 0, 2)
-    }));
+    issues.push(
+      formatIssue({
+        line: 1,
+        column: 0,
+        endLine: 1,
+        endColumn: 0,
+        severity: "MEDIUM",
+        category: "POOR_DOCUMENTATION",
+        message:
+          "Exported module lacks inline documentation. Add JSDoc or doc comments for maintainability.",
+        impact: 4,
+        snippet: exportedSymbols[0],
+        context: getContextLines(context.lines, 0, 2),
+      }),
+    );
   }
 
   if (/README|docs|\.md$/i.test(context.filePath)) {
     return issues;
   }
 
-  const firstCodeLine = context.trimmedLines.findIndex(line => line && !COMMENT_REGEX.test(line));
-  if (firstCodeLine > 0 && !COMMENT_REGEX.test(context.trimmedLines[firstCodeLine - 1] || '')) {
-    const actualLine = context.lines[firstCodeLine] || '';
+  const firstCodeLine = context.trimmedLines.findIndex(
+    (line) => line && !COMMENT_REGEX.test(line),
+  );
+  if (
+    firstCodeLine > 0 &&
+    !COMMENT_REGEX.test(context.trimmedLines[firstCodeLine - 1] || "")
+  ) {
+    const actualLine = context.lines[firstCodeLine] || "";
 
-    issues.push(formatIssue({
-      line: firstCodeLine + 1,
-      column: 0,
-      endLine: firstCodeLine + 1,
-      endColumn: actualLine.length,
-      severity: 'LOW',
-      category: 'MISSING_HEADER',
-      message: 'Consider adding a module header comment to describe purpose and usage.',
-      impact: 2,
-      snippet: context.trimmedLines[firstCodeLine] || '',
-      context: getContextLines(context.lines, firstCodeLine, 2)
-    }));
+    issues.push(
+      formatIssue({
+        line: firstCodeLine + 1,
+        column: 0,
+        endLine: firstCodeLine + 1,
+        endColumn: actualLine.length,
+        severity: "LOW",
+        category: "MISSING_HEADER",
+        message:
+          "Consider adding a module header comment to describe purpose and usage.",
+        impact: 2,
+        snippet: context.trimmedLines[firstCodeLine] || "",
+        context: getContextLines(context.lines, firstCodeLine, 2),
+      }),
+    );
   }
 
   return issues;
@@ -2043,7 +3343,7 @@ function detectLongFunctions(lines) {
         startLine: index + 1,
         depthAtStart: depth + openBraces - closeBraces,
         column: functionMatch.index,
-        matchLength: functionMatch[0].length
+        matchLength: functionMatch[0].length,
       };
     }
 
@@ -2052,18 +3352,20 @@ function detectLongFunctions(lines) {
     if (tracking && depth <= tracking.depthAtStart) {
       const length = index + 1 - tracking.startLine;
       if (length > 80) {
-        issues.push(formatIssue({
-          line: tracking.startLine,
-          column: tracking.column,
-          endLine: tracking.startLine,
-          endColumn: tracking.column + tracking.matchLength,
-          severity: 'MEDIUM',
-          category: 'LONG_FUNCTION',
-          message: `Function spans ${length} lines. Break it into focused helpers.`,
-          impact: 4,
-          snippet: lines[tracking.startLine - 1]?.trim() || '',
-          context: getContextLines(lines, tracking.startLine - 1, 2)
-        }));
+        issues.push(
+          formatIssue({
+            line: tracking.startLine,
+            column: tracking.column,
+            endLine: tracking.startLine,
+            endColumn: tracking.column + tracking.matchLength,
+            severity: "MEDIUM",
+            category: "LONG_FUNCTION",
+            message: `Function spans ${length} lines. Break it into focused helpers.`,
+            impact: 4,
+            snippet: lines[tracking.startLine - 1]?.trim() || "",
+            context: getContextLines(lines, tracking.startLine - 1, 2),
+          }),
+        );
       }
       tracking = null;
     }
@@ -2103,8 +3405,8 @@ function lookForCompanionTests(filePath, projectRoot) {
       `${name}.test${ext}`,
       `${name}.spec${ext}`,
       `${name}.tests${ext}`,
-      `${name}.test${ext.replace('.', '')}`,
-      `${name}.spec${ext.replace('.', '')}`
+      `${name}.test${ext.replace(".", "")}`,
+      `${name}.spec${ext.replace(".", "")}`,
     ];
 
     for (const candidate of candidateNames) {
@@ -2113,7 +3415,7 @@ function lookForCompanionTests(filePath, projectRoot) {
         return true;
       }
 
-      const testsDir = path.join(dir, '__tests__', candidate);
+      const testsDir = path.join(dir, "__tests__", candidate);
       if (fs.existsSync(testsDir)) {
         return true;
       }
@@ -2125,18 +3427,34 @@ function lookForCompanionTests(filePath, projectRoot) {
   return false;
 }
 
-function formatIssue({ line, column, endLine, endColumn, severity, category, message, impact, snippet, context }) {
+function formatIssue({
+  line,
+  column,
+  endLine,
+  endColumn,
+  severity,
+  category,
+  message,
+  impact,
+  snippet,
+  context,
+}) {
   return {
     line,
     column: column !== undefined ? column : 0,
     endLine: endLine || line,
-    endColumn: endColumn !== undefined ? endColumn : (column !== undefined ? column + (snippet?.length || 0) : 0),
+    endColumn:
+      endColumn !== undefined
+        ? endColumn
+        : column !== undefined
+          ? column + (snippet?.length || 0)
+          : 0,
     severity,
     category,
     message,
     impact,
     snippet,
-    context: context || []
+    context: context || [],
   };
 }
 
@@ -2161,4 +3479,8 @@ module.exports = {
   detectQualityIssues: detectRefactoringHotspots,
   detectTestingIssues: detectTestingGaps,
   detectDocumentationIssues: detectDocumentationGaps,
+  // Helpers exported for testing + future detectors that need to honor the
+  // same suppression / file-classification contracts (#226).
+  hasSuppressionDirective,
+  getSecurityFileFlags,
 };

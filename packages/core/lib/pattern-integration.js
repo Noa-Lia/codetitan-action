@@ -10,16 +10,16 @@
  *   await integration.processAnalysisResults(report, runId);
  */
 
-const path = require('path');
-const CollectiveInsight = require('./collective-insight');
-const { PatternLearner } = require('./pattern-learner');
+const path = require("path");
+const CollectiveInsight = require("./collective-insight");
+const { PatternLearner } = require("./pattern-learner");
 
 class PatternIntegration {
   constructor(dbPath) {
     this.dbPath = dbPath;
     this.insight = null;
     this.learner = null;
-    this.modelPath = path.join(path.dirname(dbPath), 'pattern-model.json');
+    this.modelPath = path.join(path.dirname(dbPath), "pattern-model.json");
   }
 
   /**
@@ -34,7 +34,9 @@ class PatternIntegration {
     // Load existing model if available
     const existingModel = this.learner.loadModel(this.modelPath);
     if (existingModel) {
-      console.log(`   Loaded pattern model from ${new Date(existingModel.timestamp).toLocaleString()}`);
+      console.log(
+        `   Loaded pattern model from ${new Date(existingModel.timestamp).toLocaleString()}`,
+      );
     }
   }
 
@@ -73,11 +75,13 @@ class PatternIntegration {
         learningResults,
         predictions,
         rankedFindings,
-        modelPath: this.modelPath
+        modelPath: this.modelPath,
       };
-
     } catch (error) {
-      console.error(`\n[ERROR] Pattern learning pipeline error:`, error.message);
+      console.error(
+        `\n[ERROR] Pattern learning pipeline error:`,
+        error.message,
+      );
       throw error;
     }
   }
@@ -89,12 +93,14 @@ class PatternIntegration {
     const allFindings = await this.insight.getAllFindings(1000);
 
     if (allFindings.length === 0) {
-      console.log(`\n[WARNING]  No historical findings available for pattern detection`);
+      console.log(
+        `\n[WARNING]  No historical findings available for pattern detection`,
+      );
       return {
         clusters: [],
         totalPatterns: 0,
         uniqueIssues: 0,
-        summary: {}
+        summary: {},
       };
     }
 
@@ -106,8 +112,12 @@ class PatternIntegration {
     console.log(`\n[CHART] Pattern Detection Summary:`);
     console.log(`   Total clusters found: ${patterns.totalPatterns}`);
     console.log(`   Unique issues: ${patterns.uniqueIssues}`);
-    console.log(`   Most common category: ${patterns.summary.mostCommonCategory || 'N/A'}`);
-    console.log(`   Average cluster size: ${patterns.summary.avgClusterSize.toFixed(1)}`);
+    console.log(
+      `   Most common category: ${patterns.summary.mostCommonCategory || "N/A"}`,
+    );
+    console.log(
+      `   Average cluster size: ${patterns.summary.avgClusterSize.toFixed(1)}`,
+    );
 
     if (rootCauses.pathPatterns.length > 0) {
       console.log(`\n📂 Top Path Patterns:`);
@@ -118,7 +128,7 @@ class PatternIntegration {
 
     return {
       ...patterns,
-      rootCauses
+      rootCauses,
     };
   }
 
@@ -133,7 +143,7 @@ class PatternIntegration {
       return {
         model: { categories: [] },
         topSuccessRates: [],
-        lowSuccessRates: []
+        lowSuccessRates: [],
       };
     }
 
@@ -142,15 +152,19 @@ class PatternIntegration {
     console.log(`\n[TRENDING] Learning Results:`);
     if (learningResults.topSuccessRates.length > 0) {
       console.log(`   Top success rates:`);
-      learningResults.topSuccessRates.slice(0, 3).forEach(cat => {
-        console.log(`     ${cat.category}: ${(cat.successRate * 100).toFixed(1)}%`);
+      learningResults.topSuccessRates.slice(0, 3).forEach((cat) => {
+        console.log(
+          `     ${cat.category}: ${(cat.successRate * 100).toFixed(1)}%`,
+        );
       });
     }
 
     if (learningResults.lowSuccessRates.length > 0) {
       console.log(`   Need improvement:`);
-      learningResults.lowSuccessRates.slice(0, 3).forEach(cat => {
-        console.log(`     ${cat.category}: ${(cat.successRate * 100).toFixed(1)}%`);
+      learningResults.lowSuccessRates.slice(0, 3).forEach((cat) => {
+        console.log(
+          `     ${cat.category}: ${(cat.successRate * 100).toFixed(1)}%`,
+        );
       });
     }
 
@@ -164,21 +178,28 @@ class PatternIntegration {
     const historicalRuns = await this.insight.getHistoricalRuns(20);
 
     if (historicalRuns.length < 2) {
-      console.log(`\n[WARNING]  Insufficient historical data for predictions (need at least 2 runs)`);
+      console.log(
+        `\n[WARNING]  Insufficient historical data for predictions (need at least 2 runs)`,
+      );
       return {
         predictions: [],
         confidence: 0,
-        message: 'Insufficient historical data'
+        message: "Insufficient historical data",
       };
     }
 
-    const predictions = this.learner.predictIssues(currentReport, historicalRuns);
+    const predictions = this.learner.predictIssues(
+      currentReport,
+      historicalRuns,
+    );
 
     console.log(`\n🔮 Predictions:`);
     if (predictions.predictions.length > 0) {
       console.log(`   Likely issues in next analysis:`);
       predictions.predictions.slice(0, 5).forEach((pred, i) => {
-        console.log(`     ${i + 1}. ${pred.category} (${(pred.probability * 100).toFixed(1)}% probability)`);
+        console.log(
+          `     ${i + 1}. ${pred.category} (${(pred.probability * 100).toFixed(1)}% probability)`,
+        );
       });
     } else {
       console.log(`   No predictions generated`);
@@ -186,7 +207,7 @@ class PatternIntegration {
 
     if (predictions.temporalPatterns?.cascades?.length > 0) {
       console.log(`\n[BOLT] Cascade Patterns:`);
-      predictions.temporalPatterns.cascades.slice(0, 3).forEach(cascade => {
+      predictions.temporalPatterns.cascades.slice(0, 3).forEach((cascade) => {
         console.log(`     ${cascade.chain} (seen ${cascade.count}x)`);
       });
     }
@@ -208,8 +229,12 @@ class PatternIntegration {
     if (ranked.length > 0) {
       console.log(`   Top 5 recommendations:`);
       ranked.slice(0, 5).forEach((rec, i) => {
-        console.log(`     ${i + 1}. [${rec.priority}] ${rec.finding.category} in ${path.basename(rec.finding.file || 'unknown')}`);
-        console.log(`        Score: ${rec.score.toFixed(1)} | Confidence: ${(rec.confidence * 100).toFixed(0)}%`);
+        console.log(
+          `     ${i + 1}. [${rec.priority}] ${rec.finding.category} in ${path.basename(rec.finding.file || "unknown")}`,
+        );
+        console.log(
+          `        Score: ${rec.score.toFixed(1)} | Confidence: ${(rec.confidence * 100).toFixed(0)}%`,
+        );
       });
     }
 
@@ -231,7 +256,9 @@ class PatternIntegration {
     // Store predictions for future validation
     if (predictions.predictions && predictions.predictions.length > 0) {
       await this.insight.storePredictions(runId, predictions.predictions);
-      console.log(`💾 Stored ${predictions.predictions.length} predictions for validation`);
+      console.log(
+        `💾 Stored ${predictions.predictions.length} predictions for validation`,
+      );
     }
   }
 
@@ -242,11 +269,13 @@ class PatternIntegration {
     await this.insight.recordFixAttempt(category, success, metadata);
 
     // Update the learner's model
-    this.learner.learnFromFixes([{
-      category,
-      success,
-      timestamp: new Date().toISOString()
-    }]);
+    this.learner.learnFromFixes([
+      {
+        category,
+        success,
+        timestamp: new Date().toISOString(),
+      },
+    ]);
 
     // Save updated model
     this.learner.saveModel(this.modelPath);
@@ -262,10 +291,11 @@ class PatternIntegration {
       ...dashboard,
       modelInfo: {
         path: this.modelPath,
-        lastUpdated: this.learner.fixerModel.toJSON().categories.length > 0
-          ? 'Active'
-          : 'Needs training data'
-      }
+        lastUpdated:
+          this.learner.fixerModel.toJSON().categories.length > 0
+            ? "Active"
+            : "Needs training data",
+      },
     };
   }
 
@@ -294,7 +324,7 @@ class PatternIntegration {
       qualityTrend: dashboard.qualityTrend,
       topCategories: dashboard.topCategories,
       ml: dashboard.ml,
-      insights: []
+      insights: [],
     };
 
     // Generate actionable insights
@@ -304,15 +334,15 @@ class PatternIntegration {
     if (dashboard.qualityTrend.delta !== null) {
       if (dashboard.qualityTrend.delta > 0) {
         insights.push({
-          type: 'POSITIVE',
+          type: "POSITIVE",
           message: `Code quality improved by ${dashboard.qualityTrend.delta.toFixed(1)} points`,
-          action: 'Continue current practices'
+          action: "Continue current practices",
         });
       } else if (dashboard.qualityTrend.delta < -5) {
         insights.push({
-          type: 'WARNING',
+          type: "WARNING",
           message: `Code quality declined by ${Math.abs(dashboard.qualityTrend.delta).toFixed(1)} points`,
-          action: 'Review recent changes and refocus on quality'
+          action: "Review recent changes and refocus on quality",
         });
       }
     }
@@ -321,10 +351,10 @@ class PatternIntegration {
     if (dashboard.ml.clusters.length > 0) {
       const largestCluster = dashboard.ml.clusters[0];
       insights.push({
-        type: 'PATTERN',
+        type: "PATTERN",
         message: `Recurring pattern: ${largestCluster.category} (${largestCluster.size} occurrences)`,
-        action: largestCluster.rootCause || 'Consider systematic refactoring',
-        priority: 'HIGH'
+        action: largestCluster.rootCause || "Consider systematic refactoring",
+        priority: "HIGH",
       });
     }
 
@@ -333,20 +363,21 @@ class PatternIntegration {
       const bestFix = dashboard.ml.fixSuccessRates[0];
       if (bestFix.successRate > 0.8) {
         insights.push({
-          type: 'SUCCESS',
+          type: "SUCCESS",
           message: `Auto-fix for ${bestFix.category} is highly reliable (${(bestFix.successRate * 100).toFixed(0)}%)`,
-          action: 'Enable automatic fixes for this category',
-          priority: 'MEDIUM'
+          action: "Enable automatic fixes for this category",
+          priority: "MEDIUM",
         });
       }
 
-      const worstFix = dashboard.ml.fixSuccessRates[dashboard.ml.fixSuccessRates.length - 1];
+      const worstFix =
+        dashboard.ml.fixSuccessRates[dashboard.ml.fixSuccessRates.length - 1];
       if (worstFix.successRate < 0.5) {
         insights.push({
-          type: 'WARNING',
+          type: "WARNING",
           message: `Auto-fix for ${worstFix.category} needs improvement (${(worstFix.successRate * 100).toFixed(0)}%)`,
-          action: 'Review fixer logic or switch to manual fixes',
-          priority: 'MEDIUM'
+          action: "Review fixer logic or switch to manual fixes",
+          priority: "MEDIUM",
         });
       }
     }
@@ -355,17 +386,17 @@ class PatternIntegration {
     if (dashboard.ml.predictionAccuracy !== null) {
       if (dashboard.ml.predictionAccuracy > 0.7) {
         insights.push({
-          type: 'SUCCESS',
+          type: "SUCCESS",
           message: `Prediction model is performing well (${(dashboard.ml.predictionAccuracy * 100).toFixed(0)}% accuracy)`,
-          action: 'Trust proactive recommendations',
-          priority: 'LOW'
+          action: "Trust proactive recommendations",
+          priority: "LOW",
         });
       } else if (dashboard.ml.totalPredictions > 10) {
         insights.push({
-          type: 'INFO',
+          type: "INFO",
           message: `Prediction accuracy is ${(dashboard.ml.predictionAccuracy * 100).toFixed(0)}% (improving with more data)`,
-          action: 'Continue gathering data to improve predictions',
-          priority: 'LOW'
+          action: "Continue gathering data to improve predictions",
+          priority: "LOW",
         });
       }
     }

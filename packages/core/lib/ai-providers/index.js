@@ -5,16 +5,16 @@
  * @module ai-providers
  */
 
-const AIProvider = require('./base');
-const HeuristicProvider = require('./heuristic');
-const ClaudeProvider = require('./claude');
-const GPT5CodexProvider = require('./gpt5-codex');
-const GeminiProvider = require('./gemini');
-const AIProviderManager = require('./manager');
+const AIProvider = require("./base");
+const HeuristicProvider = require("./heuristic");
+const ClaudeProvider = require("./claude");
+const GPT5CodexProvider = require("./gpt5-codex");
+const GeminiProvider = require("./gemini");
+const AIProviderManager = require("./manager");
 
 // Phase 6 Advanced Features
-const EnsembleAnalyzer = require('./ensemble');
-const ConfidenceScorer = require('./confidence');
+const EnsembleAnalyzer = require("./ensemble");
+const ConfidenceScorer = require("./confidence");
 
 module.exports = {
   // Base class
@@ -40,5 +40,5 @@ module.exports = {
    */
   createManager(config = {}) {
     return new AIProviderManager(config);
-  }
+  },
 };

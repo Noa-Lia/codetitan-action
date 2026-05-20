@@ -15,7 +15,7 @@
  * @module stream/analysis-stream
  */
 
-const EventEmitter = require('events');
+const EventEmitter = require("events");
 
 class AnalysisStream extends EventEmitter {
   constructor(config = {}) {
@@ -37,7 +37,7 @@ class AnalysisStream extends EventEmitter {
       // Buffer size before flushing
       bufferSize: config.bufferSize || 10,
 
-      ...config
+      ...config,
     };
 
     // Stream state
@@ -50,7 +50,7 @@ class AnalysisStream extends EventEmitter {
       currentFile: null,
       findingsCount: 0,
       totalCost: 0,
-      providers: {}
+      providers: {},
     };
 
     // Buffered events
@@ -70,12 +70,12 @@ class AnalysisStream extends EventEmitter {
       currentFile: null,
       findingsCount: 0,
       totalCost: 0,
-      providers: {}
+      providers: {},
     };
 
-    this.emit('start', {
+    this.emit("start", {
       timestamp: new Date().toISOString(),
-      totalFiles: this.state.totalFiles
+      totalFiles: this.state.totalFiles,
     });
 
     return this;
@@ -84,12 +84,12 @@ class AnalysisStream extends EventEmitter {
   /**
    * Update progress
    */
-  updateProgress(file, status = 'processing') {
+  updateProgress(file, status = "processing") {
     if (!this.state.active) return;
 
     this.state.currentFile = file;
 
-    if (status === 'completed') {
+    if (status === "completed") {
       this.state.filesProcessed++;
     }
 
@@ -99,14 +99,17 @@ class AnalysisStream extends EventEmitter {
       status,
       filesProcessed: this.state.filesProcessed,
       totalFiles: this.state.totalFiles,
-      percentage: this.state.totalFiles > 0
-        ? Math.round((this.state.filesProcessed / this.state.totalFiles) * 100)
-        : 0,
+      percentage:
+        this.state.totalFiles > 0
+          ? Math.round(
+              (this.state.filesProcessed / this.state.totalFiles) * 100,
+            )
+          : 0,
       elapsed: Date.now() - this.state.startTime,
-      estimatedRemaining: this.estimateRemainingTime()
+      estimatedRemaining: this.estimateRemainingTime(),
     };
 
-    this.emit('progress', progress);
+    this.emit("progress", progress);
 
     return this;
   }
@@ -125,7 +128,7 @@ class AnalysisStream extends EventEmitter {
         this.state.providers[metadata.provider] = {
           count: 0,
           cost: 0,
-          tokens: { input: 0, output: 0, cached: 0 }
+          tokens: { input: 0, output: 0, cached: 0 },
         };
       }
 
@@ -149,10 +152,10 @@ class AnalysisStream extends EventEmitter {
       finding,
       metadata,
       totalFindings: this.state.findingsCount,
-      totalCost: this.state.totalCost
+      totalCost: this.state.totalCost,
     };
 
-    this.emit('finding', event);
+    this.emit("finding", event);
 
     // Buffer for batch processing
     this.buffer.push(event);
@@ -186,7 +189,7 @@ class AnalysisStream extends EventEmitter {
         this.state.providers[provider] = {
           count: 0,
           cost: 0,
-          tokens: { input: 0, output: 0, cached: 0 }
+          tokens: { input: 0, output: 0, cached: 0 },
         };
       }
 
@@ -197,12 +200,12 @@ class AnalysisStream extends EventEmitter {
       tokens.cached += tokensUsed.cached || 0;
     }
 
-    this.emit('cost', {
+    this.emit("cost", {
       timestamp: new Date().toISOString(),
       costUSD,
       provider,
       tokensUsed,
-      totalCost: this.state.totalCost
+      totalCost: this.state.totalCost,
     });
 
     return this;
@@ -212,11 +215,11 @@ class AnalysisStream extends EventEmitter {
    * Report an error
    */
   error(error, context = {}) {
-    this.emit('error', {
+    this.emit("error", {
       timestamp: new Date().toISOString(),
       error: error instanceof Error ? error.message : error,
       stack: error instanceof Error ? error.stack : undefined,
-      context
+      context,
     });
 
     return this;
@@ -242,10 +245,10 @@ class AnalysisStream extends EventEmitter {
       findingsCount: this.state.findingsCount,
       totalCost: this.state.totalCost,
       providers: this.state.providers,
-      ...summary
+      ...summary,
     };
 
-    this.emit('end', finalSummary);
+    this.emit("end", finalSummary);
 
     return finalSummary;
   }
@@ -256,10 +259,10 @@ class AnalysisStream extends EventEmitter {
   flush() {
     if (this.buffer.length === 0) return;
 
-    this.emit('batch', {
+    this.emit("batch", {
       timestamp: new Date().toISOString(),
       findings: this.buffer,
-      count: this.buffer.length
+      count: this.buffer.length,
     });
 
     this.buffer = [];
@@ -287,7 +290,7 @@ class AnalysisStream extends EventEmitter {
     return {
       ...this.state,
       elapsed: this.state.startTime ? Date.now() - this.state.startTime : 0,
-      estimatedRemaining: this.estimateRemainingTime()
+      estimatedRemaining: this.estimateRemainingTime(),
     };
   }
 
@@ -296,9 +299,9 @@ class AnalysisStream extends EventEmitter {
    */
   toSSE(res) {
     // Set SSE headers
-    res.setHeader('Content-Type', 'text/event-stream');
-    res.setHeader('Cache-Control', 'no-cache');
-    res.setHeader('Connection', 'keep-alive');
+    res.setHeader("Content-Type", "text/event-stream");
+    res.setHeader("Cache-Control", "no-cache");
+    res.setHeader("Connection", "keep-alive");
     res.flushHeaders();
 
     // Send events as SSE
@@ -308,19 +311,19 @@ class AnalysisStream extends EventEmitter {
     };
 
     // Wire up event handlers
-    this.on('start', data => sendEvent('start', data));
-    this.on('progress', data => sendEvent('progress', data));
-    this.on('finding', data => sendEvent('finding', data));
-    this.on('batch', data => sendEvent('batch', data));
-    this.on('cost', data => sendEvent('cost', data));
-    this.on('error', data => sendEvent('error', data));
-    this.on('end', data => {
-      sendEvent('end', data);
+    this.on("start", (data) => sendEvent("start", data));
+    this.on("progress", (data) => sendEvent("progress", data));
+    this.on("finding", (data) => sendEvent("finding", data));
+    this.on("batch", (data) => sendEvent("batch", data));
+    this.on("cost", (data) => sendEvent("cost", data));
+    this.on("error", (data) => sendEvent("error", data));
+    this.on("end", (data) => {
+      sendEvent("end", data);
       res.end();
     });
 
     // Handle client disconnect
-    res.on('close', () => {
+    res.on("close", () => {
       this.removeAllListeners();
     });
 
@@ -337,19 +340,19 @@ class AnalysisStream extends EventEmitter {
     };
 
     // Wire up event handlers
-    this.on('start', data => sendEvent('start', data));
-    this.on('progress', data => sendEvent('progress', data));
-    this.on('finding', data => sendEvent('finding', data));
-    this.on('batch', data => sendEvent('batch', data));
-    this.on('cost', data => sendEvent('cost', data));
-    this.on('error', data => sendEvent('error', data));
-    this.on('end', data => {
-      sendEvent('end', data);
+    this.on("start", (data) => sendEvent("start", data));
+    this.on("progress", (data) => sendEvent("progress", data));
+    this.on("finding", (data) => sendEvent("finding", data));
+    this.on("batch", (data) => sendEvent("batch", data));
+    this.on("cost", (data) => sendEvent("cost", data));
+    this.on("error", (data) => sendEvent("error", data));
+    this.on("end", (data) => {
+      sendEvent("end", data);
       ws.close();
     });
 
     // Handle disconnect
-    ws.on('close', () => {
+    ws.on("close", () => {
       this.removeAllListeners();
     });
 
@@ -360,35 +363,41 @@ class AnalysisStream extends EventEmitter {
    * Create console progress display
    */
   toConsole() {
-    const progressChars = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
+    const progressChars = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
     let frame = 0;
 
-    this.on('start', data => {
+    this.on("start", (data) => {
       console.log(`\n🚀 Analysis started (${data.totalFiles} files)`);
     });
 
-    this.on('progress', data => {
+    this.on("progress", (data) => {
       const spinner = progressChars[frame % progressChars.length];
       frame++;
 
-      process.stdout.write(`\r${spinner} ${data.percentage}% | ${data.filesProcessed}/${data.totalFiles} files | ${data.file}`);
+      process.stdout.write(
+        `\r${spinner} ${data.percentage}% | ${data.filesProcessed}/${data.totalFiles} files | ${data.file}`,
+      );
     });
 
-    this.on('finding', data => {
-      console.log(`\n   ${data.finding.severity} | ${data.finding.category} | ${data.finding.file_path}:${data.finding.line_number}`);
+    this.on("finding", (data) => {
+      console.log(
+        `\n   ${data.finding.severity} | ${data.finding.category} | ${data.finding.file_path}:${data.finding.line_number}`,
+      );
     });
 
-    this.on('cost', data => {
+    this.on("cost", (data) => {
       if (data.costUSD > 0.01) {
-        console.log(`\n   💰 Cost: $${this.state.totalCost.toFixed(4)} (${data.provider})`);
+        console.log(
+          `\n   💰 Cost: $${this.state.totalCost.toFixed(4)} (${data.provider})`,
+        );
       }
     });
 
-    this.on('error', data => {
+    this.on("error", (data) => {
       console.error(`\n   ❌ Error: ${data.error}`);
     });
 
-    this.on('end', data => {
+    this.on("end", (data) => {
       console.log(`\n\n✅ Analysis complete!`);
       console.log(`   Files: ${data.filesProcessed}`);
       console.log(`   Findings: ${data.findingsCount}`);
@@ -396,9 +405,11 @@ class AnalysisStream extends EventEmitter {
       console.log(`   Cost: $${data.totalCost.toFixed(4)}`);
       console.log(`\n   Providers:`);
       for (const [provider, stats] of Object.entries(data.providers)) {
-        console.log(`     ${provider}: ${stats.count} findings, $${stats.cost.toFixed(4)}`);
+        console.log(
+          `     ${provider}: ${stats.count} findings, $${stats.cost.toFixed(4)}`,
+        );
       }
-      console.log('');
+      console.log("");
     });
 
     return this;

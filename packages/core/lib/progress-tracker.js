@@ -12,7 +12,7 @@
  * - CLI progress bar integration
  */
 
-const EventEmitter = require('events');
+const EventEmitter = require("events");
 
 class ProgressTracker extends EventEmitter {
   constructor(options = {}) {
@@ -29,7 +29,7 @@ class ProgressTracker extends EventEmitter {
       filesPerSecond: 0,
       findingsPerSecond: 0,
       avgTimePerFile: 0,
-      estimatedCompletion: null
+      estimatedCompletion: null,
     };
 
     // Category breakdown
@@ -37,7 +37,7 @@ class ProgressTracker extends EventEmitter {
     this.findingsBySeverity = {
       HIGH: 0,
       MEDIUM: 0,
-      LOW: 0
+      LOW: 0,
     };
 
     // WebSocket dashboard connection (optional)
@@ -58,15 +58,15 @@ class ProgressTracker extends EventEmitter {
     this.startTime = Date.now();
     this.currentFile = null;
 
-    this.emit('start', {
+    this.emit("start", {
       totalFiles: this.totalFiles,
-      startTime: this.startTime
+      startTime: this.startTime,
     });
 
     // Broadcast to dashboard
-    this.broadcastToDashboard('analysis_started', {
+    this.broadcastToDashboard("analysis_started", {
       totalFiles: this.totalFiles,
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
     });
   }
 
@@ -79,7 +79,7 @@ class ProgressTracker extends EventEmitter {
     this.totalFindings += findings.length;
 
     // Update category breakdown
-    findings.forEach(finding => {
+    findings.forEach((finding) => {
       this.findingsByCategory[finding.category] =
         (this.findingsByCategory[finding.category] || 0) + 1;
 
@@ -100,14 +100,14 @@ class ProgressTracker extends EventEmitter {
     }
 
     // Broadcast significant findings to dashboard
-    findings.forEach(finding => {
-      if (finding.severity === 'HIGH') {
-        this.broadcastToDashboard('finding_detected', {
+    findings.forEach((finding) => {
+      if (finding.severity === "HIGH") {
+        this.broadcastToDashboard("finding_detected", {
           category: finding.category,
           severity: finding.severity,
           file: filePath,
           line: finding.line,
-          message: finding.message
+          message: finding.message,
         });
       }
     });
@@ -121,8 +121,12 @@ class ProgressTracker extends EventEmitter {
 
     if (elapsed > 0) {
       this.metrics.filesPerSecond = (this.processedFiles / elapsed).toFixed(2);
-      this.metrics.findingsPerSecond = (this.totalFindings / elapsed).toFixed(2);
-      this.metrics.avgTimePerFile = Math.round((elapsed / this.processedFiles) * 1000); // ms
+      this.metrics.findingsPerSecond = (this.totalFindings / elapsed).toFixed(
+        2,
+      );
+      this.metrics.avgTimePerFile = Math.round(
+        (elapsed / this.processedFiles) * 1000,
+      ); // ms
     }
 
     // Calculate ETA
@@ -131,7 +135,9 @@ class ProgressTracker extends EventEmitter {
       const remainingFiles = this.totalFiles - this.processedFiles;
       const estimatedSeconds = remainingFiles * avgTimePerFile;
 
-      this.metrics.estimatedCompletion = new Date(Date.now() + estimatedSeconds * 1000);
+      this.metrics.estimatedCompletion = new Date(
+        Date.now() + estimatedSeconds * 1000,
+      );
     }
   }
 
@@ -147,18 +153,18 @@ class ProgressTracker extends EventEmitter {
       totalFindings: this.totalFindings,
       findingsByCategory: this.findingsByCategory,
       findingsBySeverity: this.findingsBySeverity,
-      metrics: this.metrics
+      metrics: this.metrics,
     };
 
-    this.emit('progress', progress);
+    this.emit("progress", progress);
 
     // Broadcast to dashboard
-    this.broadcastToDashboard('analysis_progress', {
+    this.broadcastToDashboard("analysis_progress", {
       filesAnalyzed: this.processedFiles,
       totalFiles: this.totalFiles,
       percentage: progress.percentage,
       findingsCount: this.totalFindings,
-      currentFile: this.currentFile
+      currentFile: this.currentFile,
     });
   }
 
@@ -175,17 +181,17 @@ class ProgressTracker extends EventEmitter {
       findingsBySeverity: this.findingsBySeverity,
       duration,
       metrics: this.metrics,
-      ...results
+      ...results,
     };
 
-    this.emit('complete', summary);
+    this.emit("complete", summary);
 
     // Broadcast to dashboard
-    this.broadcastToDashboard('analysis_completed', {
+    this.broadcastToDashboard("analysis_completed", {
       filesAnalyzed: this.processedFiles,
       findingsCount: this.totalFindings,
       duration,
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
     });
 
     return summary;
@@ -195,16 +201,16 @@ class ProgressTracker extends EventEmitter {
    * Report an error
    */
   error(filePath, error) {
-    this.emit('error', {
+    this.emit("error", {
       file: filePath,
-      error: error.message || error
+      error: error.message || error,
     });
 
     // Broadcast to dashboard
-    this.broadcastToDashboard('analysis_error', {
+    this.broadcastToDashboard("analysis_error", {
       file: filePath,
       error: error.message || error,
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
     });
   }
 
@@ -212,7 +218,7 @@ class ProgressTracker extends EventEmitter {
    * Broadcast event to dashboard
    */
   broadcastToDashboard(event, data) {
-    if (this.dashboard && typeof this.dashboard.broadcast === 'function') {
+    if (this.dashboard && typeof this.dashboard.broadcast === "function") {
       this.dashboard.broadcast(event, data);
     }
   }
@@ -230,7 +236,7 @@ class ProgressTracker extends EventEmitter {
       findingsByCategory: this.findingsByCategory,
       findingsBySeverity: this.findingsBySeverity,
       metrics: this.metrics,
-      elapsed: Date.now() - this.startTime
+      elapsed: Date.now() - this.startTime,
     };
   }
 
@@ -239,7 +245,7 @@ class ProgressTracker extends EventEmitter {
    */
   formatTimeRemaining() {
     if (!this.metrics.estimatedCompletion) {
-      return 'Calculating...';
+      return "Calculating...";
     }
 
     const remaining = this.metrics.estimatedCompletion.getTime() - Date.now();
@@ -266,7 +272,7 @@ class ProgressTracker extends EventEmitter {
     const filled = Math.round(width * percentage);
     const empty = width - filled;
 
-    const bar = '█'.repeat(filled) + '░'.repeat(empty);
+    const bar = "█".repeat(filled) + "░".repeat(empty);
     const percent = Math.round(percentage * 100);
 
     return `${bar} ${percent}%`;
@@ -287,7 +293,7 @@ class ProgressTracker extends EventEmitter {
       filesPerSecond: 0,
       findingsPerSecond: 0,
       avgTimePerFile: 0,
-      estimatedCompletion: null
+      estimatedCompletion: null,
     };
   }
 }

@@ -7,16 +7,16 @@
  * Phase 3 Integration Component
  */
 
-const HierarchicalOrchestrator = require('./hierarchical-orchestrator');
-const ResultSynthesisEngine = require('./result-synthesis-engine');
-const AgentLoadBalancer = require('./agent-load-balancer');
-const FPFilter = require('./fp-filter');
-const LearnedProfileManager = require('./learned-profile');
-const { MLConfidenceScorer } = require('./ml-confidence-scorer');
-const PRRiskScorer = require('./pr-risk-scorer');
+const HierarchicalOrchestrator = require("./hierarchical-orchestrator");
+const ResultSynthesisEngine = require("./result-synthesis-engine");
+const AgentLoadBalancer = require("./agent-load-balancer");
+const FPFilter = require("./fp-filter");
+const LearnedProfileManager = require("./learned-profile");
+const { MLConfidenceScorer } = require("./ml-confidence-scorer");
+const PRRiskScorer = require("./pr-risk-scorer");
 // FixerRunner is required lazily inside analyzeCodebase to avoid circular dep issues
-const fs = require('fs').promises;
-const path = require('path');
+const fs = require("fs").promises;
+const path = require("path");
 
 class CodeTitanOrchestration {
   constructor(options = {}) {
@@ -27,32 +27,36 @@ class CodeTitanOrchestration {
       maxAgentsPerDomain: options.maxAgentsPerDomain || 10,
       maxConcurrent: options.maxConcurrent || 50,
       retryLimit: options.retryLimit || 3,
-      timeoutMs: options.timeoutMs || 120000
+      timeoutMs: options.timeoutMs || 120000,
     });
 
     // Configuration
     this.options = {
-      outputFormat: options.outputFormat || 'console', // 'console', 'json', 'markdown'
+      outputFormat: options.outputFormat || "console", // 'console', 'json', 'markdown'
       saveReport: options.saveReport || false,
-      reportPath: options.reportPath || './codetitan-report.md',
+      reportPath: options.reportPath || "./codetitan-report.md",
       verbose: options.verbose !== false, // Default to verbose
       applyFixes: options.applyFixes || false,
       fpFilter: options.fpFilter !== false, // Default: enable FP filtering if API key present
-      ...options
+      ...options,
     };
 
     // FP filter (uses Claude to suppress false positives in HIGH/CRITICAL findings)
     this.fpFilter = new FPFilter({
       enabled: this.options.fpFilter !== false,
     });
-    this.learnedProfileManager = options.learnedProfileManager || new LearnedProfileManager({
-      projectRoot: options.projectRoot || process.cwd(),
-      profilePath: options.learnedProfilePath
-    });
-    this.confidenceScorer = options.confidenceScorer || new MLConfidenceScorer({
-      supabaseUrl: options.supabaseUrl || process.env.SUPABASE_URL,
-      supabaseKey: options.supabaseKey || process.env.SUPABASE_SERVICE_KEY
-    });
+    this.learnedProfileManager =
+      options.learnedProfileManager ||
+      new LearnedProfileManager({
+        projectRoot: options.projectRoot || process.cwd(),
+        profilePath: options.learnedProfilePath,
+      });
+    this.confidenceScorer =
+      options.confidenceScorer ||
+      new MLConfidenceScorer({
+        supabaseUrl: options.supabaseUrl || process.env.SUPABASE_URL,
+        supabaseKey: options.supabaseKey || process.env.SUPABASE_SERVICE_KEY,
+      });
     this.prRiskScorer = options.prRiskScorer || new PRRiskScorer();
 
     // Session tracking
@@ -79,7 +83,7 @@ class CodeTitanOrchestration {
 
     // Helper: safely invoke onProgress callback without crashing the analysis
     const emit = (event) => {
-      if (typeof effectiveOptions.onProgress === 'function') {
+      if (typeof effectiveOptions.onProgress === "function") {
         try {
           effectiveOptions.onProgress(event);
         } catch (_) {
@@ -96,74 +100,117 @@ class CodeTitanOrchestration {
 
       // Validate project path
       await this.validateProjectPath(projectPath);
-      const profileProjectRoot = effectiveOptions.profileProjectRoot || projectPath;
-      const learnedProfile = this.learnedProfileManager.loadProfile(profileProjectRoot);
+      const profileProjectRoot =
+        effectiveOptions.profileProjectRoot || projectPath;
+      const learnedProfile =
+        this.learnedProfileManager.loadProfile(profileProjectRoot);
 
       // Step 1: Orchestrate full analysis across all Domain Gods
       if (effectiveOptions.verbose) {
-        console.log('\n[START] STEP 1: Orchestrating analysis across all Domain Titans...');
+        console.log(
+          "\n[START] STEP 1: Orchestrating analysis across all Domain Titans...",
+        );
       }
 
-      emit({ type: 'progress', pct: 10, message: 'Starting analysis across all Domain Titans...', filesProcessed: 0, totalFiles: 0 });
+      emit({
+        type: "progress",
+        pct: 10,
+        message: "Starting analysis across all Domain Titans...",
+        filesProcessed: 0,
+        totalFiles: 0,
+      });
 
-      const rawResults = await this.orchestrator.orchestrateFullAnalysis(projectPath, effectiveOptions);
+      const rawResults = await this.orchestrator.orchestrateFullAnalysis(
+        projectPath,
+        effectiveOptions,
+      );
 
-      emit({ type: 'progress', pct: 40, message: 'Synthesizing results from all domains...', filesProcessed: 0, totalFiles: 0 });
+      emit({
+        type: "progress",
+        pct: 40,
+        message: "Synthesizing results from all domains...",
+        filesProcessed: 0,
+        totalFiles: 0,
+      });
 
       // Step 2: Synthesize results into unified report
       if (effectiveOptions.verbose) {
-        console.log('\n[LINK] STEP 2: Synthesizing results from all domains...');
+        console.log(
+          "\n[LINK] STEP 2: Synthesizing results from all domains...",
+        );
       }
       const report = await this.synthesizer.synthesize(rawResults);
-      this.normalizeSynthesisReportPaths(report, projectPath, profileProjectRoot);
+      this.normalizeSynthesisReportPaths(
+        report,
+        projectPath,
+        profileProjectRoot,
+      );
 
       // Emit individual findings as they are available after synthesis
       if (report.findings && report.findings.length > 0) {
         for (const finding of report.findings) {
           emit({
-            type: 'finding',
+            type: "finding",
             finding: {
               severity: finding.severity,
               category: finding.category,
               message: finding.message,
-              file: finding.file || finding.file_path || '',
-              line: finding.line || finding.line_number || 1
-            }
+              file: finding.file || finding.file_path || "",
+              line: finding.line || finding.line_number || 1,
+            },
           });
         }
       }
 
-      emit({ type: 'progress', pct: 70, message: 'Filtering false positives...', filesProcessed: 0, totalFiles: 0 });
+      emit({
+        type: "progress",
+        pct: 70,
+        message: "Filtering false positives...",
+        filesProcessed: 0,
+        totalFiles: 0,
+      });
 
       let fpFilteredFindings = [];
 
       // Step 3: LLM false-positive filtering on synthesized issues
       if (this.fpFilter.enabled && report.issues && report.issues.length > 0) {
         if (effectiveOptions.verbose) {
-          console.log(`\n[FILTER] STEP 2b: Filtering false positives (${report.issues.length} findings)...`);
+          console.log(
+            `\n[FILTER] STEP 2b: Filtering false positives (${report.issues.length} findings)...`,
+          );
         }
         try {
           // Group issues by file and filter each file's findings
           const byFile = new Map();
           for (const issue of report.issues) {
-            const fp = issue.file_path || issue.filePath || '';
+            const fp = issue.file_path || issue.filePath || "";
             if (!byFile.has(fp)) byFile.set(fp, []);
             byFile.get(fp).push(issue);
           }
 
           const filteredIssues = [];
           for (const [fp, fileIssues] of byFile) {
-            let fileContent = '';
-            try { fileContent = require('fs').readFileSync(fp, 'utf8'); } catch (_) {}
-            const filtered = await this.fpFilter.filterFindings(fileIssues, fileContent, fp);
+            let fileContent = "";
+            try {
+              fileContent = require("fs").readFileSync(fp, "utf8");
+            } catch (_) {}
+            const filtered = await this.fpFilter.filterFindings(
+              fileIssues,
+              fileContent,
+              fp,
+            );
             const kept = new Set(filtered);
-            fpFilteredFindings.push(...fileIssues.filter(issue => !kept.has(issue)));
+            fpFilteredFindings.push(
+              ...fileIssues.filter((issue) => !kept.has(issue)),
+            );
             filteredIssues.push(...filtered);
           }
 
           const fpStats = this.fpFilter.getStats();
           if (effectiveOptions.verbose && fpStats.filtered > 0) {
-            console.log(`[FILTER] Suppressed ${fpStats.filtered} false positives (${fpStats.filterRate * 100}% FP rate)`);
+            console.log(
+              `[FILTER] Suppressed ${fpStats.filtered} false positives (${fpStats.filterRate * 100}% FP rate)`,
+            );
           }
           report.issues = filteredIssues;
         } catch (_fpErr) {
@@ -171,9 +218,19 @@ class CodeTitanOrchestration {
         }
       }
 
-      emit({ type: 'progress', pct: 85, message: 'Compiling final report...', filesProcessed: 0, totalFiles: 0 });
+      emit({
+        type: "progress",
+        pct: 85,
+        message: "Compiling final report...",
+        filesProcessed: 0,
+        totalFiles: 0,
+      });
 
-      const learningEnhancements = await this.applyLearningSignals(report, profileProjectRoot, learnedProfile);
+      const learningEnhancements = await this.applyLearningSignals(
+        report,
+        profileProjectRoot,
+        learnedProfile,
+      );
 
       // Step 4: Get load balancer metrics
       const lbMetrics = this.loadBalancer.getMetrics();
@@ -183,47 +240,65 @@ class CodeTitanOrchestration {
 
       // Step 6: Compile final report
       this.endTime = Date.now();
-      const finalReport = this.compileReport(report, lbMetrics, orchMetrics, learningEnhancements);
-      const updatedProfile = this.learnedProfileManager.updateProfile(learnedProfile, finalReport.findings || [], {
-        prRiskScore: learningEnhancements.prRiskScore,
-        fpFilteredFindings
-      });
+      const finalReport = this.compileReport(
+        report,
+        lbMetrics,
+        orchMetrics,
+        learningEnhancements,
+      );
+      const updatedProfile = this.learnedProfileManager.updateProfile(
+        learnedProfile,
+        finalReport.findings || [],
+        {
+          prRiskScore: learningEnhancements.prRiskScore,
+          fpFilteredFindings,
+        },
+      );
       this.learnedProfileManager.saveProfile(updatedProfile);
       finalReport.learnedProfile = {
-        ...updatedProfile
+        ...updatedProfile,
       };
       finalReport.metrics = {
         ...(finalReport.metrics || {}),
         personalizationScore: updatedProfile.personalizationScore,
         confidenceSummary: learningEnhancements.confidenceSummary,
         prRiskScore: learningEnhancements.prRiskScore,
-        suppressedByProfile: learningEnhancements.suppressedByProfile || 0
+        suppressedByProfile: learningEnhancements.suppressedByProfile || 0,
       };
       finalReport.prRiskScore = learningEnhancements.prRiskScore;
-      finalReport.suppressedByProfile = learningEnhancements.suppressedByProfile || 0;
+      finalReport.suppressedByProfile =
+        learningEnhancements.suppressedByProfile || 0;
       finalReport.summary = {
         ...(finalReport.summary || {}),
         personalizationScore: updatedProfile.personalizationScore,
         prRiskScore: learningEnhancements.prRiskScore,
-        suppressedByProfile: learningEnhancements.suppressedByProfile || 0
+        suppressedByProfile: learningEnhancements.suppressedByProfile || 0,
       };
 
       // Step: Apply adaptive fixes if requested
-      if (effectiveOptions.applyFixes && finalReport.topIssues && finalReport.topIssues.length > 0) {
+      if (
+        effectiveOptions.applyFixes &&
+        finalReport.topIssues &&
+        finalReport.topIssues.length > 0
+      ) {
         if (effectiveOptions.verbose) {
-          console.log('\n[FIX] Applying adaptive fixes...');
+          console.log("\n[FIX] Applying adaptive fixes...");
         }
         try {
-          const FixerRunner = require('./fixer-runner');
+          const FixerRunner = require("./fixer-runner");
           const fixerRunner = new FixerRunner({
             projectRoot: projectPath,
             enableWrites: true,
           });
           const fixResult = await fixerRunner.applyFixes(finalReport);
           if (effectiveOptions.verbose) {
-            console.log(`[FIX] Applied ${fixResult.applied} fixes, skipped ${fixResult.skipped}, errors: ${fixResult.errors.length}`);
+            console.log(
+              `[FIX] Applied ${fixResult.applied} fixes, skipped ${fixResult.skipped}, errors: ${fixResult.errors.length}`,
+            );
             if (fixResult.filesTouched.length > 0) {
-              console.log(`[FIX] Files modified: ${fixResult.filesTouched.join(', ')}`);
+              console.log(
+                `[FIX] Files modified: ${fixResult.filesTouched.join(", ")}`,
+              );
             }
           }
           finalReport.fixes = fixResult;
@@ -236,7 +311,7 @@ class CodeTitanOrchestration {
 
       // Step 6: Display results
       if (effectiveOptions.verbose) {
-        console.log('\n[CHART] STEP 3: Generating final report...');
+        console.log("\n[CHART] STEP 3: Generating final report...");
         this.displayReport(finalReport);
       }
 
@@ -248,21 +323,20 @@ class CodeTitanOrchestration {
       // Emit done event with summary
       const summary = finalReport.summary || {};
       emit({
-        type: 'done',
+        type: "done",
         summary: {
           critical: summary.critical || 0,
           high: summary.high || 0,
           medium: summary.medium || 0,
           low: summary.low || 0,
-          total: summary.totalFindings || 0
-        }
+          total: summary.totalFindings || 0,
+        },
       });
 
       return finalReport;
-
     } catch (error) {
       this.endTime = Date.now();
-      console.error('\n[ERROR] CodeTitan ANALYSIS FAILED:');
+      console.error("\n[ERROR] CodeTitan ANALYSIS FAILED:");
       console.error(error);
       throw error;
     }
@@ -278,23 +352,25 @@ class CodeTitanOrchestration {
         throw new Error(`Path is not a directory: ${projectPath}`);
       }
     } catch (error) {
-      throw new Error(`Invalid project path: ${projectPath} - ${error.message}`);
+      throw new Error(
+        `Invalid project path: ${projectPath} - ${error.message}`,
+      );
     }
   }
 
   normalizeFindingForScoring(finding = {}) {
     return {
       ...finding,
-      file_path: finding.file_path || finding.file || '',
+      file_path: finding.file_path || finding.file || "",
       line_number: finding.line_number || finding.line || 1,
-      severity: finding.severity || 'MEDIUM',
-      category: finding.category || 'UNKNOWN',
-      message: finding.message || 'Issue detected'
+      severity: finding.severity || "MEDIUM",
+      category: finding.category || "UNKNOWN",
+      message: finding.message || "Issue detected",
     };
   }
 
   normalizeFindingPathForProject(rawPath, analysisProjectPath, projectRoot) {
-    const filePath = String(rawPath || '');
+    const filePath = String(rawPath || "");
     if (!filePath) {
       return filePath;
     }
@@ -319,17 +395,21 @@ class CodeTitanOrchestration {
   }
 
   normalizeFindingForProject(finding = {}, analysisProjectPath, projectRoot) {
-    const rawPath = finding.file_path || finding.filePath || finding.file || '';
+    const rawPath = finding.file_path || finding.filePath || finding.file || "";
     if (!rawPath) {
       return finding;
     }
 
-    const normalizedPath = this.normalizeFindingPathForProject(rawPath, analysisProjectPath, projectRoot);
+    const normalizedPath = this.normalizeFindingPathForProject(
+      rawPath,
+      analysisProjectPath,
+      projectRoot,
+    );
     return {
       ...finding,
       file: normalizedPath,
       filePath: normalizedPath,
-      file_path: normalizedPath
+      file_path: normalizedPath,
     };
   }
 
@@ -338,18 +418,29 @@ class CodeTitanOrchestration {
       return report;
     }
 
-    const normalizeCollection = (items) => Array.isArray(items)
-      ? items.map((finding) => this.normalizeFindingForProject(finding, analysisProjectPath, projectRoot))
-      : items;
+    const normalizeCollection = (items) =>
+      Array.isArray(items)
+        ? items.map((finding) =>
+            this.normalizeFindingForProject(
+              finding,
+              analysisProjectPath,
+              projectRoot,
+            ),
+          )
+        : items;
 
     report.findings = normalizeCollection(report.findings);
     report.issues = normalizeCollection(report.issues);
     report.topIssues = normalizeCollection(report.topIssues);
 
-    if (report.byFile && typeof report.byFile === 'object') {
+    if (report.byFile && typeof report.byFile === "object") {
       const normalizedByFile = {};
       for (const [filePath, entries] of Object.entries(report.byFile)) {
-        const normalizedPath = this.normalizeFindingPathForProject(filePath, analysisProjectPath, projectRoot);
+        const normalizedPath = this.normalizeFindingPathForProject(
+          filePath,
+          analysisProjectPath,
+          projectRoot,
+        );
         normalizedByFile[normalizedPath] = normalizeCollection(entries);
       }
       report.byFile = normalizedByFile;
@@ -360,20 +451,27 @@ class CodeTitanOrchestration {
 
   async applyLearningSignals(report, projectPath, learnedProfile) {
     const normalizedFindings = Array.isArray(report.findings)
-      ? report.findings.map(finding => this.normalizeFindingForScoring(finding))
+      ? report.findings.map((finding) =>
+          this.normalizeFindingForScoring(finding),
+        )
       : [];
 
     // Apply learned dismissals: suppress findings the user has repeatedly dismissed
     const suppressionRules = learnedProfile.suppressionRules || {};
     const SUPPRESS_THRESHOLD = 3;
     let suppressedByProfile = 0;
-    const canCheckDismissals = typeof this.learnedProfileManager.getDismissalSnippet === 'function'
-      && typeof this.learnedProfileManager.createDismissalKey === 'function'
-      && Object.keys(suppressionRules).length > 0;
+    const canCheckDismissals =
+      typeof this.learnedProfileManager.getDismissalSnippet === "function" &&
+      typeof this.learnedProfileManager.createDismissalKey === "function" &&
+      Object.keys(suppressionRules).length > 0;
     const unsuppressedFindings = canCheckDismissals
-      ? normalizedFindings.filter(finding => {
-          const snippet = this.learnedProfileManager.getDismissalSnippet(finding);
-          const key = this.learnedProfileManager.createDismissalKey(finding.category, snippet);
+      ? normalizedFindings.filter((finding) => {
+          const snippet =
+            this.learnedProfileManager.getDismissalSnippet(finding);
+          const key = this.learnedProfileManager.createDismissalKey(
+            finding.category,
+            snippet,
+          );
           if ((suppressionRules[key] || 0) >= SUPPRESS_THRESHOLD) {
             suppressedByProfile++;
             return false;
@@ -382,8 +480,14 @@ class CodeTitanOrchestration {
         })
       : normalizedFindings;
 
-    const scoringContext = this.learnedProfileManager.buildScoringContext(learnedProfile, unsuppressedFindings);
-    const scored = await this.confidenceScorer.scoreFindings(unsuppressedFindings, scoringContext);
+    const scoringContext = this.learnedProfileManager.buildScoringContext(
+      learnedProfile,
+      unsuppressedFindings,
+    );
+    const scored = await this.confidenceScorer.scoreFindings(
+      unsuppressedFindings,
+      scoringContext,
+    );
 
     report.findings = scored.findings;
     report.topIssues = scored.findings.slice(0, 10);
@@ -391,17 +495,17 @@ class CodeTitanOrchestration {
 
     const prRiskScore = this.prRiskScorer.scoreRepositoryRisk({
       findings: scored.findings,
-      learnedProfile
+      learnedProfile,
     });
 
     return {
       confidenceSummary: {
         averageConfidence: scored.averageConfidence,
-        reranked: true
+        reranked: true,
       },
       prRiskScore,
       learnedProfile,
-      suppressedByProfile
+      suppressedByProfile,
     };
   }
 
@@ -412,9 +516,14 @@ class CodeTitanOrchestration {
     const duration = this.endTime - this.startTime;
     const summary = {
       ...(synthesisReport.summary || {}),
-      totalFindings: synthesisReport.summary?.totalFindings || synthesisReport.summary?.total || synthesisReport.findings?.length || 0,
-      personalizationScore: enhancements.learnedProfile?.personalizationScore || 0,
-      prRiskScore: enhancements.prRiskScore || null
+      totalFindings:
+        synthesisReport.summary?.totalFindings ||
+        synthesisReport.summary?.total ||
+        synthesisReport.findings?.length ||
+        0,
+      personalizationScore:
+        enhancements.learnedProfile?.personalizationScore || 0,
+      prRiskScore: enhancements.prRiskScore || null,
     };
 
     return {
@@ -431,10 +540,11 @@ class CodeTitanOrchestration {
       recommendations: synthesisReport.recommendations,
       metrics: {
         ...(synthesisReport.metrics || {}),
-        personalizationScore: enhancements.learnedProfile?.personalizationScore || 0,
+        personalizationScore:
+          enhancements.learnedProfile?.personalizationScore || 0,
         confidenceSummary: enhancements.confidenceSummary || null,
         prRiskScore: enhancements.prRiskScore || null,
-        suppressedByProfile: enhancements.suppressedByProfile || 0
+        suppressedByProfile: enhancements.suppressedByProfile || 0,
       },
       learnedProfile: enhancements.learnedProfile || null,
       prRiskScore: enhancements.prRiskScore || null,
@@ -447,7 +557,7 @@ class CodeTitanOrchestration {
           completedTasks: orchMetrics.completedTasks,
           failedTasks: orchMetrics.failedTasks,
           filesPerSecond: orchMetrics.filesPerSecond?.toFixed(2),
-          successRate: (orchMetrics.successRate * 100).toFixed(1) + '%'
+          successRate: (orchMetrics.successRate * 100).toFixed(1) + "%",
         },
         loadBalancer: {
           activeAgents: lbMetrics.activeAgents,
@@ -456,14 +566,14 @@ class CodeTitanOrchestration {
           totalRetries: lbMetrics.totalRetries,
           timeouts: lbMetrics.timeouts,
           successRate: lbMetrics.successRate,
-          averageExecutionTime: lbMetrics.averageExecutionTimeMs + 'ms'
-        }
+          averageExecutionTime: lbMetrics.averageExecutionTimeMs + "ms",
+        },
       },
 
       // Grouped findings for easy access
       bySeverity: synthesisReport.bySeverity,
       byDomain: synthesisReport.byDomain,
-      byFile: synthesisReport.byFile
+      byFile: synthesisReport.byFile,
     };
   }
 
@@ -471,13 +581,25 @@ class CodeTitanOrchestration {
    * Display beautiful header
    */
   displayHeader() {
-    console.log('\n+===========================================================+');
-    console.log('|                                                           |');
-    console.log('|          [FIRE] ULTIMATE CodeTitan ANALYSIS [FIRE]                |');
-    console.log('|                                                           |');
-    console.log('|      Multi-Agent Orchestration Across 5 Domains          |');
-    console.log('|                                                           |');
-    console.log('+===========================================================+');
+    console.log(
+      "\n+===========================================================+",
+    );
+    console.log(
+      "|                                                           |",
+    );
+    console.log(
+      "|          [FIRE] ULTIMATE CodeTitan ANALYSIS [FIRE]                |",
+    );
+    console.log(
+      "|                                                           |",
+    );
+    console.log("|      Multi-Agent Orchestration Across 5 Domains          |");
+    console.log(
+      "|                                                           |",
+    );
+    console.log(
+      "+===========================================================+",
+    );
     console.log(`\n[CLIPBOARD] Session ID: ${this.sessionId}`);
     console.log(`⏰ Started: ${new Date().toLocaleString()}\n`);
   }
@@ -486,11 +608,21 @@ class CodeTitanOrchestration {
    * Display comprehensive report
    */
   displayReport(report) {
-    console.log('\n+===========================================================+');
-    console.log('|                                                           |');
-    console.log('|                  ANALYSIS COMPLETE [OK]                     |');
-    console.log('|                                                           |');
-    console.log('+===========================================================+\n');
+    console.log(
+      "\n+===========================================================+",
+    );
+    console.log(
+      "|                                                           |",
+    );
+    console.log(
+      "|                  ANALYSIS COMPLETE [OK]                     |",
+    );
+    console.log(
+      "|                                                           |",
+    );
+    console.log(
+      "+===========================================================+\n",
+    );
 
     // Summary
     this.displaySummary(report);
@@ -511,16 +643,22 @@ class CodeTitanOrchestration {
     this.displayPerformanceMetrics(report);
 
     // Footer
-    console.log('\n+===========================================================+');
-    console.log('|            CodeTitan ANALYSIS COMPLETE                     |');
-    console.log('+===========================================================+\n');
+    console.log(
+      "\n+===========================================================+",
+    );
+    console.log(
+      "|            CodeTitan ANALYSIS COMPLETE                     |",
+    );
+    console.log(
+      "+===========================================================+\n",
+    );
   }
 
   /**
    * Display summary statistics
    */
   displaySummary(report) {
-    console.log('[CHART] SUMMARY\n');
+    console.log("[CHART] SUMMARY\n");
     console.log(`   Total Findings: ${report.summary.totalFindings}`);
     console.log(`   🔴 Critical: ${report.summary.critical}`);
     console.log(`   🟠 High: ${report.summary.high}`);
@@ -534,26 +672,30 @@ class CodeTitanOrchestration {
    * Display quality metrics
    */
   displayQualityMetrics(report) {
-    console.log('💎 QUALITY METRICS\n');
+    console.log("💎 QUALITY METRICS\n");
     console.log(`   Quality Score: ${report.metrics.qualityScore}/100`);
     console.log(`   Health Grade: ${report.metrics.healthGrade}`);
     console.log(`   Issues per KLOC: ${report.metrics.issuesPerKLOC}`);
-    console.log(`   Critical Density: ${report.metrics.criticalDensity} per KLOC`);
-    console.log(`   Total Lines: ${report.metrics.totalLines.toLocaleString()}\n`);
+    console.log(
+      `   Critical Density: ${report.metrics.criticalDensity} per KLOC`,
+    );
+    console.log(
+      `   Total Lines: ${report.metrics.totalLines.toLocaleString()}\n`,
+    );
   }
 
   /**
    * Display domain breakdown
    */
   displayDomainBreakdown(report) {
-    console.log('[CLIPBOARD] FINDINGS BY DOMAIN\n');
+    console.log("[CLIPBOARD] FINDINGS BY DOMAIN\n");
 
     const domainNames = {
-      'security-god': 'Security',
-      'performance-god': 'Performance',
-      'test-god': 'Testing',
-      'refactoring-god': 'Code Quality',
-      'documentation-god': 'Documentation'
+      "security-god": "Security",
+      "performance-god": "Performance",
+      "test-god": "Testing",
+      "refactoring-god": "Code Quality",
+      "documentation-god": "Documentation",
     };
 
     Object.entries(report.domainSummary).forEach(([god, count]) => {
@@ -569,17 +711,19 @@ class CodeTitanOrchestration {
    */
   displayTopIssues(report) {
     if (report.topIssues.length === 0) {
-      console.log('[CELEBRATE] NO CRITICAL ISSUES FOUND!\n');
+      console.log("[CELEBRATE] NO CRITICAL ISSUES FOUND!\n");
       return;
     }
 
-    console.log('[WARNING]  TOP 10 ISSUES\n');
+    console.log("[WARNING]  TOP 10 ISSUES\n");
 
     report.topIssues.slice(0, 10).forEach((issue, index) => {
       const severityIcon = this.getSeverityIcon(issue.severity);
       console.log(`   ${index + 1}. ${severityIcon} ${issue.message}`);
       console.log(`      File: ${path.basename(issue.file)}:${issue.line}`);
-      console.log(`      Domain: ${issue.domainName} | Category: ${issue.category}\n`);
+      console.log(
+        `      Domain: ${issue.domainName} | Category: ${issue.category}\n`,
+      );
     });
   }
 
@@ -587,10 +731,10 @@ class CodeTitanOrchestration {
    * Display recommendations
    */
   displayRecommendations(report) {
-    console.log('[TIP] RECOMMENDATIONS\n');
+    console.log("[TIP] RECOMMENDATIONS\n");
 
     if (report.recommendations.length === 0) {
-      console.log('   [OK] No recommendations - excellent code quality!\n');
+      console.log("   [OK] No recommendations - excellent code quality!\n");
       return;
     }
 
@@ -610,20 +754,38 @@ class CodeTitanOrchestration {
    * Display performance metrics
    */
   displayPerformanceMetrics(report) {
-    console.log('[BOLT] PERFORMANCE METRICS\n');
+    console.log("[BOLT] PERFORMANCE METRICS\n");
 
-    console.log('   Orchestration:');
-    console.log(`     Files Processed: ${report.performance.orchestrator.totalFiles}`);
-    console.log(`     Tasks Completed: ${report.performance.orchestrator.completedTasks}`);
-    console.log(`     Success Rate: ${report.performance.orchestrator.successRate}`);
-    console.log(`     Throughput: ${report.performance.orchestrator.filesPerSecond} files/sec\n`);
+    console.log("   Orchestration:");
+    console.log(
+      `     Files Processed: ${report.performance.orchestrator.totalFiles}`,
+    );
+    console.log(
+      `     Tasks Completed: ${report.performance.orchestrator.completedTasks}`,
+    );
+    console.log(
+      `     Success Rate: ${report.performance.orchestrator.successRate}`,
+    );
+    console.log(
+      `     Throughput: ${report.performance.orchestrator.filesPerSecond} files/sec\n`,
+    );
 
-    console.log('   Load Balancer:');
-    console.log(`     Agents Used: ${report.performance.loadBalancer.completedAgents}`);
-    console.log(`     Failed Agents: ${report.performance.loadBalancer.failedAgents}`);
-    console.log(`     Retries: ${report.performance.loadBalancer.totalRetries}`);
-    console.log(`     Success Rate: ${report.performance.loadBalancer.successRate}`);
-    console.log(`     Avg Execution: ${report.performance.loadBalancer.averageExecutionTime}\n`);
+    console.log("   Load Balancer:");
+    console.log(
+      `     Agents Used: ${report.performance.loadBalancer.completedAgents}`,
+    );
+    console.log(
+      `     Failed Agents: ${report.performance.loadBalancer.failedAgents}`,
+    );
+    console.log(
+      `     Retries: ${report.performance.loadBalancer.totalRetries}`,
+    );
+    console.log(
+      `     Success Rate: ${report.performance.loadBalancer.successRate}`,
+    );
+    console.log(
+      `     Avg Execution: ${report.performance.loadBalancer.averageExecutionTime}\n`,
+    );
 
     console.log(`   Total Duration: ${report.durationFormatted}\n`);
   }
@@ -645,10 +807,10 @@ class CodeTitanOrchestration {
    * Helper: Create progress bar
    */
   createProgressBar(value, total, width = 20) {
-    if (total === 0) return '░'.repeat(width) + ' 0%';
+    if (total === 0) return "░".repeat(width) + " 0%";
     const percentage = value / total;
     const filled = Math.round(percentage * width);
-    const bar = '█'.repeat(filled) + '░'.repeat(width - filled);
+    const bar = "█".repeat(filled) + "░".repeat(width - filled);
     return `${bar} ${(percentage * 100).toFixed(0)}%`;
   }
 
@@ -657,12 +819,12 @@ class CodeTitanOrchestration {
    */
   getSeverityIcon(severity) {
     const icons = {
-      CRITICAL: '🔴',
-      HIGH: '🟠',
-      MEDIUM: '🟡',
-      LOW: '🟢'
+      CRITICAL: "🔴",
+      HIGH: "🟠",
+      MEDIUM: "🟡",
+      LOW: "🟢",
     };
-    return icons[severity] || '⚪';
+    return icons[severity] || "⚪";
   }
 
   /**
@@ -670,13 +832,13 @@ class CodeTitanOrchestration {
    */
   getPriorityIcon(priority) {
     const icons = {
-      URGENT: '🚨',
-      HIGH: '[WARNING]',
-      MEDIUM: 'ℹ️',
-      LOW: '[TIP]',
-      INFO: '[OK]'
+      URGENT: "🚨",
+      HIGH: "[WARNING]",
+      MEDIUM: "ℹ️",
+      LOW: "[TIP]",
+      INFO: "[OK]",
     };
-    return icons[priority] || '*';
+    return icons[priority] || "*";
   }
 
   /**

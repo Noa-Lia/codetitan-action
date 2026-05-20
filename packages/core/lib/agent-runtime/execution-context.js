@@ -1,13 +1,13 @@
 class ExecutionContext {
   constructor({
     agent,
-    role = '',
+    role = "",
     roleProfile = null,
     capabilities = [],
     task = {},
     interpretation = {},
     budget = {},
-    reasoningMode = 'standard'
+    reasoningMode = "standard",
   } = {}) {
     this.agent = agent;
     this.role = role;
@@ -31,18 +31,19 @@ class ExecutionContext {
       attempted: 0,
       completed: 0,
       failed: 0,
-      errors: []
+      errors: [],
     };
-    this.verificationStatus = budget.verificationStatus || 'not_started';
+    this.verificationStatus = budget.verificationStatus || "not_started";
     this.toolBudget = {
       limit: this.maxSteps,
       used: 0,
-      remaining: this.maxSteps
+      remaining: this.maxSteps,
     };
     this.promptBudget = {
       tokenCap: budget.tokenCap ?? roleProfile?.promptBudget?.tokenCap ?? 0,
       usdCap: budget.usdCap ?? roleProfile?.promptBudget?.usdCap ?? 0,
-      toolCap: budget.toolCap ?? roleProfile?.promptBudget?.toolCap ?? this.maxSteps
+      toolCap:
+        budget.toolCap ?? roleProfile?.promptBudget?.toolCap ?? this.maxSteps,
     };
     this.providerUsage = {
       selectedProvider: null,
@@ -52,16 +53,16 @@ class ExecutionContext {
       tokensUsed: {
         input: 0,
         output: 0,
-        cached: 0
+        cached: 0,
       },
       advisorValidation: {
         requested: false,
         performed: false,
         verdict: null,
         provider: null,
-        model: null
+        model: null,
       },
-      providers: {}
+      providers: {},
     };
     this.toolMetrics = {};
   }
@@ -69,10 +70,13 @@ class ExecutionContext {
   recordToolInvocation(definition, toolResult) {
     this.stepsTaken += 1;
     this.toolBudget.used = this.stepsTaken;
-    this.toolBudget.remaining = Math.max(0, this.toolBudget.limit - this.stepsTaken);
+    this.toolBudget.remaining = Math.max(
+      0,
+      this.toolBudget.limit - this.stepsTaken,
+    );
     this.toolResults.push({
       name: definition.name,
-      result: toolResult
+      result: toolResult,
     });
     this.recordToolMetrics(definition.name, toolResult);
 
@@ -85,7 +89,7 @@ class ExecutionContext {
       usage: toolResult.usage || {},
       input: toolResult.input,
       summary: toolResult.outputSummary,
-      error: toolResult.error || null
+      error: toolResult.error || null,
     });
 
     if (Array.isArray(toolResult.evidence) && toolResult.evidence.length > 0) {
@@ -104,7 +108,7 @@ class ExecutionContext {
       failures: 0,
       durationMs: 0,
       bytesTouched: 0,
-      tokensTouched: 0
+      tokensTouched: 0,
     };
 
     current.calls += 1;
@@ -139,11 +143,11 @@ class ExecutionContext {
       mode: handle.mode || null,
       baseDir: handle.baseDir || null,
       createdAt: handle.createdAt || new Date().toISOString(),
-      cleanedUp: false
+      cleanedUp: false,
     };
 
     this.workspaces.push(workspace);
-    this.setScratch('primaryWorkspace', workspace);
+    this.setScratch("primaryWorkspace", workspace);
     return workspace;
   }
 
@@ -152,15 +156,20 @@ class ExecutionContext {
   }
 
   markWorkspaceCleanedUp(handleOrPath) {
-    const workspaceId = handleOrPath && typeof handleOrPath === 'object' ? handleOrPath.id || null : null;
-    const workspacePath = handleOrPath && typeof handleOrPath === 'object'
-      ? handleOrPath.path
-      : handleOrPath;
+    const workspaceId =
+      handleOrPath && typeof handleOrPath === "object"
+        ? handleOrPath.id || null
+        : null;
+    const workspacePath =
+      handleOrPath && typeof handleOrPath === "object"
+        ? handleOrPath.path
+        : handleOrPath;
 
-    const match = this.workspaces.find(workspace => (
-      (workspaceId && workspace.id === workspaceId) ||
-      (workspacePath && workspace.path === workspacePath)
-    ));
+    const match = this.workspaces.find(
+      (workspace) =>
+        (workspaceId && workspace.id === workspaceId) ||
+        (workspacePath && workspace.path === workspacePath),
+    );
 
     if (match) {
       match.cleanedUp = true;
@@ -168,18 +177,19 @@ class ExecutionContext {
   }
 
   registerCleanup(label, handler) {
-    const resolvedLabel = typeof label === 'string' && label.trim()
-      ? label
-      : `cleanup-${this.cleanupHandlers.length + 1}`;
-    const resolvedHandler = typeof label === 'function' ? label : handler;
+    const resolvedLabel =
+      typeof label === "string" && label.trim()
+        ? label
+        : `cleanup-${this.cleanupHandlers.length + 1}`;
+    const resolvedHandler = typeof label === "function" ? label : handler;
 
-    if (typeof resolvedHandler !== 'function') {
+    if (typeof resolvedHandler !== "function") {
       return;
     }
 
     this.cleanupHandlers.push({
       label: resolvedLabel,
-      handler: resolvedHandler
+      handler: resolvedHandler,
     });
   }
 
@@ -195,7 +205,7 @@ class ExecutionContext {
         this.cleanup.failed += 1;
         this.cleanup.errors.push({
           label: entry.label,
-          error: error.message
+          error: error.message,
         });
       }
     }
@@ -204,7 +214,7 @@ class ExecutionContext {
 
     return {
       ...this.cleanup,
-      errors: [...this.cleanup.errors]
+      errors: [...this.cleanup.errors],
     };
   }
 
@@ -235,8 +245,8 @@ class ExecutionContext {
 
   getToolResultsByName(toolName) {
     return this.toolResults
-      .filter(entry => entry.name === toolName)
-      .map(entry => entry.result);
+      .filter((entry) => entry.name === toolName)
+      .map((entry) => entry.result);
   }
 
   getLatestToolData(toolName) {
@@ -251,8 +261,10 @@ class ExecutionContext {
     const retries = usage.retries || 0;
     const tokensUsed = usage.tokensUsed || {};
 
-    this.providerUsage.selectedProvider = providerName || this.providerUsage.selectedProvider;
-    this.providerUsage.selectedModel = model || this.providerUsage.selectedModel;
+    this.providerUsage.selectedProvider =
+      providerName || this.providerUsage.selectedProvider;
+    this.providerUsage.selectedModel =
+      model || this.providerUsage.selectedModel;
     this.providerUsage.totalCostUsd += costUsd;
     this.providerUsage.retries += retries;
     this.providerUsage.tokensUsed.input += tokensUsed.input || 0;
@@ -269,8 +281,8 @@ class ExecutionContext {
           tokensUsed: {
             input: 0,
             output: 0,
-            cached: 0
-          }
+            cached: 0,
+          },
         };
       }
 
@@ -291,7 +303,7 @@ class ExecutionContext {
       performed: validation.performed === true,
       verdict: validation.verdict || null,
       provider: validation.provider || null,
-      model: validation.model || null
+      model: validation.model || null,
     };
   }
 
@@ -305,54 +317,54 @@ class ExecutionContext {
       reasoningMode: this.reasoningMode,
       allowedTools: this.roleProfile?.allowedTools || [],
       toolBudget: {
-        ...this.toolBudget
+        ...this.toolBudget,
       },
       promptBudget: {
-        ...this.promptBudget
+        ...this.promptBudget,
       },
       workspaceCount: this.workspaces.length,
-      workspaces: this.workspaces.map(workspace => ({
+      workspaces: this.workspaces.map((workspace) => ({
         id: workspace.id,
         name: workspace.name,
         path: workspace.path,
         mode: workspace.mode,
-        cleanedUp: workspace.cleanedUp
+        cleanedUp: workspace.cleanedUp,
       })),
       cleanup: {
         ...this.cleanup,
-        errors: [...this.cleanup.errors]
+        errors: [...this.cleanup.errors],
       },
       promotion: {
-        requested: Boolean(this.getScratch('promotionRequested')),
-        diffReviewed: Boolean(this.getScratch('diffReviewed')),
-        promoted: Boolean(this.getScratch('promotionCompleted')),
-        files: this.getScratch('promotedFiles') || []
+        requested: Boolean(this.getScratch("promotionRequested")),
+        diffReviewed: Boolean(this.getScratch("diffReviewed")),
+        promoted: Boolean(this.getScratch("promotionCompleted")),
+        files: this.getScratch("promotedFiles") || [],
       },
       workspaceValidation: {
-        diffCaptured: Boolean(this.getScratch('diffCaptured')),
-        validationPassed: Boolean(this.getScratch('lastValidationPassed'))
+        diffCaptured: Boolean(this.getScratch("diffCaptured")),
+        validationPassed: Boolean(this.getScratch("lastValidationPassed")),
       },
       toolMetrics: { ...this.toolMetrics },
       providerUsage: {
         ...this.providerUsage,
         tokensUsed: {
-          ...this.providerUsage.tokensUsed
+          ...this.providerUsage.tokensUsed,
         },
         advisorValidation: {
-          ...this.providerUsage.advisorValidation
-        }
+          ...this.providerUsage.advisorValidation,
+        },
       },
       reviewArtifact: {
         path: reviewArtifactPath,
-        attached: Boolean(reviewArtifactPath)
+        attached: Boolean(reviewArtifactPath),
       },
       fixSession: {
         id: fixSessionId,
         path: fixSessionPath,
-        attached: Boolean(fixSessionId || fixSessionPath)
+        attached: Boolean(fixSessionId || fixSessionPath),
       },
       evidenceCount: this.evidence.length,
-      verificationStatus: this.verificationStatus
+      verificationStatus: this.verificationStatus,
     };
   }
 }

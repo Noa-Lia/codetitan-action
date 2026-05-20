@@ -12,26 +12,26 @@
  * - Automatic cache invalidation
  */
 
-const crypto = require('crypto');
-const fs = require('fs').promises;
-const fsSync = require('fs');
-const path = require('path');
+const crypto = require("crypto");
+const fs = require("fs").promises;
+const fsSync = require("fs");
+const path = require("path");
 
-const DEFAULT_CACHE_VERSION = 'analysis-v8';
+const DEFAULT_CACHE_VERSION = "analysis-v8";
 
 // Files whose contents should invalidate all cached findings when they change.
 // If you add a new engine file that defines or filters rules, list it here.
 const RULE_DEFINITION_FILES = [
-  'security-rules-extended.js',
-  'domain-analyzers.js',
-  'taint-analyzer.js'
+  "security-rules-extended.js",
+  "domain-analyzers.js",
+  "taint-analyzer.js",
 ];
 
 // Sync hash of the rule-definition files at module load. Any edit to a listed
 // file changes this suffix, which invalidates every on-disk cache entry keyed
 // with a different suffix. Missing files don't crash — the hash just skips them.
 function hashRuleDefinitions() {
-  const h = crypto.createHash('sha256');
+  const h = crypto.createHash("sha256");
   for (const f of RULE_DEFINITION_FILES) {
     const p = path.join(__dirname, f);
     try {
@@ -40,7 +40,7 @@ function hashRuleDefinitions() {
       // Rule file missing — not fatal; just means it doesn't contribute to the key.
     }
   }
-  return h.digest('hex').slice(0, 12);
+  return h.digest("hex").slice(0, 12);
 }
 
 const RULE_DEFINITIONS_HASH = hashRuleDefinitions();
@@ -48,7 +48,8 @@ const DEFAULT_CACHE_VERSION_WITH_HASH = `${DEFAULT_CACHE_VERSION}-${RULE_DEFINIT
 
 class CacheManager {
   constructor(options = {}) {
-    this.cacheDir = options.cacheDir || path.join(process.cwd(), '.codetitan', 'cache');
+    this.cacheDir =
+      options.cacheDir || path.join(process.cwd(), ".codetitan", "cache");
     this.ttl = options.ttl || 86400000; // 24 hours in ms
     this.enabled = options.enabled !== false;
     this.version = options.version || DEFAULT_CACHE_VERSION_WITH_HASH;
@@ -58,7 +59,7 @@ class CacheManager {
       hits: 0,
       misses: 0,
       saves: 0,
-      evictions: 0
+      evictions: 0,
     };
 
     // In-memory cache (for this session)
@@ -74,7 +75,7 @@ class CacheManager {
     try {
       await fs.mkdir(this.cacheDir, { recursive: true });
     } catch (error) {
-      console.error('[CacheManager] Failed to create cache directory:', error);
+      console.error("[CacheManager] Failed to create cache directory:", error);
       this.enabled = false;
     }
   }
@@ -116,7 +117,6 @@ class CacheManager {
 
       this.stats.misses++;
       return null;
-
     } catch (error) {
       this.stats.misses++;
       return null;
@@ -144,8 +144,8 @@ class CacheManager {
           mtime: stats.mtime.getTime(),
           cachedAt: Date.now(),
           fingerprint: cacheKey,
-          version: this.version
-        }
+          version: this.version,
+        },
       };
 
       // Save to memory cache
@@ -153,12 +153,11 @@ class CacheManager {
 
       // Save to disk cache
       const cachePath = this.getCachePath(cacheKey);
-      await fs.writeFile(cachePath, JSON.stringify(cacheEntry), 'utf8');
+      await fs.writeFile(cachePath, JSON.stringify(cacheEntry), "utf8");
 
       this.stats.saves++;
-
     } catch (error) {
-      console.error('[CacheManager] Failed to save cache:', error);
+      console.error("[CacheManager] Failed to save cache:", error);
     }
   }
 
@@ -169,18 +168,18 @@ class CacheManager {
    */
   async generateCacheKey(filePath) {
     try {
-      const content = await fs.readFile(filePath, 'utf8');
-      const hash = crypto.createHash('sha256');
+      const content = await fs.readFile(filePath, "utf8");
+      const hash = crypto.createHash("sha256");
       hash.update(this.version);
       hash.update(content);
       hash.update(filePath); // Include path for uniqueness
-      return hash.digest('hex');
+      return hash.digest("hex");
     } catch (error) {
       // Fallback to path-based key
-      const hash = crypto.createHash('sha256');
+      const hash = crypto.createHash("sha256");
       hash.update(this.version);
       hash.update(filePath);
-      return hash.digest('hex');
+      return hash.digest("hex");
     }
   }
 
@@ -212,7 +211,6 @@ class CacheManager {
       }
 
       return true;
-
     } catch (error) {
       // File doesn't exist or can't be accessed
       return false;
@@ -224,7 +222,7 @@ class CacheManager {
    */
   async readCache(cachePath) {
     try {
-      const content = await fs.readFile(cachePath, 'utf8');
+      const content = await fs.readFile(cachePath, "utf8");
       return JSON.parse(content);
     } catch (error) {
       return null;
@@ -261,13 +259,12 @@ class CacheManager {
 
       const files = await fs.readdir(this.cacheDir);
       await Promise.all(
-        files.map(file => fs.unlink(path.join(this.cacheDir, file)))
+        files.map((file) => fs.unlink(path.join(this.cacheDir, file))),
       );
 
       this.stats.evictions += files.length;
-
     } catch (error) {
-      console.error('[CacheManager] Failed to clear cache:', error);
+      console.error("[CacheManager] Failed to clear cache:", error);
     }
   }
 
@@ -276,13 +273,14 @@ class CacheManager {
    */
   getStats() {
     const total = this.stats.hits + this.stats.misses;
-    const hitRate = total > 0 ? (this.stats.hits / total * 100).toFixed(2) : 0;
+    const hitRate =
+      total > 0 ? ((this.stats.hits / total) * 100).toFixed(2) : 0;
 
     return {
       ...this.stats,
       total,
       hitRate: parseFloat(hitRate),
-      memoryEntries: this.memoryCache.size
+      memoryEntries: this.memoryCache.size,
     };
   }
 
@@ -302,11 +300,10 @@ class CacheManager {
       return {
         files: files.length,
         bytes: totalSize,
-        human: this.formatBytes(totalSize)
+        human: this.formatBytes(totalSize),
       };
-
     } catch (error) {
-      return { files: 0, bytes: 0, human: '0 B' };
+      return { files: 0, bytes: 0, human: "0 B" };
     }
   }
 
@@ -314,7 +311,7 @@ class CacheManager {
    * Format bytes to human-readable string
    */
   formatBytes(bytes) {
-    const units = ['B', 'KB', 'MB', 'GB'];
+    const units = ["B", "KB", "MB", "GB"];
     let size = bytes;
     let unitIndex = 0;
 
@@ -349,9 +346,8 @@ class CacheManager {
 
       this.stats.evictions += cleaned;
       return cleaned;
-
     } catch (error) {
-      console.error('[CacheManager] Cleanup failed:', error);
+      console.error("[CacheManager] Cleanup failed:", error);
       return 0;
     }
   }
@@ -360,4 +356,5 @@ class CacheManager {
 module.exports = CacheManager;
 module.exports.DEFAULT_CACHE_VERSION = DEFAULT_CACHE_VERSION;
 module.exports.RULE_DEFINITIONS_HASH = RULE_DEFINITIONS_HASH;
-module.exports.DEFAULT_CACHE_VERSION_WITH_HASH = DEFAULT_CACHE_VERSION_WITH_HASH;
+module.exports.DEFAULT_CACHE_VERSION_WITH_HASH =
+  DEFAULT_CACHE_VERSION_WITH_HASH;

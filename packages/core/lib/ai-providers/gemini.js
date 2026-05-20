@@ -8,70 +8,71 @@
  * @module ai-providers/gemini
  */
 
-const AIProvider = require('./base');
+const AIProvider = require("./base");
 
 class GeminiProvider extends AIProvider {
   constructor(config = {}) {
     // Model selection: Default to Gemini 3.1 Pro (latest)
-    const defaultModel = config.model || 'gemini-3.1-pro';
+    const defaultModel = config.model || "gemini-3.1-pro";
 
     // Model-specific pricing (as of April 2026)
     const modelPricing = {
       // Gemini 3.1 Pro (latest GA)
-      'gemini-3.1-pro': {
-        input: 0.0000025,    // $2.50 per M tokens
-        output: 0.000015,    // $15.00 per M tokens
+      "gemini-3.1-pro": {
+        input: 0.0000025, // $2.50 per M tokens
+        output: 0.000015, // $15.00 per M tokens
         cached: 0.00000063,
-        contextWindow: 2000000
+        contextWindow: 2000000,
       },
       // Gemini 3 Pro (stable)
-      'gemini-3-pro': {
-        input: 0.000002,     // $2.00 per M tokens
-        output: 0.000012,    // $12.00 per M tokens
+      "gemini-3-pro": {
+        input: 0.000002, // $2.00 per M tokens
+        output: 0.000012, // $12.00 per M tokens
         cached: 0.0000005,
-        contextWindow: 2000000
+        contextWindow: 2000000,
       },
       // Gemini 3.1 Pro Preview (legacy preview alias)
-      'gemini-3.1-pro-preview': {
-        input: 0.000002,     // $2.00 per M tokens
-        output: 0.000012,    // $12.00 per M tokens
+      "gemini-3.1-pro-preview": {
+        input: 0.000002, // $2.00 per M tokens
+        output: 0.000012, // $12.00 per M tokens
         cached: 0.0000005,
-        contextWindow: 2000000
+        contextWindow: 2000000,
       },
       // Gemini 2.5 Pro (cost-effective)
-      'gemini-2.5-pro': {
-        input: 0.00000125,   // $1.25 per M tokens
-        output: 0.00001,     // $10.00 per M tokens
+      "gemini-2.5-pro": {
+        input: 0.00000125, // $1.25 per M tokens
+        output: 0.00001, // $10.00 per M tokens
         cached: 0.0000003125,
-        contextWindow: 2000000
+        contextWindow: 2000000,
       },
       // Gemini 2.5 Flash (fast, cost-effective)
-      'gemini-2.5-flash': {
-        input: 0.0000003,    // $0.30 per M tokens
-        output: 0.0000025,   // $2.50 per M tokens
+      "gemini-2.5-flash": {
+        input: 0.0000003, // $0.30 per M tokens
+        output: 0.0000025, // $2.50 per M tokens
         cached: 0.0000000375,
-        contextWindow: 1000000
+        contextWindow: 1000000,
       },
       // Gemini 2.5 Flash-Lite (fastest, cheapest)
-      'gemini-2.5-flash-lite': {
-        input: 0.0000001,    // $0.10 per M tokens
-        output: 0.0000004,   // $0.40 per M tokens
+      "gemini-2.5-flash-lite": {
+        input: 0.0000001, // $0.10 per M tokens
+        output: 0.0000004, // $0.40 per M tokens
         cached: 0.000000025,
-        contextWindow: 1000000
+        contextWindow: 1000000,
       },
       // Gemini 1.5 Pro (legacy)
-      'gemini-1.5-pro': {
+      "gemini-1.5-pro": {
         input: 0.00000125,
         output: 0.000005,
         cached: 0.0000003125,
-        contextWindow: 2000000
-      }
+        contextWindow: 2000000,
+      },
     };
 
-    const pricing = modelPricing[defaultModel] || modelPricing['gemini-3.1-pro'];
+    const pricing =
+      modelPricing[defaultModel] || modelPricing["gemini-3.1-pro"];
 
     super({
-      name: 'gemini',
+      name: "gemini",
       model: defaultModel,
       apiKey: config.apiKey || process.env.GOOGLE_AI_API_KEY,
       costPerInputToken: pricing.input,
@@ -80,27 +81,29 @@ class GeminiProvider extends AIProvider {
       maxTokens: config.maxTokens || 8000,
       timeout: config.timeout || 60000,
       contextWindow: pricing.contextWindow,
-      ...config
+      ...config,
     });
 
-    this.fallbackModel = config.fallbackModel || 'gemini-2.5-flash';
+    this.fallbackModel = config.fallbackModel || "gemini-2.5-flash";
 
     // Initialize Gemini client if available
     this.client = null;
     if (this.enabled) {
       try {
-        const { GoogleGenerativeAI } = require('@google/generative-ai');
+        const { GoogleGenerativeAI } = require("@google/generative-ai");
         this.genAI = new GoogleGenerativeAI(this.apiKey);
         this.client = this.genAI.getGenerativeModel({
           model: this.model,
           generationConfig: {
-            responseMimeType: 'application/json',
+            responseMimeType: "application/json",
             temperature: 0.2,
-            maxOutputTokens: this.maxTokens
-          }
+            maxOutputTokens: this.maxTokens,
+          },
         });
       } catch (error) {
-        console.warn('[GeminiProvider] @google/generative-ai not installed. Run: npm install @google/generative-ai');
+        console.warn(
+          "[GeminiProvider] @google/generative-ai not installed. Run: npm install @google/generative-ai",
+        );
         this.enabled = false;
       }
     }
@@ -112,7 +115,9 @@ class GeminiProvider extends AIProvider {
    */
   async analyze(domain, filePath, content, projectRoot, options = {}) {
     if (!this.enabled || !this.client) {
-      throw new Error('GeminiProvider is not available. Check API key and dependencies.');
+      throw new Error(
+        "GeminiProvider is not available. Check API key and dependencies.",
+      );
     }
 
     const start = Date.now();
@@ -131,20 +136,25 @@ class GeminiProvider extends AIProvider {
         result = await this.client.generateContent(fullPrompt);
       } catch (error) {
         if (this.fallbackModel && this.fallbackModel !== this.model) {
-          console.warn(`[GeminiProvider] Primary model ${this.model} failed: ${error.message}. Retrying with fallback: ${this.fallbackModel}`);
+          console.warn(
+            `[GeminiProvider] Primary model ${this.model} failed: ${error.message}. Retrying with fallback: ${this.fallbackModel}`,
+          );
           try {
             activeModel = this.fallbackModel;
             const fallbackClient = this.genAI.getGenerativeModel({
               model: this.fallbackModel,
               generationConfig: {
-                responseMimeType: 'application/json',
+                responseMimeType: "application/json",
                 temperature: 0.2,
-                maxOutputTokens: this.maxTokens
-              }
+                maxOutputTokens: this.maxTokens,
+              },
             });
             result = await fallbackClient.generateContent(fullPrompt);
           } catch (fallbackError) {
-            console.error(`[GeminiProvider] Fallback model ${this.fallbackModel} also failed:`, fallbackError);
+            console.error(
+              `[GeminiProvider] Fallback model ${this.fallbackModel} also failed:`,
+              fallbackError,
+            );
             throw error; // Throw original error
           }
         } else {
@@ -160,7 +170,7 @@ class GeminiProvider extends AIProvider {
       const issues = parsed.issues || [];
 
       // Filter and validate issues
-      const validIssues = issues.filter(issue => this.validateIssue(issue));
+      const validIssues = issues.filter((issue) => this.validateIssue(issue));
 
       // Extract usage metadata
       const usageMetadata = response.usageMetadata || {};
@@ -173,13 +183,13 @@ class GeminiProvider extends AIProvider {
           tokensUsed: {
             input: usageMetadata.promptTokenCount || 0,
             output: usageMetadata.candidatesTokenCount || 0,
-            cached: usageMetadata.cachedContentTokenCount || 0
+            cached: usageMetadata.cachedContentTokenCount || 0,
           },
           costUSD: this.calculateActualCost(usageMetadata),
           duration: Date.now() - start,
-          confidence: 0.90, // Gemini 2.5 Pro is fast and accurate
-          finishReason: response.candidates?.[0]?.finishReason
-        }
+          confidence: 0.9, // Gemini 2.5 Pro is fast and accurate
+          finishReason: response.candidates?.[0]?.finishReason,
+        },
       };
     } catch (error) {
       console.error(`[GeminiProvider] Analysis failed:`, error);
@@ -194,8 +204,8 @@ class GeminiProvider extends AIProvider {
           costUSD: 0,
           duration: Date.now() - start,
           confidence: 0,
-          error: error.message
-        }
+          error: error.message,
+        },
       };
     }
   }
@@ -208,9 +218,9 @@ class GeminiProvider extends AIProvider {
     const outputTokens = usageMetadata.candidatesTokenCount || 0;
     const cachedTokens = usageMetadata.cachedContentTokenCount || 0;
 
-    const inputCost = ((inputTokens - cachedTokens) * this.costPerInputToken);
-    const cachedCost = (cachedTokens * this.costPerCachedToken);
-    const outputCost = (outputTokens * this.costPerOutputToken);
+    const inputCost = (inputTokens - cachedTokens) * this.costPerInputToken;
+    const cachedCost = cachedTokens * this.costPerCachedToken;
+    const outputCost = outputTokens * this.costPerOutputToken;
 
     return inputCost + cachedCost + outputCost;
   }
@@ -224,10 +234,10 @@ class GeminiProvider extends AIProvider {
 
     try {
       // Simple health check with minimal prompt
-      const result = await this.client.generateContent('ping');
+      const result = await this.client.generateContent("ping");
       return !!result.response;
     } catch (error) {
-      console.warn('[GeminiProvider] Health check failed:', error.message);
+      console.warn("[GeminiProvider] Health check failed:", error.message);
       return false;
     }
   }
@@ -238,11 +248,11 @@ class GeminiProvider extends AIProvider {
    */
   getQualityScore(domain) {
     const scores = {
-      'security-god': 7,       // Decent security analysis
-      'performance-god': 10,   // Excellent performance optimization (fastest model)
-      'test-god': 8,           // Good test generation
-      'refactoring-god': 8,    // Good refactoring suggestions
-      'documentation-god': 7   // Decent documentation generation
+      "security-god": 7, // Decent security analysis
+      "performance-god": 10, // Excellent performance optimization (fastest model)
+      "test-god": 8, // Good test generation
+      "refactoring-god": 8, // Good refactoring suggestions
+      "documentation-god": 7, // Decent documentation generation
     };
     return scores[domain] || 8;
   }

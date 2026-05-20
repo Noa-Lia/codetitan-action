@@ -1,19 +1,23 @@
-const path = require('path');
-const ToolBridge = require('./tool-bridge');
-const defaultFixers = require('../../../scripts/scripts/fixers/index.cjs');
+const path = require("path");
+const ToolBridge = require("./tool-bridge");
+const defaultFixers = require("../../../scripts/scripts/fixers/index.cjs");
 
 /**
  * Runs adaptive fixers based on findings produced by the analysis pipeline.
  */
 class FixerRunner {
-  constructor({ projectRoot, enableWrites = false, fixers = defaultFixers } = {}) {
+  constructor({
+    projectRoot,
+    enableWrites = false,
+    fixers = defaultFixers,
+  } = {}) {
     this.projectRoot = projectRoot;
     this.enableWrites = enableWrites;
 
     this.toolBridge = new ToolBridge({
       workingDirectory: projectRoot,
       enableFileOperations: true,
-      enableBackups: true
+      enableBackups: true,
     });
 
     this.fixersByCategory = this.buildIndexer(fixers);
@@ -21,13 +25,13 @@ class FixerRunner {
       attempted: 0,
       applied: 0,
       skipped: 0,
-      errors: []
+      errors: [],
     };
   }
 
   buildIndexer(fixerList) {
     return fixerList.reduce((acc, fixer) => {
-      fixer.matchCategories.forEach(category => {
+      fixer.matchCategories.forEach((category) => {
         if (!acc[category]) {
           acc[category] = [];
         }
@@ -55,10 +59,10 @@ class FixerRunner {
       }
 
       const relativePath = path.relative(this.projectRoot, issue.file);
-      if (relativePath.startsWith('..')) {
+      if (relativePath.startsWith("..")) {
         this.metrics.errors.push({
           issue,
-          error: `File ${issue.file} is outside project root ${this.projectRoot}`
+          error: `File ${issue.file} is outside project root ${this.projectRoot}`,
         });
         continue;
       }
@@ -73,8 +77,8 @@ class FixerRunner {
             toolBridge: this.toolBridge,
             options: {
               enableWrites: this.enableWrites,
-              ...options
-            }
+              ...options,
+            },
           });
 
           if (result?.applied) {
@@ -91,7 +95,7 @@ class FixerRunner {
 
     return {
       ...this.metrics,
-      filesTouched: Array.from(processedFiles)
+      filesTouched: Array.from(processedFiles),
     };
   }
 }

@@ -35,9 +35,9 @@ class SupabaseMCPConnector {
     await this.checkMCPAvailability();
 
     if (this.verbose) {
-      console.log('[OK] Supabase MCP Connector initialized');
-      console.log('   Using Claude MCP Supabase tools');
-      console.log('   No credentials needed in code!');
+      console.log("[OK] Supabase MCP Connector initialized");
+      console.log("   Using Claude MCP Supabase tools");
+      console.log("   No credentials needed in code!");
     }
   }
 
@@ -50,11 +50,11 @@ class SupabaseMCPConnector {
     // Claude will use mcp__supabase__execute_sql when this is called
     return {
       query,
-      note: 'Use mcp__supabase__execute_sql tool',
+      note: "Use mcp__supabase__execute_sql tool",
       expectedUsage: {
-        tool: 'mcp__supabase__execute_sql',
-        params: { query }
-      }
+        tool: "mcp__supabase__execute_sql",
+        params: { query },
+      },
     };
   }
 
@@ -65,25 +65,25 @@ class SupabaseMCPConnector {
     return {
       name,
       query,
-      note: 'Use mcp__supabase__apply_migration tool',
+      note: "Use mcp__supabase__apply_migration tool",
       expectedUsage: {
-        tool: 'mcp__supabase__apply_migration',
-        params: { name, query }
-      }
+        tool: "mcp__supabase__apply_migration",
+        params: { name, query },
+      },
     };
   }
 
   /**
    * List all tables
    */
-  async listTables(schemas = ['public']) {
+  async listTables(schemas = ["public"]) {
     return {
       schemas,
-      note: 'Use mcp__supabase__list_tables tool',
+      note: "Use mcp__supabase__list_tables tool",
       expectedUsage: {
-        tool: 'mcp__supabase__list_tables',
-        params: { schemas }
-      }
+        tool: "mcp__supabase__list_tables",
+        params: { schemas },
+      },
     };
   }
 
@@ -92,11 +92,11 @@ class SupabaseMCPConnector {
    */
   async getProjectURL() {
     return {
-      note: 'Use mcp__supabase__get_project_url tool',
+      note: "Use mcp__supabase__get_project_url tool",
       expectedUsage: {
-        tool: 'mcp__supabase__get_project_url',
-        params: {}
-      }
+        tool: "mcp__supabase__get_project_url",
+        params: {},
+      },
     };
   }
 
@@ -257,16 +257,16 @@ CREATE TRIGGER update_godmode_projects_updated_at
 `;
 
     return {
-      name: 'level6_collective_insight_schema',
+      name: "level6_collective_insight_schema",
       query: migration,
-      note: 'Apply this migration using mcp__supabase__apply_migration',
+      note: "Apply this migration using mcp__supabase__apply_migration",
       expectedUsage: {
-        tool: 'mcp__supabase__apply_migration',
+        tool: "mcp__supabase__apply_migration",
         params: {
-          name: 'level6_collective_insight_schema',
-          query: migration
-        }
-      }
+          name: "level6_collective_insight_schema",
+          query: migration,
+        },
+      },
     };
   }
 
@@ -276,13 +276,13 @@ CREATE TRIGGER update_godmode_projects_updated_at
   async ingestReport(report, metadata = {}) {
     // Prepare the data
     const projectPath = metadata.projectPath || process.cwd();
-    const projectName = metadata.projectName || 'Unknown Project';
+    const projectName = metadata.projectName || "Unknown Project";
 
     // Build SQL for ingestion
     const sql = {
       ensureProject: `
         INSERT INTO godmode_projects (project_path, project_name, quality_score, health_grade, team_id)
-        VALUES ('${this.escape(projectPath)}', '${this.escape(projectName)}', ${report.metrics?.qualityScore || 0}, '${report.metrics?.healthGrade || 'N/A'}', '${metadata.teamId || 'default'}')
+        VALUES ('${this.escape(projectPath)}', '${this.escape(projectName)}', ${report.metrics?.qualityScore || 0}, '${report.metrics?.healthGrade || "N/A"}', '${metadata.teamId || "default"}')
         ON CONFLICT (project_path)
         DO UPDATE SET
           quality_score = EXCLUDED.quality_score,
@@ -300,7 +300,7 @@ CREATE TRIGGER update_godmode_projects_updated_at
           '${projectId}',
           (SELECT COALESCE(MAX(run_number), 0) + 1 FROM godmode_runs WHERE project_id = '${projectId}'),
           ${report.metrics?.qualityScore || 0},
-          '${report.metrics?.healthGrade || 'N/A'}',
+          '${report.metrics?.healthGrade || "N/A"}',
           ${report.summary?.totalFindings || 0},
           ${report.summary?.critical || 0},
           ${report.summary?.high || 0},
@@ -314,20 +314,20 @@ CREATE TRIGGER update_godmode_projects_updated_at
         RETURNING id;
       `,
 
-      note: 'This requires multiple SQL executions via MCP. Claude will orchestrate the calls.'
+      note: "This requires multiple SQL executions via MCP. Claude will orchestrate the calls.",
     };
 
     return {
       report,
       metadata,
       sql,
-      note: 'Use mcp__supabase__execute_sql tool multiple times to ingest',
+      note: "Use mcp__supabase__execute_sql tool multiple times to ingest",
       instructions: [
-        '1. Execute ensureProject to get project_id',
-        '2. Execute insertRun(project_id) to get run_id',
-        '3. Batch insert findings',
-        '4. Insert fix summary if applicable'
-      ]
+        "1. Execute ensureProject to get project_id",
+        "2. Execute insertRun(project_id) to get run_id",
+        "3. Batch insert findings",
+        "4. Insert fix summary if applicable",
+      ],
     };
   }
 
@@ -335,7 +335,7 @@ CREATE TRIGGER update_godmode_projects_updated_at
    * Escape SQL strings (basic)
    */
   escape(str) {
-    if (!str) return '';
+    if (!str) return "";
     return String(str).replace(/'/g, "''");
   }
 
@@ -364,11 +364,11 @@ CREATE TRIGGER update_godmode_projects_updated_at
 
     return {
       query,
-      note: 'Use mcp__supabase__execute_sql tool',
+      note: "Use mcp__supabase__execute_sql tool",
       expectedUsage: {
-        tool: 'mcp__supabase__execute_sql',
-        params: { query }
-      }
+        tool: "mcp__supabase__execute_sql",
+        params: { query },
+      },
     };
   }
 
@@ -391,11 +391,11 @@ CREATE TRIGGER update_godmode_projects_updated_at
 
     return {
       query,
-      note: 'Use mcp__supabase__execute_sql tool',
+      note: "Use mcp__supabase__execute_sql tool",
       expectedUsage: {
-        tool: 'mcp__supabase__execute_sql',
-        params: { query }
-      }
+        tool: "mcp__supabase__execute_sql",
+        params: { query },
+      },
     };
   }
 
@@ -404,7 +404,7 @@ CREATE TRIGGER update_godmode_projects_updated_at
    */
   async close() {
     if (this.verbose) {
-      console.log('[OK] Supabase MCP Connector closed');
+      console.log("[OK] Supabase MCP Connector closed");
     }
   }
 }

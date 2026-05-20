@@ -8,10 +8,10 @@
  * @module ai-fixers
  */
 
-const FixGenerator = require('./fix-generator');
-const FixApplier = require('./fix-applier');
+const FixGenerator = require("./fix-generator");
+const FixApplier = require("./fix-applier");
 
 module.exports = {
   FixGenerator,
-  FixApplier
+  FixApplier,
 };

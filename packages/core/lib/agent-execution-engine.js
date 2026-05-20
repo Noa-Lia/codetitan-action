@@ -15,29 +15,33 @@
  * This is the bridge between infrastructure and actual work.
  */
 
-const fs = require('fs');
-const path = require('path');
-const ToolBridge = require('./tool-bridge');
-const AgentMessageBus = require('./agent-message-bus');
-const AgentRegistryManager = require('./agent-registry-manager');
-const Guardrails = require('./agent-runtime/guardrails');
-const Planner = require('./agent-runtime/planner');
-const { persistRuntimeInsight } = require('./agent-runtime/runtime-insight-recorder');
-const ToolRouter = require('./agent-runtime/tool-router');
-const { createDefaultToolRegistry } = require('./agent-runtime/tool-registry');
-const { AIProviderManager } = require('./ai-providers');
-const { loadConfig } = require('./config');
+const fs = require("fs");
+const path = require("path");
+const ToolBridge = require("./tool-bridge");
+const AgentMessageBus = require("./agent-message-bus");
+const AgentRegistryManager = require("./agent-registry-manager");
+const Guardrails = require("./agent-runtime/guardrails");
+const Planner = require("./agent-runtime/planner");
+const {
+  persistRuntimeInsight,
+} = require("./agent-runtime/runtime-insight-recorder");
+const ToolRouter = require("./agent-runtime/tool-router");
+const { createDefaultToolRegistry } = require("./agent-runtime/tool-registry");
+const { AIProviderManager } = require("./ai-providers");
+const { loadConfig } = require("./config");
 
 function resolveReviewArtifactPath(result, task = {}) {
   const payload = result?.result || result || {};
   const runtimeState = payload.runtime_state || {};
 
-  return payload?.review_artifact?.path ||
+  return (
+    payload?.review_artifact?.path ||
     result?.review_artifact?.path ||
     runtimeState?.reviewArtifact?.path ||
     runtimeState?.review_artifact_path ||
     task?.metadata?.reviewArtifactPath ||
-    null;
+    null
+  );
 }
 
 function resolveFixSessionMetadata(result, task = {}) {
@@ -55,18 +59,18 @@ function resolveFixSessionMetadata(result, task = {}) {
       fixSession?.path ||
       runtimeState?.fix_session_path ||
       task?.metadata?.fixSessionPath ||
-      null
+      null,
   };
 }
 
 class AgentExecutionEngine {
   constructor(options = {}) {
     this.options = {
-      agentsDir: options.agentsDir || path.join(__dirname, '..', 'agents'),
+      agentsDir: options.agentsDir || path.join(__dirname, "..", "agents"),
       enableToolExecution: options.enableToolExecution ?? true,
       maxExecutionTime: options.maxExecutionTime || 300000, // 5 minutes
       maxRuntimeSteps: options.maxRuntimeSteps || 8,
-      ...options
+      ...options,
     };
 
     // Loaded agent skills
@@ -74,38 +78,50 @@ class AgentExecutionEngine {
 
     // Tool Bridge - provides access to real file operations
     this.toolBridge = new ToolBridge({
-      workingDirectory: options.workingDirectory || path.join(__dirname, '..'),
+      workingDirectory: options.workingDirectory || path.join(__dirname, ".."),
       enableFileOperations: options.enableFileOperations ?? true,
-      enableBashOperations: options.enableBashOperations ?? false
+      enableBashOperations: options.enableBashOperations ?? false,
     });
-    this.providerManager = options.providerManager || new AIProviderManager(options.aiConfig || {});
+    this.providerManager =
+      options.providerManager || new AIProviderManager(options.aiConfig || {});
     this.toolRegistry = options.toolRegistry || createDefaultToolRegistry();
-    this.guardrails = options.guardrails || new Guardrails({
-      workingDirectory: options.workingDirectory || path.join(__dirname, '..'),
-      maxSteps: this.options.maxRuntimeSteps
-    });
-    this.toolRouter = options.toolRouter || new ToolRouter({
-      toolBridge: this.toolBridge
-    });
-    this.runtimePlanner = options.runtimePlanner || new Planner({
-      toolRegistry: this.toolRegistry,
-      toolRouter: this.toolRouter,
-      guardrails: this.guardrails,
-      providerManager: this.providerManager,
-      maxSteps: this.options.maxRuntimeSteps
-    });
+    this.guardrails =
+      options.guardrails ||
+      new Guardrails({
+        workingDirectory:
+          options.workingDirectory || path.join(__dirname, ".."),
+        maxSteps: this.options.maxRuntimeSteps,
+      });
+    this.toolRouter =
+      options.toolRouter ||
+      new ToolRouter({
+        toolBridge: this.toolBridge,
+      });
+    this.runtimePlanner =
+      options.runtimePlanner ||
+      new Planner({
+        toolRegistry: this.toolRegistry,
+        toolRouter: this.toolRouter,
+        guardrails: this.guardrails,
+        providerManager: this.providerManager,
+        maxSteps: this.options.maxRuntimeSteps,
+      });
 
     this.config = loadConfig();
     this._ownsMessageBus = !options.messageBus;
     this._ownsRegistryManager = !options.registryManager;
     this._shutdown = false;
-    this.messageBus = options.messageBus || new AgentMessageBus({
-      persistMessages: false,
-      metricsEnabled: false
-    });
-    this.registryManager = options.registryManager || new AgentRegistryManager({
-      watch: options.registryWatch ?? false
-    });
+    this.messageBus =
+      options.messageBus ||
+      new AgentMessageBus({
+        persistMessages: false,
+        metricsEnabled: false,
+      });
+    this.registryManager =
+      options.registryManager ||
+      new AgentRegistryManager({
+        watch: options.registryWatch ?? false,
+      });
 
     // Execution context (tools available to agents) - DEPRECATED, using toolBridge now
     this.toolContext = null;
@@ -117,10 +133,10 @@ class AgentExecutionEngine {
       tasksSucceeded: 0,
       tasksFailed: 0,
       averageExecutionTime: 0,
-      totalExecutionTime: 0
+      totalExecutionTime: 0,
     };
 
-    console.log('[ExecutionEngine] Initialized');
+    console.log("[ExecutionEngine] Initialized");
   }
 
   /**
@@ -129,7 +145,7 @@ class AgentExecutionEngine {
    */
   setToolContext(toolContext) {
     this.toolContext = toolContext;
-    console.log('[ExecutionEngine] Tool context set');
+    console.log("[ExecutionEngine] Tool context set");
   }
 
   /**
@@ -146,12 +162,14 @@ class AgentExecutionEngine {
       const skillFile = path.join(this.options.agentsDir, `${agentName}.md`);
 
       // Read the file (with existence check)
-      const content = await fs.promises.readFile(skillFile, 'utf8').catch(err => {
-        if (err.code === 'ENOENT') {
-          throw new Error(`Skill file not found: ${skillFile}`);
-        }
-        throw err;
-      });
+      const content = await fs.promises
+        .readFile(skillFile, "utf8")
+        .catch((err) => {
+          if (err.code === "ENOENT") {
+            throw new Error(`Skill file not found: ${skillFile}`);
+          }
+          throw err;
+        });
 
       // Parse the skill
       const skill = this.parseSkillFile(content, agentName);
@@ -162,9 +180,11 @@ class AgentExecutionEngine {
 
       console.log(`[ExecutionEngine] Loaded skill: ${agentName}`);
       return skill;
-
     } catch (error) {
-      console.error(`[ExecutionEngine] Failed to load skill ${agentName}:`, error.message);
+      console.error(
+        `[ExecutionEngine] Failed to load skill ${agentName}:`,
+        error.message,
+      );
       throw error;
     }
   }
@@ -175,15 +195,15 @@ class AgentExecutionEngine {
   parseSkillFile(content, agentName) {
     const skill = {
       name: agentName,
-      role: '',
+      role: "",
       tier: null,
-      domain: '',
+      domain: "",
       capabilities: [],
       specializations: [],
       tools: [],
       workflows: [],
       examples: [],
-      rawContent: content
+      rawContent: content,
     };
 
     // Extract role
@@ -205,17 +225,21 @@ class AgentExecutionEngine {
     }
 
     // Extract capabilities section
-    const capabilitiesMatch = content.match(/## Capabilities\n([\s\S]+?)(?=\n## )/);
+    const capabilitiesMatch = content.match(
+      /## Capabilities\n([\s\S]+?)(?=\n## )/,
+    );
     if (capabilitiesMatch) {
       const capText = capabilitiesMatch[1];
 
       // Look for bullet points or numbered lists
       const capabilityLines = capText.match(/[-*]\s+\*\*(.+?)\*\*/g);
       if (capabilityLines) {
-        skill.capabilities = capabilityLines.map(line => {
-          const match = line.match(/\*\*(.+?)\*\*/);
-          return match ? match[1] : '';
-        }).filter(Boolean);
+        skill.capabilities = capabilityLines
+          .map((line) => {
+            const match = line.match(/\*\*(.+?)\*\*/);
+            return match ? match[1] : "";
+          })
+          .filter(Boolean);
       }
     }
 
@@ -227,10 +251,12 @@ class AgentExecutionEngine {
       // Look for function definitions
       const toolFunctions = toolsText.match(/###\s+(.+?)\n/g);
       if (toolFunctions) {
-        skill.tools = toolFunctions.map(line => {
-          const match = line.match(/###\s+(.+?)\n/);
-          return match ? match[1].trim() : '';
-        }).filter(Boolean);
+        skill.tools = toolFunctions
+          .map((line) => {
+            const match = line.match(/###\s+(.+?)\n/);
+            return match ? match[1].trim() : "";
+          })
+          .filter(Boolean);
       }
     }
 
@@ -251,7 +277,7 @@ class AgentExecutionEngine {
       const skill = await this.loadAgentSkill(agentName);
 
       console.log(`[ExecutionEngine] Executing task with ${agentName}`);
-      console.log(`[ExecutionEngine] Task action: ${task.action || 'unknown'}`);
+      console.log(`[ExecutionEngine] Task action: ${task.action || "unknown"}`);
 
       // Interpret the task based on agent's capabilities
       const interpretation = this.interpretTask(skill, task);
@@ -269,14 +295,14 @@ class AgentExecutionEngine {
         this.metrics.averageExecutionTime =
           this.metrics.totalExecutionTime / this.metrics.tasksExecuted;
 
-        this.messageBus.emit('agent:result', {
+        this.messageBus.emit("agent:result", {
           agent: agentName,
           success: false,
           task,
           interpretation,
           result,
           error: result.error || result.message,
-          executionTime
+          executionTime,
         });
         this.registryManager.recordExecution(agentName, {
           success: false,
@@ -286,15 +312,15 @@ class AgentExecutionEngine {
           error: result?.error || result?.message,
           role: runtimeState.role || null,
           toolBudget: runtimeState.toolBudget || null,
-          reasoningMode: runtimeState.reasoningMode || 'standard',
+          reasoningMode: runtimeState.reasoningMode || "standard",
           providerUsage: runtimeState.providerUsage || null,
           toolMetrics: runtimeState.toolMetrics || null,
           evidenceCount: runtimeState.evidenceCount || 0,
-          verificationStatus: runtimeState.verificationStatus || 'failed',
+          verificationStatus: runtimeState.verificationStatus || "failed",
           toolCallsUsed: runtimeState.toolCallsUsed || 0,
           reviewArtifactPath,
           fixSessionId: fixSession.id,
-          fixSessionPath: fixSession.path
+          fixSessionPath: fixSession.path,
         });
         await this.persistInsight(task, result);
 
@@ -306,7 +332,7 @@ class AgentExecutionEngine {
           error: result.error || result.message,
           quality: result.quality || 0,
           executionTime,
-          timestamp: new Date().toISOString()
+          timestamp: new Date().toISOString(),
         };
       }
 
@@ -320,13 +346,13 @@ class AgentExecutionEngine {
       const reviewArtifactPath = resolveReviewArtifactPath(result, task);
       const fixSession = resolveFixSessionMetadata(result, task);
 
-      this.messageBus.emit('agent:result', {
+      this.messageBus.emit("agent:result", {
         agent: agentName,
         success: true,
         task,
         interpretation,
         result,
-        executionTime
+        executionTime,
       });
       this.registryManager.recordExecution(agentName, {
         success: true,
@@ -335,15 +361,15 @@ class AgentExecutionEngine {
         resultSummary: result?.message || null,
         role: runtimeState.role || null,
         toolBudget: runtimeState.toolBudget || null,
-        reasoningMode: runtimeState.reasoningMode || 'standard',
+        reasoningMode: runtimeState.reasoningMode || "standard",
         providerUsage: runtimeState.providerUsage || null,
         toolMetrics: runtimeState.toolMetrics || null,
         evidenceCount: runtimeState.evidenceCount || 0,
-        verificationStatus: runtimeState.verificationStatus || 'verified',
+        verificationStatus: runtimeState.verificationStatus || "verified",
         toolCallsUsed: runtimeState.toolCallsUsed || 0,
         reviewArtifactPath,
         fixSessionId: fixSession.id,
-        fixSessionPath: fixSession.path
+        fixSessionPath: fixSession.path,
       });
       await this.persistInsight(task, result);
 
@@ -354,9 +380,8 @@ class AgentExecutionEngine {
         interpretation,
         quality: result?.quality || 1,
         executionTime,
-        timestamp: new Date().toISOString()
+        timestamp: new Date().toISOString(),
       };
-
     } catch (error) {
       this.metrics.tasksFailed++;
 
@@ -364,37 +389,37 @@ class AgentExecutionEngine {
 
       const executionTime = Date.now() - startTime;
 
-      this.messageBus.emit('agent:result', {
+      this.messageBus.emit("agent:result", {
         agent: agentName,
         success: false,
         task,
         error: error.message,
-        executionTime
+        executionTime,
       });
       this.registryManager.recordExecution(agentName, {
         success: false,
         executionTime,
-        taskAction: task.action || 'unknown',
+        taskAction: task.action || "unknown",
         error: error.message,
         reviewArtifactPath: task?.metadata?.reviewArtifactPath || null,
         fixSessionId: task?.metadata?.fixSessionId || null,
-        fixSessionPath: task?.metadata?.fixSessionPath || null
+        fixSessionPath: task?.metadata?.fixSessionPath || null,
       });
       await this.persistInsight(task, {
         success: false,
-        type: task.action || 'unknown',
-        status: 'failed',
+        type: task.action || "unknown",
+        status: "failed",
         summary: error.message,
         message: error.message,
         error: error.message,
         evidence: [],
         toolTrace: [],
         runtime_state: {
-          reasoningMode: 'standard',
-          verificationStatus: 'failed',
+          reasoningMode: "standard",
+          verificationStatus: "failed",
           providerUsage: null,
-          toolMetrics: {}
-        }
+          toolMetrics: {},
+        },
       });
 
       return {
@@ -402,7 +427,7 @@ class AgentExecutionEngine {
         agent: agentName,
         error: error.message,
         executionTime,
-        timestamp: new Date().toISOString()
+        timestamp: new Date().toISOString(),
       };
     }
   }
@@ -412,35 +437,35 @@ class AgentExecutionEngine {
    */
   interpretTask(skill, task) {
     const interpretation = {
-      action: task.action || 'unknown',
+      action: task.action || "unknown",
       capability_match: false,
       matched_capabilities: [],
-      execution_strategy: 'generic',
-      parameters: task.content || {}
+      execution_strategy: "generic",
+      parameters: task.content || {},
     };
 
     // Map common actions to capabilities
     const actionCapabilityMap = {
-      'analyze': ['semantic_analysis', 'analysis', 'quality_analysis'],
-      'refactor': ['refactoring'],
-      'generate': ['generation', 'code_generation'],
-      'optimize': ['optimization', 'performance'],
-      'test': ['testing', 'test_generation'],
-      'fix': ['auto_fix', 'error_detection'],
-      'design': ['design', 'architecture'],
-      'validate': ['validation', 'checking'],
-      'review': ['review', 'analysis', 'quality_analysis'],
-      'security-review': ['security', 'review', 'analysis'],
-      'replay': ['analysis', 'history'],
-      'compare': ['analysis', 'history', 'review']
+      analyze: ["semantic_analysis", "analysis", "quality_analysis"],
+      refactor: ["refactoring"],
+      generate: ["generation", "code_generation"],
+      optimize: ["optimization", "performance"],
+      test: ["testing", "test_generation"],
+      fix: ["auto_fix", "error_detection"],
+      design: ["design", "architecture"],
+      validate: ["validation", "checking"],
+      review: ["review", "analysis", "quality_analysis"],
+      "security-review": ["security", "review", "analysis"],
+      replay: ["analysis", "history"],
+      compare: ["analysis", "history", "review"],
     };
 
     // Check if agent has capabilities for this action
     const requiredCapabilities = actionCapabilityMap[task.action] || [];
-    const matchedCapabilities = skill.capabilities.filter(cap =>
-      requiredCapabilities.some(req =>
-        cap.toLowerCase().includes(req.toLowerCase())
-      )
+    const matchedCapabilities = skill.capabilities.filter((cap) =>
+      requiredCapabilities.some((req) =>
+        cap.toLowerCase().includes(req.toLowerCase()),
+      ),
     );
 
     if (matchedCapabilities.length > 0) {
@@ -456,7 +481,7 @@ class AgentExecutionEngine {
     return this.runtimePlanner.execute({
       skill,
       interpretation,
-      task
+      task,
     });
   }
 
@@ -465,26 +490,27 @@ class AgentExecutionEngine {
       skill: {
         name: context.agent,
         role: context.role,
-        capabilities: context.capabilities || []
+        capabilities: context.capabilities || [],
       },
       interpretation: {
         execution_strategy: action,
-        matched_capabilities: context.interpretation?.matched_capabilities || []
+        matched_capabilities:
+          context.interpretation?.matched_capabilities || [],
       },
       task: {
         action,
         content: context.task?.content || {},
-        metadata: context.task?.metadata
-      }
+        metadata: context.task?.metadata,
+      },
     };
   }
 
   ensureRuntimeAgentRegistration(runtimeContext = {}) {
-    const agentName = runtimeContext?.skill?.name || 'runtime-agent';
+    const agentName = runtimeContext?.skill?.name || "runtime-agent";
 
     if (
-      typeof this.registryManager?.resolveAgent !== 'function' ||
-      typeof this.registryManager?.registerAgent !== 'function'
+      typeof this.registryManager?.resolveAgent !== "function" ||
+      typeof this.registryManager?.registerAgent !== "function"
     ) {
       return agentName;
     }
@@ -496,16 +522,16 @@ class AgentExecutionEngine {
 
     const normalizedRole = String(
       runtimeContext?.task?.metadata?.role ||
-      runtimeContext?.skill?.role ||
-      'researcher'
+        runtimeContext?.skill?.role ||
+        "researcher",
     ).toLowerCase();
 
     this.registryManager.registerAgent({
       name: agentName,
-      tier: normalizedRole === 'orchestrator' ? 4 : 2,
-      domain: 'runtime',
+      tier: normalizedRole === "orchestrator" ? 4 : 2,
+      domain: "runtime",
       capabilities: runtimeContext?.skill?.capabilities || [],
-      role: normalizedRole
+      role: normalizedRole,
     });
 
     return agentName;
@@ -522,7 +548,10 @@ class AgentExecutionEngine {
       const result = await this.runtimePlanner.execute(runtimeContext);
       const executionTime = Date.now() - startTime;
       const runtimeState = result?.runtime_state || {};
-      const reviewArtifactPath = resolveReviewArtifactPath(result, runtimeContext.task);
+      const reviewArtifactPath = resolveReviewArtifactPath(
+        result,
+        runtimeContext.task,
+      );
       const fixSession = resolveFixSessionMetadata(result, runtimeContext.task);
 
       this.metrics.totalExecutionTime += executionTime;
@@ -531,14 +560,14 @@ class AgentExecutionEngine {
 
       if (result?.success === false) {
         this.metrics.tasksFailed++;
-        this.messageBus.emit('agent:result', {
+        this.messageBus.emit("agent:result", {
           agent: agentName,
           success: false,
           task: runtimeContext.task,
           interpretation: runtimeContext.interpretation,
           result,
           error: result.error || result.message,
-          executionTime
+          executionTime,
         });
         this.registryManager.recordExecution(agentName, {
           success: false,
@@ -546,47 +575,61 @@ class AgentExecutionEngine {
           taskAction: action,
           resultSummary: result?.message || null,
           error: result?.error || result?.message,
-          role: runtimeState.role || runtimeContext.task?.metadata?.role || runtimeContext.skill?.role || null,
+          role:
+            runtimeState.role ||
+            runtimeContext.task?.metadata?.role ||
+            runtimeContext.skill?.role ||
+            null,
           toolBudget: runtimeState.toolBudget || null,
-          reasoningMode: runtimeState.reasoningMode || runtimeContext.task?.metadata?.reasoningMode || 'standard',
+          reasoningMode:
+            runtimeState.reasoningMode ||
+            runtimeContext.task?.metadata?.reasoningMode ||
+            "standard",
           providerUsage: runtimeState.providerUsage || null,
           toolMetrics: runtimeState.toolMetrics || null,
           evidenceCount: runtimeState.evidenceCount || 0,
-          verificationStatus: runtimeState.verificationStatus || 'failed',
+          verificationStatus: runtimeState.verificationStatus || "failed",
           toolCallsUsed: runtimeState.toolCallsUsed || 0,
           reviewArtifactPath,
           fixSessionId: fixSession.id,
-          fixSessionPath: fixSession.path
+          fixSessionPath: fixSession.path,
         });
         await this.persistInsight(runtimeContext.task, result);
         return result;
       }
 
       this.metrics.tasksSucceeded++;
-      this.messageBus.emit('agent:result', {
+      this.messageBus.emit("agent:result", {
         agent: agentName,
         success: true,
         task: runtimeContext.task,
         interpretation: runtimeContext.interpretation,
         result,
-        executionTime
+        executionTime,
       });
       this.registryManager.recordExecution(agentName, {
         success: true,
         executionTime,
         taskAction: action,
         resultSummary: result?.message || null,
-        role: runtimeState.role || runtimeContext.task?.metadata?.role || runtimeContext.skill?.role || null,
+        role:
+          runtimeState.role ||
+          runtimeContext.task?.metadata?.role ||
+          runtimeContext.skill?.role ||
+          null,
         toolBudget: runtimeState.toolBudget || null,
-        reasoningMode: runtimeState.reasoningMode || runtimeContext.task?.metadata?.reasoningMode || 'standard',
+        reasoningMode:
+          runtimeState.reasoningMode ||
+          runtimeContext.task?.metadata?.reasoningMode ||
+          "standard",
         providerUsage: runtimeState.providerUsage || null,
         toolMetrics: runtimeState.toolMetrics || null,
         evidenceCount: runtimeState.evidenceCount || 0,
-        verificationStatus: runtimeState.verificationStatus || 'verified',
+        verificationStatus: runtimeState.verificationStatus || "verified",
         toolCallsUsed: runtimeState.toolCallsUsed || 0,
         reviewArtifactPath,
         fixSessionId: fixSession.id,
-        fixSessionPath: fixSession.path
+        fixSessionPath: fixSession.path,
       });
       await this.persistInsight(runtimeContext.task, result);
       return result;
@@ -598,68 +641,88 @@ class AgentExecutionEngine {
       this.metrics.averageExecutionTime =
         this.metrics.totalExecutionTime / this.metrics.tasksExecuted;
 
-      this.messageBus.emit('agent:result', {
+      this.messageBus.emit("agent:result", {
         agent: agentName,
         success: false,
         task: runtimeContext.task,
         interpretation: runtimeContext.interpretation,
         error: error.message,
-        executionTime
+        executionTime,
       });
       this.registryManager.recordExecution(agentName, {
         success: false,
         executionTime,
         taskAction: action,
         error: error.message,
-        role: runtimeContext.task?.metadata?.role || runtimeContext.skill?.role || null,
-        reasoningMode: runtimeContext.task?.metadata?.reasoningMode || 'standard',
-        reviewArtifactPath: runtimeContext.task?.metadata?.reviewArtifactPath || null,
+        role:
+          runtimeContext.task?.metadata?.role ||
+          runtimeContext.skill?.role ||
+          null,
+        reasoningMode:
+          runtimeContext.task?.metadata?.reasoningMode || "standard",
+        reviewArtifactPath:
+          runtimeContext.task?.metadata?.reviewArtifactPath || null,
         fixSessionId: runtimeContext.task?.metadata?.fixSessionId || null,
-        fixSessionPath: runtimeContext.task?.metadata?.fixSessionPath || null
+        fixSessionPath: runtimeContext.task?.metadata?.fixSessionPath || null,
       });
       await this.persistInsight(runtimeContext.task, {
         success: false,
         type: action,
-        status: 'failed',
+        status: "failed",
         summary: error.message,
         message: error.message,
         error: error.message,
         evidence: [],
         toolTrace: [],
         runtime_state: {
-          role: runtimeContext.task?.metadata?.role || runtimeContext.skill?.role || null,
-          reasoningMode: runtimeContext.task?.metadata?.reasoningMode || 'standard',
-          verificationStatus: 'failed',
+          role:
+            runtimeContext.task?.metadata?.role ||
+            runtimeContext.skill?.role ||
+            null,
+          reasoningMode:
+            runtimeContext.task?.metadata?.reasoningMode || "standard",
+          verificationStatus: "failed",
           providerUsage: null,
-          toolMetrics: {}
-        }
+          toolMetrics: {},
+        },
       });
       throw error;
     }
   }
 
   async persistInsight(task = {}, payload = {}) {
-    if (process.env.NODE_ENV === 'test' && process.env.CODETITAN_PERSIST_RUNTIME_INSIGHTS !== '1') {
+    if (
+      process.env.NODE_ENV === "test" &&
+      process.env.CODETITAN_PERSIST_RUNTIME_INSIGHTS !== "1"
+    ) {
       return;
     }
 
     try {
       await persistRuntimeInsight({
         result: payload,
-        projectRoot: this.options.workingDirectory || path.join(__dirname, '..'),
+        projectRoot:
+          this.options.workingDirectory || path.join(__dirname, ".."),
         metadata: {
-          action: task.action || payload.type || 'runtime',
-          targetPath: task?.content?.file || task?.content?.directory || task?.content?.projectPath || '.',
-          reasoningMode: payload?.runtime_state?.reasoningMode || 'standard'
-        }
+          action: task.action || payload.type || "runtime",
+          targetPath:
+            task?.content?.file ||
+            task?.content?.directory ||
+            task?.content?.projectPath ||
+            ".",
+          reasoningMode: payload?.runtime_state?.reasoningMode || "standard",
+        },
       });
     } catch (error) {
-      console.warn('[ExecutionEngine] Failed to persist runtime insight:', error.message);
+      console.warn(
+        "[ExecutionEngine] Failed to persist runtime insight:",
+        error.message,
+      );
     }
   }
 
   async executeAnalysis(context) {
-    return this.executeRuntimeAction('analyze', context);
+    return this.executeRuntimeAction("analyze", context);
   }
 
   calculateQualityScore(analysis) {
@@ -671,27 +734,27 @@ class AgentExecutionEngine {
   }
 
   async executeRefactoring(context) {
-    return this.executeRuntimeAction('refactor', context);
+    return this.executeRuntimeAction("refactor", context);
   }
 
   async executeGeneration(context) {
-    return this.executeRuntimeAction('generate', context);
+    return this.executeRuntimeAction("generate", context);
   }
 
   async executeOptimization(context) {
-    return this.executeRuntimeAction('optimize', context);
+    return this.executeRuntimeAction("optimize", context);
   }
 
   async executeDesign(context) {
-    return this.executeRuntimeAction('design', context);
+    return this.executeRuntimeAction("design", context);
   }
 
   async executeFix(context) {
-    return this.executeRuntimeAction('fix', context);
+    return this.executeRuntimeAction("fix", context);
   }
 
   async executeGeneric(context) {
-    return this.executeRuntimeAction('generic', context);
+    return this.executeRuntimeAction("generic", context);
   }
 
   async shutdown() {
@@ -701,19 +764,31 @@ class AgentExecutionEngine {
 
     this._shutdown = true;
 
-    if (this._ownsMessageBus && typeof this.messageBus?.shutdown === 'function') {
+    if (
+      this._ownsMessageBus &&
+      typeof this.messageBus?.shutdown === "function"
+    ) {
       try {
         this.messageBus.shutdown();
       } catch (error) {
-        console.warn('[ExecutionEngine] Failed to shutdown message bus:', error.message);
+        console.warn(
+          "[ExecutionEngine] Failed to shutdown message bus:",
+          error.message,
+        );
       }
     }
 
-    if (this._ownsRegistryManager && typeof this.registryManager?.close === 'function') {
+    if (
+      this._ownsRegistryManager &&
+      typeof this.registryManager?.close === "function"
+    ) {
       try {
         this.registryManager.close();
       } catch (error) {
-        console.warn('[ExecutionEngine] Failed to close registry manager:', error.message);
+        console.warn(
+          "[ExecutionEngine] Failed to close registry manager:",
+          error.message,
+        );
       }
     }
   }
@@ -728,8 +803,10 @@ class AgentExecutionEngine {
   getMetrics() {
     return {
       ...this.metrics,
-      successRate: this.metrics.tasksExecuted > 0 ?
-        (this.metrics.tasksSucceeded / this.metrics.tasksExecuted) : 1.0
+      successRate:
+        this.metrics.tasksExecuted > 0
+          ? this.metrics.tasksSucceeded / this.metrics.tasksExecuted
+          : 1.0,
     };
   }
 
@@ -738,14 +815,30 @@ class AgentExecutionEngine {
    */
   printMetrics() {
     const metrics = this.getMetrics();
-    console.log('\n+- EXECUTION ENGINE METRICS ---------------------------------+');
-    console.log(`| Skills Loaded: ${metrics.skillsLoaded.toString().padEnd(48)} |`);
-    console.log(`| Tasks Executed: ${metrics.tasksExecuted.toString().padEnd(47)} |`);
-    console.log(`| Tasks Succeeded: ${metrics.tasksSucceeded.toString().padEnd(46)} |`);
-    console.log(`| Tasks Failed: ${metrics.tasksFailed.toString().padEnd(49)} |`);
-    console.log(`| Success Rate: ${(metrics.successRate * 100).toFixed(1)}%${' '.repeat(45 - (metrics.successRate * 100).toFixed(1).length)} |`);
-    console.log(`| Avg Execution Time: ${metrics.averageExecutionTime.toFixed(2)}ms${' '.repeat(36 - metrics.averageExecutionTime.toFixed(2).length)} |`);
-    console.log('+------------------------------------------------------------+\n');
+    console.log(
+      "\n+- EXECUTION ENGINE METRICS ---------------------------------+",
+    );
+    console.log(
+      `| Skills Loaded: ${metrics.skillsLoaded.toString().padEnd(48)} |`,
+    );
+    console.log(
+      `| Tasks Executed: ${metrics.tasksExecuted.toString().padEnd(47)} |`,
+    );
+    console.log(
+      `| Tasks Succeeded: ${metrics.tasksSucceeded.toString().padEnd(46)} |`,
+    );
+    console.log(
+      `| Tasks Failed: ${metrics.tasksFailed.toString().padEnd(49)} |`,
+    );
+    console.log(
+      `| Success Rate: ${(metrics.successRate * 100).toFixed(1)}%${" ".repeat(45 - (metrics.successRate * 100).toFixed(1).length)} |`,
+    );
+    console.log(
+      `| Avg Execution Time: ${metrics.averageExecutionTime.toFixed(2)}ms${" ".repeat(36 - metrics.averageExecutionTime.toFixed(2).length)} |`,
+    );
+    console.log(
+      "+------------------------------------------------------------+\n",
+    );
   }
 }
 
@@ -757,31 +850,31 @@ if (require.main === module) {
     const engine = new AgentExecutionEngine();
 
     // Test 1: Load agent skill
-    console.log('\n=== Test 1: Loading Agent Skill ===\n');
-    const skill = await engine.loadAgentSkill('code-intelligence-agent');
-    console.log('Loaded skill:', skill.name);
-    console.log('Role:', skill.role.substring(0, 80) + '...');
-    console.log('Capabilities:', skill.capabilities.slice(0, 5));
+    console.log("\n=== Test 1: Loading Agent Skill ===\n");
+    const skill = await engine.loadAgentSkill("code-intelligence-agent");
+    console.log("Loaded skill:", skill.name);
+    console.log("Role:", skill.role.substring(0, 80) + "...");
+    console.log("Capabilities:", skill.capabilities.slice(0, 5));
 
     // Test 2: Execute analysis task
-    console.log('\n=== Test 2: Execute Analysis Task ===\n');
-    const analysisResult = await engine.executeTask('code-intelligence-agent', {
-      action: 'analyze',
+    console.log("\n=== Test 2: Execute Analysis Task ===\n");
+    const analysisResult = await engine.executeTask("code-intelligence-agent", {
+      action: "analyze",
       content: {
-        file: 'user-service.js'
-      }
+        file: "user-service.js",
+      },
     });
-    console.log('Result:', JSON.stringify(analysisResult, null, 2));
+    console.log("Result:", JSON.stringify(analysisResult, null, 2));
 
     // Test 3: Execute design task
-    console.log('\n=== Test 3: Execute Design Task ===\n');
-    const designResult = await engine.executeTask('architecture-agent', {
-      action: 'design',
+    console.log("\n=== Test 3: Execute Design Task ===\n");
+    const designResult = await engine.executeTask("architecture-agent", {
+      action: "design",
       content: {
-        system: 'e-commerce platform'
-      }
+        system: "e-commerce platform",
+      },
     });
-    console.log('Result:', JSON.stringify(designResult, null, 2));
+    console.log("Result:", JSON.stringify(designResult, null, 2));
 
     // Print metrics
     engine.printMetrics();

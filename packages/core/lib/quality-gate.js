@@ -10,22 +10,22 @@
  * @module quality-gate
  */
 
-const ConfidenceAnalytics = require('./confidence-analytics');
+const ConfidenceAnalytics = require("./confidence-analytics");
 
 class QualityGate {
   constructor(config = {}) {
     this.config = {
       // Thresholds
-      minAccuracy: config.minAccuracy || 0.85,        // 85% minimum accuracy
-      maxCalibrationError: config.maxCalibrationError || 0.20,  // 20% max ECE
-      minConfidenceAvg: config.minConfidenceAvg || 70,  // 70% avg confidence
-      minHighConfidencePct: config.minHighConfidencePct || 0.30, // 30% high confidence
+      minAccuracy: config.minAccuracy || 0.85, // 85% minimum accuracy
+      maxCalibrationError: config.maxCalibrationError || 0.2, // 20% max ECE
+      minConfidenceAvg: config.minConfidenceAvg || 70, // 70% avg confidence
+      minHighConfidencePct: config.minHighConfidencePct || 0.3, // 30% high confidence
 
       // Flags
       blockOnFailure: config.blockOnFailure !== false,
       verbose: config.verbose || false,
 
-      ...config
+      ...config,
     };
 
     this.analytics = new ConfidenceAnalytics();
@@ -39,7 +39,7 @@ class QualityGate {
    * @returns {Promise<Object>} Gate result
    */
   async checkGate(runId, projectId) {
-    this.log('🚦 Checking quality gate...');
+    this.log("🚦 Checking quality gate...");
 
     const issues = [];
     const warnings = [];
@@ -57,43 +57,49 @@ class QualityGate {
         // Check accuracy
         if (calibration.overall_accuracy < this.config.minAccuracy) {
           issues.push({
-            type: 'accuracy',
-            severity: 'HIGH',
-            message: `Accuracy ${(calibration.overall_accuracy * 100).toFixed(1)}% below threshold ${(this.config.minAccuracy * 100)}%`,
+            type: "accuracy",
+            severity: "HIGH",
+            message: `Accuracy ${(calibration.overall_accuracy * 100).toFixed(1)}% below threshold ${this.config.minAccuracy * 100}%`,
             actual: calibration.overall_accuracy,
-            expected: this.config.minAccuracy
+            expected: this.config.minAccuracy,
           });
-        } else if (calibration.overall_accuracy < this.config.minAccuracy + 0.05) {
+        } else if (
+          calibration.overall_accuracy <
+          this.config.minAccuracy + 0.05
+        ) {
           warnings.push({
-            type: 'accuracy',
+            type: "accuracy",
             message: `Accuracy ${(calibration.overall_accuracy * 100).toFixed(1)}% close to threshold`,
-            actual: calibration.overall_accuracy
+            actual: calibration.overall_accuracy,
           });
         }
 
         // Check calibration error
-        if (calibration.expected_calibration_error > this.config.maxCalibrationError) {
+        if (
+          calibration.expected_calibration_error >
+          this.config.maxCalibrationError
+        ) {
           issues.push({
-            type: 'calibration',
-            severity: 'MEDIUM',
-            message: `Calibration error ${(calibration.expected_calibration_error * 100).toFixed(1)}% above threshold ${(this.config.maxCalibrationError * 100)}%`,
+            type: "calibration",
+            severity: "MEDIUM",
+            message: `Calibration error ${(calibration.expected_calibration_error * 100).toFixed(1)}% above threshold ${this.config.maxCalibrationError * 100}%`,
             actual: calibration.expected_calibration_error,
-            expected: this.config.maxCalibrationError
+            expected: this.config.maxCalibrationError,
           });
         }
 
         // Check minimum predictions
         if (calibration.total_predictions < 10) {
           warnings.push({
-            type: 'data',
+            type: "data",
             message: `Only ${calibration.total_predictions} predictions - metrics may be unreliable`,
-            actual: calibration.total_predictions
+            actual: calibration.total_predictions,
           });
         }
       } else {
         warnings.push({
-          type: 'data',
-          message: 'No calibration data available - gate checks skipped'
+          type: "data",
+          message: "No calibration data available - gate checks skipped",
         });
       }
 
@@ -101,16 +107,18 @@ class QualityGate {
       const providers = await this.analytics.getProviderComparison(projectId);
 
       if (providers && providers.length > 0) {
-        const avgAccuracy = providers.reduce((sum, p) => sum + (p.accuracy_pct || 0), 0) / providers.length;
+        const avgAccuracy =
+          providers.reduce((sum, p) => sum + (p.accuracy_pct || 0), 0) /
+          providers.length;
         metrics.providerAccuracyAvg = avgAccuracy;
 
         if (avgAccuracy < this.config.minAccuracy * 100) {
           issues.push({
-            type: 'provider_accuracy',
-            severity: 'MEDIUM',
+            type: "provider_accuracy",
+            severity: "MEDIUM",
             message: `Average provider accuracy ${avgAccuracy.toFixed(1)}% below threshold`,
             actual: avgAccuracy / 100,
-            expected: this.config.minAccuracy
+            expected: this.config.minAccuracy,
           });
         }
       }
@@ -126,30 +134,32 @@ class QualityGate {
         metrics,
         issues,
         warnings,
-        recommendation: passed ?
-          'Quality gate passed - safe to deploy' :
-          'Quality gate failed - review issues before deploying'
+        recommendation: passed
+          ? "Quality gate passed - safe to deploy"
+          : "Quality gate failed - review issues before deploying",
       };
 
       if (!passed) {
-        this.log(`❌ Quality gate FAILED - ${issues.length} issues found`, 'error');
-        issues.forEach(issue => {
-          this.log(`   • [${issue.severity}] ${issue.message}`, 'error');
+        this.log(
+          `❌ Quality gate FAILED - ${issues.length} issues found`,
+          "error",
+        );
+        issues.forEach((issue) => {
+          this.log(`   • [${issue.severity}] ${issue.message}`, "error");
         });
       } else {
         this.log(`✅ Quality gate PASSED`);
         if (warnings.length > 0) {
           this.log(`⚠️  ${warnings.length} warnings:`);
-          warnings.forEach(warning => {
-            this.log(`   • ${warning.message}`, 'warn');
+          warnings.forEach((warning) => {
+            this.log(`   • ${warning.message}`, "warn");
           });
         }
       }
 
       return result;
-
     } catch (error) {
-      this.log(`❌ Quality gate check failed: ${error.message}`, 'error');
+      this.log(`❌ Quality gate check failed: ${error.message}`, "error");
 
       if (this.config.blockOnFailure) {
         throw error;
@@ -160,7 +170,7 @@ class QualityGate {
         error: error.message,
         timestamp: new Date().toISOString(),
         runId,
-        projectId
+        projectId,
       };
     }
   }
@@ -196,9 +206,9 @@ class QualityGate {
   /**
    * Log message
    */
-  log(message, level = 'info') {
-    if (this.config.verbose || level === 'error' || level === 'warn') {
-      const prefix = level === 'error' ? '❌' : level === 'warn' ? '⚠️' : 'ℹ️';
+  log(message, level = "info") {
+    if (this.config.verbose || level === "error" || level === "warn") {
+      const prefix = level === "error" ? "❌" : level === "warn" ? "⚠️" : "ℹ️";
       console.log(`${prefix} [QualityGate] ${message}`);
     }
   }

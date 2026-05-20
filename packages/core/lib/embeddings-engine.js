@@ -13,15 +13,16 @@
  * - Output: Similar issues + recommended remediations OR relevant code chunks
  */
 
-const { pipeline } = require('@xenova/transformers');
-const sqlite3 = require('sqlite3').verbose();
-const path = require('path');
-const fs = require('fs').promises;
-const crypto = require('crypto');
+const { pipeline } = require("@xenova/transformers");
+const sqlite3 = require("sqlite3").verbose();
+const path = require("path");
+const fs = require("fs").promises;
+const crypto = require("crypto");
 
 class EmbeddingsEngine {
   constructor(dbPath) {
-    this.dbPath = dbPath || path.join(__dirname, '..', 'data', 'collective-insight.db');
+    this.dbPath =
+      dbPath || path.join(__dirname, "..", "data", "collective-insight.db");
     this.db = null;
     this.embedder = null;
     this.embeddingDimension = 384; // all-MiniLM-L6-v2 dimension
@@ -37,7 +38,7 @@ class EmbeddingsEngine {
       cacheHits: 0,
       averageEmbeddingTime: 0,
       averageSearchTime: 0,
-      codeChunksIndexed: 0
+      codeChunksIndexed: 0,
     };
   }
 
@@ -45,7 +46,7 @@ class EmbeddingsEngine {
    * Initialize the embeddings engine
    */
   async init() {
-    console.log('Initializing Embeddings Engine...');
+    console.log("Initializing Embeddings Engine...");
 
     // Initialize database
     await this.initDatabase();
@@ -53,7 +54,7 @@ class EmbeddingsEngine {
     // Initialize embedding model
     await this.initEmbedder();
 
-    console.log('✓ Embeddings Engine ready!');
+    console.log("✓ Embeddings Engine ready!");
   }
 
   /**
@@ -154,12 +155,12 @@ class EmbeddingsEngine {
    */
   async initEmbedder() {
     if (!this.embedder) {
-      console.log('Loading local embedding model (Xenova/all-MiniLM-L6-v2)...');
+      console.log("Loading local embedding model (Xenova/all-MiniLM-L6-v2)...");
       this.embedder = await pipeline(
-        'feature-extraction',
-        'Xenova/all-MiniLM-L6-v2'
+        "feature-extraction",
+        "Xenova/all-MiniLM-L6-v2",
       );
-      console.log('✓ Embedding model loaded');
+      console.log("✓ Embedding model loaded");
     }
     return this.embedder;
   }
@@ -180,8 +181,8 @@ class EmbeddingsEngine {
     // Generate embedding
     const model = await this.initEmbedder();
     const output = await model(text, {
-      pooling: 'mean',
-      normalize: true
+      pooling: "mean",
+      normalize: true,
     });
 
     const embedding = Array.from(output.data);
@@ -193,7 +194,9 @@ class EmbeddingsEngine {
     this.metrics.embeddingsGenerated++;
     const duration = Date.now() - startTime;
     this.metrics.averageEmbeddingTime =
-      (this.metrics.averageEmbeddingTime * (this.metrics.embeddingsGenerated - 1) + duration) /
+      (this.metrics.averageEmbeddingTime *
+        (this.metrics.embeddingsGenerated - 1) +
+        duration) /
       this.metrics.embeddingsGenerated;
 
     return embedding;
@@ -212,15 +215,17 @@ class EmbeddingsEngine {
    */
   findingToText(finding) {
     const parts = [
-      `Category: ${finding.category || 'unknown'}`,
-      `Severity: ${finding.severity || 'medium'}`,
-      `Message: ${finding.message || ''}`,
-      finding.context ? `Context: ${finding.context}` : '',
-      finding.file ? `File pattern: ${this.extractFilePattern(finding.file)}` : '',
-      finding.snippet ? `Code: ${finding.snippet}` : ''
+      `Category: ${finding.category || "unknown"}`,
+      `Severity: ${finding.severity || "medium"}`,
+      `Message: ${finding.message || ""}`,
+      finding.context ? `Context: ${finding.context}` : "",
+      finding.file
+        ? `File pattern: ${this.extractFilePattern(finding.file)}`
+        : "",
+      finding.snippet ? `Code: ${finding.snippet}` : "",
     ];
 
-    return parts.filter(Boolean).join('\n');
+    return parts.filter(Boolean).join("\n");
   }
 
   /**
@@ -248,7 +253,7 @@ class EmbeddingsEngine {
       filePattern = null,
       appliedFix = null,
       fixSuccess = false,
-      confidenceScore = 0.0
+      confidenceScore = 0.0,
     } = metadata;
 
     const embeddingBlob = Buffer.from(new Float32Array(embedding).buffer);
@@ -270,8 +275,8 @@ class EmbeddingsEngine {
         appliedFix,
         fixSuccess ? 1 : 0,
         confidenceScore,
-        timestamp
-      ]
+        timestamp,
+      ],
     );
 
     return result.lastID;
@@ -282,7 +287,10 @@ class EmbeddingsEngine {
    * @param {string} rootDir - Root directory to index
    * @param {string[]} extensions - File extensions to index
    */
-  async indexCodebase(rootDir, extensions = ['.js', '.ts', '.py', '.jsx', '.tsx', '.go', '.rs']) {
+  async indexCodebase(
+    rootDir,
+    extensions = [".js", ".ts", ".py", ".jsx", ".tsx", ".go", ".rs"],
+  ) {
     console.log(`Indexing codebase in: ${rootDir}`);
 
     const files = await this.walkDir(rootDir, extensions);
@@ -292,26 +300,45 @@ class EmbeddingsEngine {
 
     for (const file of files) {
       try {
-        const content = await fs.readFile(file, 'utf8');
+        const content = await fs.readFile(file, "utf8");
         const chunks = this.chunkFile(content);
 
         for (const chunk of chunks) {
           const chunkHash = this.hashText(chunk.content);
 
           // Check if chunk already exists and hasn't changed (naively by hash and path/line)
-          const existing = await this.get('SELECT id FROM code_embeddings WHERE file_path = ? AND start_line = ? AND content_hash = ?', [file, chunk.startLine, chunkHash]);
+          const existing = await this.get(
+            "SELECT id FROM code_embeddings WHERE file_path = ? AND start_line = ? AND content_hash = ?",
+            [file, chunk.startLine, chunkHash],
+          );
 
           if (!existing) {
             const embedding = await this.generateTextEmbedding(chunk.content);
-            const embeddingBlob = Buffer.from(new Float32Array(embedding).buffer);
+            const embeddingBlob = Buffer.from(
+              new Float32Array(embedding).buffer,
+            );
 
             // Upsert logic (delete if exists at path/line but different hash, then insert)
-            await this.run('DELETE FROM code_embeddings WHERE file_path = ? AND start_line = ?', [file, chunk.startLine]);
+            await this.run(
+              "DELETE FROM code_embeddings WHERE file_path = ? AND start_line = ?",
+              [file, chunk.startLine],
+            );
 
-            await this.run(`
+            await this.run(
+              `
                        INSERT INTO code_embeddings (file_path, start_line, end_line, content, content_hash, embedding, last_indexed_at)
                        VALUES (?, ?, ?, ?, ?, ?, ?)
-                   `, [file, chunk.startLine, chunk.endLine, chunk.content, chunkHash, embeddingBlob, new Date().toISOString()]);
+                   `,
+              [
+                file,
+                chunk.startLine,
+                chunk.endLine,
+                chunk.content,
+                chunkHash,
+                embeddingBlob,
+                new Date().toISOString(),
+              ],
+            );
 
             chunkCount++;
           }
@@ -334,9 +361,16 @@ class EmbeddingsEngine {
     const entries = await fs.readdir(dir, { withFileTypes: true });
     for (const entry of entries) {
       const fullPath = path.join(dir, entry.name);
-      if (entry.isDirectory() && !entry.name.startsWith('.') && entry.name !== 'node_modules') {
-        files.push(...await this.walkDir(fullPath, extensions));
-      } else if (entry.isFile() && extensions.includes(path.extname(entry.name))) {
+      if (
+        entry.isDirectory() &&
+        !entry.name.startsWith(".") &&
+        entry.name !== "node_modules"
+      ) {
+        files.push(...(await this.walkDir(fullPath, extensions)));
+      } else if (
+        entry.isFile() &&
+        extensions.includes(path.extname(entry.name))
+      ) {
         files.push(fullPath);
       }
     }
@@ -347,17 +381,17 @@ class EmbeddingsEngine {
    * Split file content into semantic chunks
    */
   chunkFile(content, maxLines = 50, overlap = 5) {
-    const lines = content.split('\n');
+    const lines = content.split("\n");
     const chunks = [];
 
-    for (let i = 0; i < lines.length; i += (maxLines - overlap)) {
+    for (let i = 0; i < lines.length; i += maxLines - overlap) {
       const chunkLines = lines.slice(i, i + maxLines);
       if (chunkLines.length < 5) continue; // Skip tiny chunks
 
       chunks.push({
         startLine: i + 1,
         endLine: i + chunkLines.length,
-        content: chunkLines.join('\n')
+        content: chunkLines.join("\n"),
       });
     }
     return chunks;
@@ -371,12 +405,17 @@ class EmbeddingsEngine {
   async searchCode(query, topK = 5, threshold = 0.6) {
     const queryEmbedding = await this.generateTextEmbedding(query);
 
-    const rows = await this.all('SELECT id, file_path, start_line, end_line, content, embedding FROM code_embeddings');
+    const rows = await this.all(
+      "SELECT id, file_path, start_line, end_line, content, embedding FROM code_embeddings",
+    );
 
     const results = [];
     for (const row of rows) {
       const storedEmbedding = new Float32Array(row.embedding);
-      const similarity = this.cosineSimilarity(queryEmbedding, Array.from(storedEmbedding));
+      const similarity = this.cosineSimilarity(
+        queryEmbedding,
+        Array.from(storedEmbedding),
+      );
 
       if (similarity >= threshold) {
         results.push({
@@ -384,7 +423,7 @@ class EmbeddingsEngine {
           startLine: row.start_line,
           endLine: row.end_line,
           content: row.content,
-          similarity
+          similarity,
         });
       }
     }
@@ -404,7 +443,7 @@ class EmbeddingsEngine {
     // Get all stored embeddings (with optional category filter)
     const categoryFilter = currentFinding.category
       ? `WHERE category = '${currentFinding.category}'`
-      : '';
+      : "";
 
     const rows = await this.all(`
       SELECT id, category, severity, message, context, file_pattern,
@@ -419,7 +458,7 @@ class EmbeddingsEngine {
       const storedEmbedding = new Float32Array(row.embedding);
       const similarity = this.cosineSimilarity(
         queryEmbedding,
-        Array.from(storedEmbedding)
+        Array.from(storedEmbedding),
       );
 
       if (similarity >= threshold) {
@@ -433,7 +472,7 @@ class EmbeddingsEngine {
           appliedFix: row.applied_fix,
           fixSuccess: row.fix_success === 1,
           confidenceScore: row.confidence_score,
-          similarity: parseFloat(similarity.toFixed(4))
+          similarity: parseFloat(similarity.toFixed(4)),
         });
       }
     }
@@ -445,7 +484,8 @@ class EmbeddingsEngine {
     this.metrics.similaritySearches++;
     const duration = Date.now() - startTime;
     this.metrics.averageSearchTime =
-      (this.metrics.averageSearchTime * (this.metrics.similaritySearches - 1) + duration) /
+      (this.metrics.averageSearchTime * (this.metrics.similaritySearches - 1) +
+        duration) /
       this.metrics.similaritySearches;
 
     return similarities.slice(0, topK);
@@ -460,10 +500,10 @@ class EmbeddingsEngine {
 
     if (similarIssues.length === 0) {
       return {
-        status: 'no_similar_issues',
+        status: "no_similar_issues",
         confidence: 0.0,
         recommendations: [],
-        similarIssues: []
+        similarIssues: [],
       };
     }
 
@@ -482,7 +522,7 @@ class EmbeddingsEngine {
             occurrences: 0,
             totalWeight: 0,
             avgSimilarity: 0,
-            examples: []
+            examples: [],
           });
         }
 
@@ -490,47 +530,49 @@ class EmbeddingsEngine {
         pattern.occurrences++;
         pattern.totalWeight += weight;
         pattern.avgSimilarity =
-          (pattern.avgSimilarity * (pattern.occurrences - 1) + issue.similarity) /
+          (pattern.avgSimilarity * (pattern.occurrences - 1) +
+            issue.similarity) /
           pattern.occurrences;
         pattern.examples.push({
           message: issue.message,
-          similarity: issue.similarity
+          similarity: issue.similarity,
         });
       }
     }
 
     // Convert to recommendations array
     const recommendations = Array.from(fixPatterns.values())
-      .map(pattern => ({
+      .map((pattern) => ({
         fix: pattern.fix,
         confidence: totalWeight > 0 ? pattern.totalWeight / totalWeight : 0,
         occurrences: pattern.occurrences,
         avgSimilarity: pattern.avgSimilarity,
-        examples: pattern.examples.slice(0, 3) // Top 3 examples
+        examples: pattern.examples.slice(0, 3), // Top 3 examples
       }))
       .sort((a, b) => b.confidence - a.confidence);
 
     // Calculate overall confidence
-    const overallConfidence = recommendations.length > 0
-      ? recommendations[0].confidence
-      : 0.0;
+    const overallConfidence =
+      recommendations.length > 0 ? recommendations[0].confidence : 0.0;
 
     return {
-      status: 'success',
+      status: "success",
       confidence: parseFloat(overallConfidence.toFixed(4)),
       recommendations: recommendations,
-      similarIssues: similarIssues.map(issue => ({
+      similarIssues: similarIssues.map((issue) => ({
         message: issue.message,
         similarity: issue.similarity,
         fix: issue.appliedFix,
-        success: issue.fixSuccess
+        success: issue.fixSuccess,
       })),
       metrics: {
         totalSimilarIssues: similarIssues.length,
-        successfulFixes: Array.from(fixPatterns.values())
-          .reduce((sum, p) => sum + p.occurrences, 0),
-        uniqueFixPatterns: fixPatterns.size
-      }
+        successfulFixes: Array.from(fixPatterns.values()).reduce(
+          (sum, p) => sum + p.occurrences,
+          0,
+        ),
+        uniqueFixPatterns: fixPatterns.size,
+      },
     };
   }
 
@@ -550,7 +592,7 @@ class EmbeddingsEngine {
       filePattern: finding.file ? this.extractFilePattern(finding.file) : null,
       appliedFix: fixApplied,
       fixSuccess: success,
-      confidenceScore: success ? 0.8 : 0.2
+      confidenceScore: success ? 0.8 : 0.2,
     });
 
     // Update remediation pattern if exists
@@ -567,7 +609,7 @@ class EmbeddingsEngine {
     const existing = await this.all(
       `SELECT * FROM remediation_patterns
        WHERE category = ? AND pattern_name = ?`,
-      [category, fixName]
+      [category, fixName],
     );
 
     if (existing.length > 0) {
@@ -584,12 +626,20 @@ class EmbeddingsEngine {
              avg_confidence = ?,
              updated_at = ?
          WHERE id = ?`,
-        [newApplicationCount, newSuccessCount, newAvgConfidence, timestamp, pattern.id]
+        [
+          newApplicationCount,
+          newSuccessCount,
+          newAvgConfidence,
+          timestamp,
+          pattern.id,
+        ],
       );
     } else {
       // Create new pattern (requires embedding and template)
       // This would be populated by the fixer registry
-      console.log(`New remediation pattern discovered: ${category} -> ${fixName}`);
+      console.log(
+        `New remediation pattern discovered: ${category} -> ${fixName}`,
+      );
     }
   }
 
@@ -618,7 +668,7 @@ class EmbeddingsEngine {
     let hash = 0;
     for (let i = 0; i < text.length; i++) {
       const char = text.charCodeAt(i);
-      hash = ((hash << 5) - hash) + char;
+      hash = (hash << 5) - hash + char;
       hash = hash & hash;
     }
     return hash.toString(36);
@@ -643,9 +693,12 @@ class EmbeddingsEngine {
     return {
       ...this.metrics,
       cacheSize: this.cache.size,
-      cacheHitRate: this.metrics.embeddingsGenerated > 0
-        ? (this.metrics.cacheHits / this.metrics.embeddingsGenerated).toFixed(4)
-        : 0
+      cacheHitRate:
+        this.metrics.embeddingsGenerated > 0
+          ? (this.metrics.cacheHits / this.metrics.embeddingsGenerated).toFixed(
+              4,
+            )
+          : 0,
     };
   }
 
@@ -685,7 +738,7 @@ class EmbeddingsEngine {
   async close() {
     if (!this.db) return;
     await new Promise((resolve, reject) => {
-      this.db.close(err => (err ? reject(err) : resolve()));
+      this.db.close((err) => (err ? reject(err) : resolve()));
     });
     this.db = null;
   }

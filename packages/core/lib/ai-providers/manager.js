@@ -6,7 +6,7 @@
  */
 
 function isDebugEnabled(value) {
-  return value === '1' || value === 'true';
+  return value === "1" || value === "true";
 }
 
 const SHOULD_DEBUG =
@@ -19,31 +19,31 @@ const _dbg = (...args) => {
     return;
   }
 
-  process.stderr.write(args.join(' ') + '\n');
+  process.stderr.write(args.join(" ") + "\n");
 };
 
-const HeuristicProvider = require('./heuristic');
-const ClaudeProvider = require('./claude');
-const GPT5CodexProvider = require('./gpt5-codex');
-const GeminiProvider = require('./gemini');
+const HeuristicProvider = require("./heuristic");
+const ClaudeProvider = require("./claude");
+const GPT5CodexProvider = require("./gpt5-codex");
+const GeminiProvider = require("./gemini");
 
 class AIProviderManager {
   constructor(config = {}) {
     this.config = {
       // Default domain routing (can be overridden in .codetitan.yml)
       domainRouting: {
-        'security-god': 'claude',
-        'performance-god': 'claude',
-        'test-god': 'claude',
-        'refactoring-god': 'claude',
-        'documentation-god': 'claude'
+        "security-god": "claude",
+        "performance-god": "claude",
+        "test-god": "claude",
+        "refactoring-god": "claude",
+        "documentation-god": "claude",
       },
-      fallbackChain: ['claude', 'gemini', 'heuristic'],
+      fallbackChain: ["claude", "gemini", "heuristic"],
       budget: {
-        monthlyLimit: 50.00,  // USD
-        perAnalysis: 2.00     // USD
+        monthlyLimit: 50.0, // USD
+        perAnalysis: 2.0, // USD
       },
-      ...config
+      ...config,
     };
 
     // Initialize all providers
@@ -54,7 +54,7 @@ class AIProviderManager {
     this.usage = {
       totalCost: 0,
       analysesByProvider: {},
-      errors: []
+      errors: [],
     };
   }
 
@@ -63,37 +63,43 @@ class AIProviderManager {
    */
   initializeProviders() {
     // Always add heuristic provider (no API key needed)
-    this.providers.set('heuristic', new HeuristicProvider());
+    this.providers.set("heuristic", new HeuristicProvider());
 
     // Add AI providers if API keys are configured
     try {
       const claude = new ClaudeProvider();
       if (claude.enabled) {
-        this.providers.set('claude', claude);
+        this.providers.set("claude", claude);
       }
     } catch (error) {
-      _dbg('[AIProviderManager] Claude initialization failed:', error.message);
+      _dbg("[AIProviderManager] Claude initialization failed:", error.message);
     }
 
     try {
       const gptCodex = new GPT5CodexProvider();
       if (gptCodex.enabled) {
-        this.providers.set('gpt-5-codex', gptCodex);
+        this.providers.set("gpt-5-codex", gptCodex);
       }
     } catch (error) {
-      _dbg('[AIProviderManager] GPT-5-Codex initialization failed:', error.message);
+      _dbg(
+        "[AIProviderManager] GPT-5-Codex initialization failed:",
+        error.message,
+      );
     }
 
     try {
       const gemini = new GeminiProvider();
       if (gemini.enabled) {
-        this.providers.set('gemini', gemini);
+        this.providers.set("gemini", gemini);
       }
     } catch (error) {
-      _dbg('[AIProviderManager] Gemini initialization failed:', error.message);
+      _dbg("[AIProviderManager] Gemini initialization failed:", error.message);
     }
 
-    _dbg(`[AIProviderManager] Initialized ${this.providers.size} providers:`, Array.from(this.providers.keys()));
+    _dbg(
+      `[AIProviderManager] Initialized ${this.providers.size} providers:`,
+      Array.from(this.providers.keys()),
+    );
   }
 
   /**
@@ -120,14 +126,24 @@ class AIProviderManager {
     }
 
     if (!selectedProvider) {
-      _dbg(`[AIProviderManager] No provider available for ${domain}, using heuristic fallback`);
-      selectedProvider = this.providers.get('heuristic');
+      _dbg(
+        `[AIProviderManager] No provider available for ${domain}, using heuristic fallback`,
+      );
+      selectedProvider = this.providers.get("heuristic");
     }
 
     // Attempt analysis with selected provider
     try {
-      _dbg(`[AIProviderManager] Analyzing ${filePath} (${domain}) with ${selectedProvider.name}`);
-      const result = await selectedProvider.analyze(domain, filePath, content, projectRoot, options);
+      _dbg(
+        `[AIProviderManager] Analyzing ${filePath} (${domain}) with ${selectedProvider.name}`,
+      );
+      const result = await selectedProvider.analyze(
+        domain,
+        filePath,
+        content,
+        projectRoot,
+        options,
+      );
 
       // Track usage
       this.trackUsage(selectedProvider.name, result.metadata.costUSD);
@@ -138,20 +154,31 @@ class AIProviderManager {
           ...result.metadata,
           selectedProvider: selectedProvider.name,
           fallbackUsed: false,
-          totalDuration: Date.now() - start
-        }
+          totalDuration: Date.now() - start,
+        },
       };
     } catch (error) {
-      _dbg(`[AIProviderManager] Provider ${selectedProvider.name} failed:`, error.message);
+      _dbg(
+        `[AIProviderManager] Provider ${selectedProvider.name} failed:`,
+        error.message,
+      );
       this.usage.errors.push({
         provider: selectedProvider.name,
         domain,
         error: error.message,
-        timestamp: new Date().toISOString()
+        timestamp: new Date().toISOString(),
       });
 
       // Attempt fallback
-      return await this.fallbackAnalysis(domain, filePath, content, projectRoot, selectedProvider.name, start, options);
+      return await this.fallbackAnalysis(
+        domain,
+        filePath,
+        content,
+        projectRoot,
+        selectedProvider.name,
+        start,
+        options,
+      );
     }
   }
 
@@ -168,7 +195,7 @@ class AIProviderManager {
     const preferredProviderName = this.config.domainRouting[domain];
     if (preferredProviderName) {
       const provider = await this.getProvider(preferredProviderName);
-      if (provider && await provider.isAvailable()) {
+      if (provider && (await provider.isAvailable())) {
         // Check if within budget
         const estimatedCost = this.estimateAnalysisCost(provider, content);
         const budgetLimit = options.budget || this.config.budget.perAnalysis;
@@ -176,7 +203,9 @@ class AIProviderManager {
         if (estimatedCost <= budgetLimit) {
           return provider;
         } else {
-          _dbg(`[AIProviderManager] ${preferredProviderName} exceeds budget ($${estimatedCost} > $${budgetLimit}), finding alternative`);
+          _dbg(
+            `[AIProviderManager] ${preferredProviderName} exceeds budget ($${estimatedCost} > $${budgetLimit}), finding alternative`,
+          );
         }
       }
     }
@@ -184,7 +213,7 @@ class AIProviderManager {
     // 2. Find best available provider within budget
     const availableProviders = [];
     for (const [name, provider] of this.providers.entries()) {
-      if (name === 'heuristic') continue; // Save heuristic as last resort
+      if (name === "heuristic") continue; // Save heuristic as last resort
 
       const isAvailable = await provider.isAvailable();
       if (isAvailable) {
@@ -196,7 +225,7 @@ class AIProviderManager {
           provider,
           estimatedCost,
           qualityScore,
-          score: qualityScore / (estimatedCost + 0.01) // Quality per dollar
+          score: qualityScore / (estimatedCost + 0.01), // Quality per dollar
         });
       }
     }
@@ -206,7 +235,9 @@ class AIProviderManager {
 
     // Return best provider within budget
     const budgetLimit = options.budget || this.config.budget.perAnalysis;
-    const bestProvider = availableProviders.find(p => p.estimatedCost <= budgetLimit);
+    const bestProvider = availableProviders.find(
+      (p) => p.estimatedCost <= budgetLimit,
+    );
 
     if (bestProvider) {
       return bestProvider.provider;
@@ -214,13 +245,17 @@ class AIProviderManager {
 
     // If no AI provider within budget, return cheapest AI or heuristic
     if (availableProviders.length > 0) {
-      const cheapest = availableProviders.sort((a, b) => a.estimatedCost - b.estimatedCost)[0];
-      _dbg(`[AIProviderManager] All providers exceed budget, using cheapest: ${cheapest.name} ($${cheapest.estimatedCost})`);
+      const cheapest = availableProviders.sort(
+        (a, b) => a.estimatedCost - b.estimatedCost,
+      )[0];
+      _dbg(
+        `[AIProviderManager] All providers exceed budget, using cheapest: ${cheapest.name} ($${cheapest.estimatedCost})`,
+      );
       return cheapest.provider;
     }
 
     // Last resort: heuristic
-    return this.providers.get('heuristic');
+    return this.providers.get("heuristic");
   }
 
   /**
@@ -236,11 +271,23 @@ class AIProviderManager {
   /**
    * Fallback to next available provider
    */
-  async fallbackAnalysis(domain, filePath, content, projectRoot, failedProvider, startTime, options = {}) {
-    _dbg(`[AIProviderManager] Attempting fallback after ${failedProvider} failed`);
+  async fallbackAnalysis(
+    domain,
+    filePath,
+    content,
+    projectRoot,
+    failedProvider,
+    startTime,
+    options = {},
+  ) {
+    _dbg(
+      `[AIProviderManager] Attempting fallback after ${failedProvider} failed`,
+    );
 
     // Get fallback chain excluding failed provider
-    const fallbackChain = this.config.fallbackChain.filter(name => name !== failedProvider);
+    const fallbackChain = this.config.fallbackChain.filter(
+      (name) => name !== failedProvider,
+    );
 
     for (const providerName of fallbackChain) {
       const provider = this.providers.get(providerName);
@@ -251,7 +298,13 @@ class AIProviderManager {
 
       try {
         _dbg(`[AIProviderManager] Trying fallback provider: ${providerName}`);
-        const result = await provider.analyze(domain, filePath, content, projectRoot, options);
+        const result = await provider.analyze(
+          domain,
+          filePath,
+          content,
+          projectRoot,
+          options,
+        );
 
         // Track usage
         this.trackUsage(providerName, result.metadata.costUSD);
@@ -263,16 +316,19 @@ class AIProviderManager {
             selectedProvider: failedProvider,
             fallbackUsed: true,
             fallbackProvider: providerName,
-            totalDuration: Date.now() - startTime
-          }
+            totalDuration: Date.now() - startTime,
+          },
         };
       } catch (error) {
-        _dbg(`[AIProviderManager] Fallback ${providerName} also failed:`, error.message);
+        _dbg(
+          `[AIProviderManager] Fallback ${providerName} also failed:`,
+          error.message,
+        );
         this.usage.errors.push({
           provider: providerName,
           domain,
           error: error.message,
-          timestamp: new Date().toISOString()
+          timestamp: new Date().toISOString(),
         });
         continue;
       }
@@ -283,17 +339,17 @@ class AIProviderManager {
     return {
       issues: [],
       metadata: {
-        provider: 'none',
-        model: 'none',
+        provider: "none",
+        model: "none",
         tokensUsed: { input: 0, output: 0, cached: 0 },
         costUSD: 0,
         duration: Date.now() - startTime,
         confidence: 0,
-        error: 'All providers failed',
+        error: "All providers failed",
         selectedProvider: failedProvider,
         fallbackUsed: true,
-        totalDuration: Date.now() - startTime
-      }
+        totalDuration: Date.now() - startTime,
+      },
     };
   }
 
@@ -316,7 +372,7 @@ class AIProviderManager {
           name,
           model: provider.model,
           costPerInputToken: provider.costPerInputToken,
-          costPerOutputToken: provider.costPerOutputToken
+          costPerOutputToken: provider.costPerOutputToken,
         });
       }
     }
@@ -332,7 +388,7 @@ class AIProviderManager {
     if (!this.usage.analysesByProvider[providerName]) {
       this.usage.analysesByProvider[providerName] = {
         count: 0,
-        totalCost: 0
+        totalCost: 0,
       };
     }
 
@@ -347,7 +403,7 @@ class AIProviderManager {
     return {
       ...this.usage,
       remainingBudget: this.config.budget.monthlyLimit - this.usage.totalCost,
-      providers: Array.from(this.providers.keys())
+      providers: Array.from(this.providers.keys()),
     };
   }
 
@@ -358,30 +414,36 @@ class AIProviderManager {
     this.usage = {
       totalCost: 0,
       analysesByProvider: {},
-      errors: []
+      errors: [],
     };
   }
 
   normalizeReasoningMode(reasoningMode) {
-    return reasoningMode === 'deep' ? 'deep' : 'standard';
+    return reasoningMode === "deep" ? "deep" : "standard";
   }
 
-  getBudgetPolicy(roleProfile = {}, reasoningMode = 'standard', overrides = {}) {
+  getBudgetPolicy(
+    roleProfile = {},
+    reasoningMode = "standard",
+    overrides = {},
+  ) {
     const normalizedMode = this.normalizeReasoningMode(reasoningMode);
     const baseToolBudget = { ...(roleProfile.toolBudget || {}) };
     const basePromptBudget = { ...(roleProfile.promptBudget || {}) };
 
-    if (normalizedMode === 'deep') {
-      if (typeof baseToolBudget.maxCalls === 'number') {
+    if (normalizedMode === "deep") {
+      if (typeof baseToolBudget.maxCalls === "number") {
         baseToolBudget.maxCalls += 2;
       }
 
-      if (typeof basePromptBudget.tokenCap === 'number') {
+      if (typeof basePromptBudget.tokenCap === "number") {
         basePromptBudget.tokenCap *= 2;
       }
 
-      if (typeof basePromptBudget.usdCap === 'number') {
-        basePromptBudget.usdCap = Number((basePromptBudget.usdCap * 2).toFixed(2));
+      if (typeof basePromptBudget.usdCap === "number") {
+        basePromptBudget.usdCap = Number(
+          (basePromptBudget.usdCap * 2).toFixed(2),
+        );
       }
     }
 
@@ -389,44 +451,48 @@ class AIProviderManager {
       reasoningMode: normalizedMode,
       toolBudget: {
         ...baseToolBudget,
-        ...(overrides.toolBudget || {})
+        ...(overrides.toolBudget || {}),
       },
       promptBudget: {
         ...basePromptBudget,
-        ...(overrides.promptBudget || {})
-      }
+        ...(overrides.promptBudget || {}),
+      },
     };
   }
 
-  mapActionToDomain(action = 'review') {
-    switch (String(action || '').toLowerCase()) {
-      case 'security-review':
-        return 'security-god';
-      case 'optimize':
-      case 'performance-review':
-        return 'performance-god';
-      case 'test':
-      case 'validate':
-        return 'test-god';
-      case 'fix':
-      case 'refactor':
-        return 'refactoring-god';
-      case 'review':
-      case 'compare':
-      case 'replay':
-      case 'analyze':
+  mapActionToDomain(action = "review") {
+    switch (String(action || "").toLowerCase()) {
+      case "security-review":
+        return "security-god";
+      case "optimize":
+      case "performance-review":
+        return "performance-god";
+      case "test":
+      case "validate":
+        return "test-god";
+      case "fix":
+      case "refactor":
+        return "refactoring-god";
+      case "review":
+      case "compare":
+      case "replay":
+      case "analyze":
       default:
-        return 'documentation-god';
+        return "documentation-god";
     }
   }
 
   buildAdvisorPrompt(payload = {}) {
     return JSON.stringify({
-      action: payload.action || 'review',
-      summary: payload.summary || '',
-      evidenceSummary: payload.evidenceSummary || '',
-      evidenceCount: Array.isArray(payload.evidence) ? payload.evidence.length : 0,
-      toolTraceCount: Array.isArray(payload.toolTrace) ? payload.toolTrace.length : 0
+      action: payload.action || "review",
+      summary: payload.summary || "",
+      evidenceSummary: payload.evidenceSummary || "",
+      evidenceCount: Array.isArray(payload.evidence)
+        ? payload.evidence.length
+        : 0,
+      toolTraceCount: Array.isArray(payload.toolTrace)
+        ? payload.toolTrace.length
+        : 0,
     });
   }
 
@@ -438,12 +504,12 @@ class AIProviderManager {
       return {
         requested: false,
         performed: false,
-        verdict: 'skipped',
+        verdict: "skipped",
         provider: null,
         model: null,
         retries: 0,
         tokensUsed: { input: 0, output: 0, cached: 0 },
-        costUSD: 0
+        costUSD: 0,
       };
     }
 
@@ -452,54 +518,69 @@ class AIProviderManager {
     let retries = 0;
     const provider = payload.preferredProvider
       ? await this.getProvider(payload.preferredProvider)
-      : await this.selectProvider(domain, content, { budget: payload.budgetUsd });
-    const selected = provider || this.providers.get('heuristic');
+      : await this.selectProvider(domain, content, {
+          budget: payload.budgetUsd,
+        });
+    const selected = provider || this.providers.get("heuristic");
 
     if (!selected) {
       return {
         requested: true,
         performed: false,
-        verdict: 'unavailable',
+        verdict: "unavailable",
         provider: null,
         model: null,
         retries: 0,
         tokensUsed: { input: 0, output: 0, cached: 0 },
-        costUSD: 0
+        costUSD: 0,
       };
     }
 
     try {
-      const result = await selected.analyze(domain, payload.filePath || 'runtime-advisor.json', content, payload.projectRoot || process.cwd(), {
-        budget: payload.budgetUsd,
-        reasoningMode
-      });
+      const result = await selected.analyze(
+        domain,
+        payload.filePath || "runtime-advisor.json",
+        content,
+        payload.projectRoot || process.cwd(),
+        {
+          budget: payload.budgetUsd,
+          reasoningMode,
+        },
+      );
       const issues = Array.isArray(result.issues) ? result.issues : [];
-      const verdict = issues.length > 0 ? 'questioned' : 'confirmed';
+      const verdict = issues.length > 0 ? "questioned" : "confirmed";
 
       return {
         requested: true,
         performed: true,
         verdict,
-        provider: result.metadata?.selectedProvider || result.metadata?.provider || selected.name,
+        provider:
+          result.metadata?.selectedProvider ||
+          result.metadata?.provider ||
+          selected.name,
         model: result.metadata?.model || selected.model,
         retries,
-        tokensUsed: result.metadata?.tokensUsed || { input: 0, output: 0, cached: 0 },
+        tokensUsed: result.metadata?.tokensUsed || {
+          input: 0,
+          output: 0,
+          cached: 0,
+        },
         costUSD: result.metadata?.costUSD || 0,
         confidence: result.metadata?.confidence ?? null,
-        issues
+        issues,
       };
     } catch (error) {
       retries += 1;
       return {
         requested: true,
         performed: false,
-        verdict: 'failed',
+        verdict: "failed",
         provider: selected.name,
         model: selected.model,
         retries,
         tokensUsed: { input: 0, output: 0, cached: 0 },
         costUSD: 0,
-        error: error.message
+        error: error.message,
       };
     }
   }

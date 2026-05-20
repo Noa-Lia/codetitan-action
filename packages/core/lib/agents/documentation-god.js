@@ -5,38 +5,38 @@
  * Wraps domain-analyzers.js documentation heuristics with enhanced reporting and auto-fix capabilities.
  */
 
-const path = require('path');
-const { analyzeDomain } = require('../domain-analyzers');
-const ToolBridge = require('../tool-bridge');
+const path = require("path");
+const { analyzeDomain } = require("../domain-analyzers");
+const ToolBridge = require("../tool-bridge");
 
 class DocumentationGodAgent {
   constructor(options = {}) {
     this.options = {
       projectRoot: options.projectRoot || process.cwd(),
       enableAutoFix: options.enableAutoFix || false,
-      ...options
+      ...options,
     };
 
     this.toolBridge = new ToolBridge({
       workingDirectory: this.options.projectRoot,
       enableFileOperations: true,
-      enableBackups: true
+      enableBackups: true,
     });
 
     this.capabilities = [
-      'missing_docs_detection',
-      'jsdoc_generation',
-      'api_documentation',
-      'readme_generation',
-      'auto_fix',
-      'documentation_analysis'
+      "missing_docs_detection",
+      "jsdoc_generation",
+      "api_documentation",
+      "readme_generation",
+      "auto_fix",
+      "documentation_analysis",
     ];
 
     this.metrics = {
       filesAnalyzed: 0,
       missingDocs: 0,
       documentationCoverage: 0,
-      fixesApplied: 0
+      fixesApplied: 0,
     };
   }
 
@@ -52,27 +52,35 @@ class DocumentationGodAgent {
 
     try {
       // Read file content
-      const readResult = await this.toolBridge.read(path.relative(this.options.projectRoot, absolutePath));
+      const readResult = await this.toolBridge.read(
+        path.relative(this.options.projectRoot, absolutePath),
+      );
 
       if (!readResult.success) {
         return {
           success: false,
           file: filePath,
-          error: readResult.error
+          error: readResult.error,
         };
       }
 
       const content = readResult.content;
 
       // Run documentation analysis using existing domain analyzer
-      const analysis = analyzeDomain('documentation-god', absolutePath, content, this.options.projectRoot);
+      const analysis = analyzeDomain(
+        "documentation-god",
+        absolutePath,
+        content,
+        this.options.projectRoot,
+      );
 
       // Update metrics
       this.metrics.filesAnalyzed++;
       this.metrics.missingDocs += analysis.issues.length;
 
       // Calculate documentation coverage
-      const totalItems = analysis.issues.length + (analysis.metadata?.documentedSymbols || 0);
+      const totalItems =
+        analysis.issues.length + (analysis.metadata?.documentedSymbols || 0);
       const documented = analysis.metadata?.documentedSymbols || 0;
       const coverage = totalItems > 0 ? (documented / totalItems) * 100 : 100;
       this.metrics.documentationCoverage = coverage;
@@ -82,30 +90,30 @@ class DocumentationGodAgent {
 
       return {
         success: true,
-        agent: 'documentation-god',
+        agent: "documentation-god",
         file: filePath,
         absolutePath: absolutePath,
         summary: {
           totalIssues: analysis.issues.length,
-          critical: analysis.issues.filter(i => i.severity === 'CRITICAL').length,
-          high: analysis.issues.filter(i => i.severity === 'HIGH').length,
-          medium: analysis.issues.filter(i => i.severity === 'MEDIUM').length,
-          low: analysis.issues.filter(i => i.severity === 'LOW').length,
-          coverage: coverage.toFixed(1)
+          critical: analysis.issues.filter((i) => i.severity === "CRITICAL")
+            .length,
+          high: analysis.issues.filter((i) => i.severity === "HIGH").length,
+          medium: analysis.issues.filter((i) => i.severity === "MEDIUM").length,
+          low: analysis.issues.filter((i) => i.severity === "LOW").length,
+          coverage: coverage.toFixed(1),
         },
         issues: analysis.issues,
         categorized: categorized,
         metadata: analysis.metadata,
         linesAnalyzed: analysis.linesAnalyzed,
-        executionTime: analysis.executionTime
+        executionTime: analysis.executionTime,
       };
-
     } catch (error) {
       return {
         success: false,
-        agent: 'documentation-god',
+        agent: "documentation-god",
         file: filePath,
-        error: error.message
+        error: error.message,
       };
     }
   }
@@ -119,10 +127,10 @@ class DocumentationGodAgent {
   async scanDirectory(directoryPath, options = {}) {
     const {
       maxFiles = 100,
-      filePattern = /\.(js|ts|jsx|tsx|py|php|java|rb|go|rs)$/
+      filePattern = /\.(js|ts|jsx|tsx|py|php|java|rb|go|rs)$/,
     } = options;
 
-    const fs = require('fs').promises;
+    const fs = require("fs").promises;
     const files = [];
 
     // Recursive file discovery
@@ -138,7 +146,7 @@ class DocumentationGodAgent {
 
         if (entry.isDirectory()) {
           // Skip node_modules, .git, etc
-          if (!entry.name.startsWith('.') && entry.name !== 'node_modules') {
+          if (!entry.name.startsWith(".") && entry.name !== "node_modules") {
             await walkDir(fullPath);
           }
         } else if (entry.isFile() && filePattern.test(entry.name)) {
@@ -167,25 +175,26 @@ class DocumentationGodAgent {
       }
     }
 
-    const overallCoverage = totalSymbols > 0 ? (totalDocumented / totalSymbols) * 100 : 100;
+    const overallCoverage =
+      totalSymbols > 0 ? (totalDocumented / totalSymbols) * 100 : 100;
 
     // Aggregate results
     return {
       success: true,
-      agent: 'documentation-god',
+      agent: "documentation-god",
       directory: directoryPath,
       filesScanned: files.length,
-      filesWithIssues: results.filter(r => r.issues.length > 0).length,
+      filesWithIssues: results.filter((r) => r.issues.length > 0).length,
       totalIssues: results.reduce((sum, r) => sum + r.issues.length, 0),
       overallCoverage: overallCoverage.toFixed(1),
       summary: {
         critical: results.reduce((sum, r) => sum + r.summary.critical, 0),
         high: results.reduce((sum, r) => sum + r.summary.high, 0),
         medium: results.reduce((sum, r) => sum + r.summary.medium, 0),
-        low: results.reduce((sum, r) => sum + r.summary.low, 0)
+        low: results.reduce((sum, r) => sum + r.summary.low, 0),
       },
       results: results,
-      metrics: { ...this.metrics }
+      metrics: { ...this.metrics },
     };
   }
 
@@ -195,8 +204,8 @@ class DocumentationGodAgent {
   categorizeIssues(issues) {
     const categories = {};
 
-    issues.forEach(issue => {
-      const category = issue.category || 'UNKNOWN';
+    issues.forEach((issue) => {
+      const category = issue.category || "UNKNOWN";
       if (!categories[category]) {
         categories[category] = [];
       }
@@ -212,7 +221,7 @@ class DocumentationGodAgent {
   getTopIssues(n = 10) {
     // This would be enhanced to track issues across scans
     return {
-      message: 'Top issues tracking not yet implemented in this version'
+      message: "Top issues tracking not yet implemented in this version",
     };
   }
 
@@ -220,12 +229,18 @@ class DocumentationGodAgent {
    * Generate documentation report
    */
   generateReport(scanResults) {
-    const { summary, filesScanned, filesWithIssues, totalIssues, overallCoverage } = scanResults;
+    const {
+      summary,
+      filesScanned,
+      filesWithIssues,
+      totalIssues,
+      overallCoverage,
+    } = scanResults;
 
     const report = {
-      title: 'Documentation God Analysis Report',
+      title: "Documentation God Analysis Report",
       timestamp: new Date().toISOString(),
-      agent: 'documentation-god',
+      agent: "documentation-god",
       tier: 2,
 
       overview: {
@@ -235,14 +250,14 @@ class DocumentationGodAgent {
         criticalGaps: summary.critical,
         highPriorityGaps: summary.high,
         documentationCoverage: overallCoverage,
-        documentationGrade: this.calculateDocumentationGrade(overallCoverage)
+        documentationGrade: this.calculateDocumentationGrade(overallCoverage),
       },
 
       breakdown: summary,
 
       recommendations: this.generateRecommendations(summary, overallCoverage),
 
-      metrics: { ...this.metrics }
+      metrics: { ...this.metrics },
     };
 
     return report;
@@ -254,11 +269,11 @@ class DocumentationGodAgent {
   calculateDocumentationGrade(coverage) {
     const score = parseFloat(coverage);
 
-    if (score >= 90) return 'A';
-    if (score >= 80) return 'B';
-    if (score >= 70) return 'C';
-    if (score >= 60) return 'D';
-    return 'F';
+    if (score >= 90) return "A";
+    if (score >= 80) return "B";
+    if (score >= 70) return "C";
+    if (score >= 60) return "D";
+    return "F";
   }
 
   /**
@@ -270,55 +285,57 @@ class DocumentationGodAgent {
 
     if (summary.critical > 0) {
       recommendations.push({
-        priority: 'URGENT',
+        priority: "URGENT",
         action: `Document ${summary.critical} CRITICAL public APIs immediately`,
-        impact: 'Missing public API documentation blocks adoption and integration',
-        effort: 'Hours to days'
+        impact:
+          "Missing public API documentation blocks adoption and integration",
+        effort: "Hours to days",
       });
     }
 
     if (summary.high > 0) {
       recommendations.push({
-        priority: 'HIGH',
+        priority: "HIGH",
         action: `Add documentation for ${summary.high} HIGH priority items`,
-        impact: 'Improves developer experience and reduces support burden',
-        effort: 'Days to week'
+        impact: "Improves developer experience and reduces support burden",
+        effort: "Days to week",
       });
     }
 
     if (coverageNum < 70) {
       recommendations.push({
-        priority: 'MEDIUM',
+        priority: "MEDIUM",
         action: `Improve documentation coverage from ${coverage}% to at least 70%`,
-        impact: 'Better maintainability and onboarding experience',
-        effort: 'Week to weeks'
+        impact: "Better maintainability and onboarding experience",
+        effort: "Week to weeks",
       });
     }
 
     if (summary.medium > 5) {
       recommendations.push({
-        priority: 'MEDIUM',
+        priority: "MEDIUM",
         action: `Document ${summary.medium} MEDIUM priority functions and classes`,
-        impact: 'Reduces cognitive load for future maintenance',
-        effort: 'Week to weeks'
+        impact: "Reduces cognitive load for future maintenance",
+        effort: "Week to weeks",
       });
     }
 
     if (summary.low > 10) {
       recommendations.push({
-        priority: 'LOW',
+        priority: "LOW",
         action: `Add inline comments for ${summary.low} minor items`,
-        impact: 'Documentation hygiene, easier code review',
-        effort: 'Quick wins for documentation quality'
+        impact: "Documentation hygiene, easier code review",
+        effort: "Quick wins for documentation quality",
       });
     }
 
     if (coverageNum >= 80) {
       recommendations.push({
-        priority: 'INFO',
-        action: 'Excellent documentation coverage! Consider adding examples and tutorials',
-        impact: 'Enhanced developer experience',
-        effort: 'Optional enhancement'
+        priority: "INFO",
+        action:
+          "Excellent documentation coverage! Consider adding examples and tutorials",
+        impact: "Enhanced developer experience",
+        effort: "Optional enhancement",
       });
     }
 
@@ -340,7 +357,7 @@ class DocumentationGodAgent {
       filesAnalyzed: 0,
       missingDocs: 0,
       documentationCoverage: 0,
-      fixesApplied: 0
+      fixesApplied: 0,
     };
   }
 }

@@ -10,10 +10,10 @@
  * - Detailed verification reports
  */
 
-const { parse } = require('@babel/parser');
-const fs = require('fs').promises;
-const path = require('path');
-const { execSync } = require('child_process');
+const { parse } = require("@babel/parser");
+const fs = require("fs").promises;
+const path = require("path");
+const { execSync } = require("child_process");
 
 class FixVerifier {
   constructor(options = {}) {
@@ -21,10 +21,10 @@ class FixVerifier {
       enableAstValidation: options.enableAstValidation !== false,
       enableTestExecution: options.enableTestExecution !== false,
       enableRollback: options.enableRollback !== false,
-      testCommand: options.testCommand || 'npm test',
+      testCommand: options.testCommand || "npm test",
       testTimeout: options.testTimeout || 60000,
-      backupDir: options.backupDir || '.backup',
-      ...options
+      backupDir: options.backupDir || ".backup",
+      ...options,
     };
 
     this.verificationResults = [];
@@ -32,7 +32,7 @@ class FixVerifier {
       totalVerified: 0,
       passed: 0,
       failed: 0,
-      rolledBack: 0
+      rolledBack: 0,
     };
   }
 
@@ -52,11 +52,11 @@ class FixVerifier {
       checks: {
         ast: null,
         syntax: null,
-        tests: null
+        tests: null,
       },
       passed: false,
       errors: [],
-      rolledBack: false
+      rolledBack: false,
     };
 
     try {
@@ -65,8 +65,8 @@ class FixVerifier {
         result.checks.ast = await this.validateAst(fix.filePath);
         if (!result.checks.ast.valid) {
           result.errors.push({
-            type: 'AST_VALIDATION',
-            message: result.checks.ast.error
+            type: "AST_VALIDATION",
+            message: result.checks.ast.error,
           });
         }
       }
@@ -76,8 +76,8 @@ class FixVerifier {
         result.checks.syntax = await this.checkSyntax(fix.filePath);
         if (!result.checks.syntax.valid) {
           result.errors.push({
-            type: 'SYNTAX_ERROR',
-            message: result.checks.syntax.error
+            type: "SYNTAX_ERROR",
+            message: result.checks.syntax.error,
           });
         }
       }
@@ -87,8 +87,8 @@ class FixVerifier {
         result.checks.tests = await this.runTests(fix.filePath);
         if (result.checks.tests && !result.checks.tests.passed) {
           result.errors.push({
-            type: 'TEST_FAILURE',
-            message: result.checks.tests.error
+            type: "TEST_FAILURE",
+            message: result.checks.tests.error,
           });
         }
       }
@@ -97,7 +97,11 @@ class FixVerifier {
       result.passed = result.errors.length === 0;
 
       // Step 4: Auto-rollback if verification failed
-      if (!result.passed && this.options.enableRollback && fix.originalContent) {
+      if (
+        !result.passed &&
+        this.options.enableRollback &&
+        fix.originalContent
+      ) {
         await this.rollback(fix.filePath, fix.originalContent);
         result.rolledBack = true;
         this.stats.rolledBack++;
@@ -113,11 +117,10 @@ class FixVerifier {
 
       this.verificationResults.push(result);
       return result;
-
     } catch (error) {
       result.errors.push({
-        type: 'VERIFICATION_ERROR',
-        message: error.message
+        type: "VERIFICATION_ERROR",
+        message: error.message,
       });
       result.passed = false;
       this.stats.failed++;
@@ -133,35 +136,34 @@ class FixVerifier {
    */
   async validateAst(filePath) {
     try {
-      const content = await fs.readFile(filePath, 'utf-8');
+      const content = await fs.readFile(filePath, "utf-8");
       const ext = path.extname(filePath);
 
       // Determine parser plugins based on file extension
-      const plugins = ['jsx', 'classProperties', 'objectRestSpread'];
-      if (ext === '.ts' || ext === '.tsx') {
-        plugins.push('typescript');
+      const plugins = ["jsx", "classProperties", "objectRestSpread"];
+      if (ext === ".ts" || ext === ".tsx") {
+        plugins.push("typescript");
       }
-      if (ext === '.tsx' || ext === '.jsx') {
-        plugins.push('jsx');
+      if (ext === ".tsx" || ext === ".jsx") {
+        plugins.push("jsx");
       }
 
       // Parse the file
       parse(content, {
-        sourceType: 'module',
+        sourceType: "module",
         plugins,
-        errorRecovery: false
+        errorRecovery: false,
       });
 
       return {
         valid: true,
-        message: 'AST validation passed'
+        message: "AST validation passed",
       };
-
     } catch (error) {
       return {
         valid: false,
         error: error.message,
-        location: error.loc
+        location: error.loc,
       };
     }
   }
@@ -176,8 +178,8 @@ class FixVerifier {
       const ext = path.extname(filePath);
 
       // Only check .js files with Node.js
-      if (ext === '.js') {
-        const content = await fs.readFile(filePath, 'utf-8');
+      if (ext === ".js") {
+        const content = await fs.readFile(filePath, "utf-8");
 
         // Try to compile the code
         try {
@@ -185,20 +187,19 @@ class FixVerifier {
         } catch (syntaxError) {
           return {
             valid: false,
-            error: syntaxError.message
+            error: syntaxError.message,
           };
         }
       }
 
       return {
         valid: true,
-        message: 'Syntax check passed'
+        message: "Syntax check passed",
       };
-
     } catch (error) {
       return {
         valid: false,
-        error: error.message
+        error: error.message,
       };
     }
   }
@@ -210,26 +211,26 @@ class FixVerifier {
    */
   async runTests(filePath) {
     const projectRoot = this.options.projectRoot || process.cwd();
-    const TestRunnerDetector = require('../test-runner-detector');
-    const TestExecutor = require('../test-executor');
+    const TestRunnerDetector = require("../test-runner-detector");
+    const TestExecutor = require("../test-executor");
     const detector = new TestRunnerDetector(projectRoot);
     const executor = new TestExecutor(projectRoot, detector);
 
     try {
       const result = await executor.runRelated(filePath, {
-        timeout: this.options.testTimeout || 60000
+        timeout: this.options.testTimeout || 60000,
       });
       return {
         passed: result.failed === 0 && !result.noTests,
         skipped: result.noTests || false,
-        message: result.noTests ? 'No related tests found' : undefined,
+        message: result.noTests ? "No related tests found" : undefined,
         output: result.output,
-        details: result
+        details: result,
       };
     } catch (error) {
       return {
         skipped: true,
-        message: `Test execution error: ${error.message}`
+        message: `Test execution error: ${error.message}`,
       };
     }
   }
@@ -246,10 +247,10 @@ class FixVerifier {
 
     // Common test file patterns
     const patterns = [
-      path.join(dir, '__tests__', `${basename}.test${ext}`),
-      path.join(dir, '__tests__', `${basename}.spec${ext}`),
+      path.join(dir, "__tests__", `${basename}.test${ext}`),
+      path.join(dir, "__tests__", `${basename}.spec${ext}`),
       path.join(dir, `${basename}.test${ext}`),
-      path.join(dir, `${basename}.spec${ext}`)
+      path.join(dir, `${basename}.spec${ext}`),
     ];
 
     // Return first matching pattern
@@ -268,7 +269,7 @@ class FixVerifier {
    */
   async rollback(filePath, originalContent) {
     try {
-      await fs.writeFile(filePath, originalContent, 'utf-8');
+      await fs.writeFile(filePath, originalContent, "utf-8");
       console.log(`⏪ Rolled back ${filePath}`);
     } catch (error) {
       console.error(`❌ Failed to rollback ${filePath}:`, error.message);
@@ -299,9 +300,10 @@ class FixVerifier {
   getStats() {
     return {
       ...this.stats,
-      successRate: this.stats.totalVerified > 0
-        ? ((this.stats.passed / this.stats.totalVerified) * 100).toFixed(1)
-        : 0
+      successRate:
+        this.stats.totalVerified > 0
+          ? ((this.stats.passed / this.stats.totalVerified) * 100).toFixed(1)
+          : 0,
     };
   }
 
@@ -313,8 +315,8 @@ class FixVerifier {
     return {
       stats: this.getStats(),
       results: this.verificationResults,
-      failedFixes: this.verificationResults.filter(r => !r.passed),
-      rolledBackFixes: this.verificationResults.filter(r => r.rolledBack)
+      failedFixes: this.verificationResults.filter((r) => !r.passed),
+      rolledBackFixes: this.verificationResults.filter((r) => r.rolledBack),
     };
   }
 
@@ -327,7 +329,7 @@ class FixVerifier {
       totalVerified: 0,
       passed: 0,
       failed: 0,
-      rolledBack: 0
+      rolledBack: 0,
     };
   }
 
@@ -337,24 +339,24 @@ class FixVerifier {
   printSummary() {
     const stats = this.getStats();
 
-    console.log('\n' + '─'.repeat(60));
-    console.log('📋 Fix Verification Summary');
-    console.log('─'.repeat(60));
+    console.log("\n" + "─".repeat(60));
+    console.log("📋 Fix Verification Summary");
+    console.log("─".repeat(60));
     console.log(`   Total Verified:  ${stats.totalVerified}`);
     console.log(`   ✅ Passed:        ${stats.passed}`);
     console.log(`   ❌ Failed:        ${stats.failed}`);
     console.log(`   ⏪ Rolled Back:   ${stats.rolledBack}`);
     console.log(`   Success Rate:    ${stats.successRate}%`);
-    console.log('─'.repeat(60));
+    console.log("─".repeat(60));
 
     // Print failed fixes details
     if (stats.failed > 0) {
-      console.log('\n❌ Failed Verifications:');
+      console.log("\n❌ Failed Verifications:");
       this.verificationResults
-        .filter(r => !r.passed)
-        .forEach(r => {
+        .filter((r) => !r.passed)
+        .forEach((r) => {
           console.log(`   ${r.filePath}`);
-          r.errors.forEach(e => {
+          r.errors.forEach((e) => {
             console.log(`      • ${e.type}: ${e.message}`);
           });
         });

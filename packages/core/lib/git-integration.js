@@ -17,8 +17,8 @@
  *   await git.commitFixes(fixes, { verbose: true });
  */
 
-const simpleGit = require('simple-git');
-const path = require('path');
+const simpleGit = require("simple-git");
+const path = require("path");
 
 class GitIntegration {
   constructor(config = {}) {
@@ -26,15 +26,15 @@ class GitIntegration {
       dryRun: config.dryRun || false,
       verbose: config.verbose || false,
       createBranch: config.createBranch || false,
-      branchPrefix: config.branchPrefix || 'codetitan/auto-fixes',
-      ...config
+      branchPrefix: config.branchPrefix || "codetitan/auto-fixes",
+      ...config,
     };
 
     this.stats = {
       filesStaged: 0,
       commitCreated: false,
       commitHash: null,
-      branchCreated: null
+      branchCreated: null,
     };
   }
 
@@ -73,39 +73,43 @@ class GitIntegration {
     // 1. Verify it's a git repository
     if (!(await this.isGitRepository(projectPath))) {
       if (this.config.verbose) {
-        console.log('⏭️  Not a git repository, skipping commit');
+        console.log("⏭️  Not a git repository, skipping commit");
       }
       return {
         success: false,
-        reason: 'not_a_git_repository',
-        message: 'Directory is not a git repository'
+        reason: "not_a_git_repository",
+        message: "Directory is not a git repository",
       };
     }
 
     // 2. Filter successful fixes
-    const successfulFixes = fixes.filter(f => f.success);
+    const successfulFixes = fixes.filter((f) => f.success);
 
     if (successfulFixes.length === 0) {
       if (this.config.verbose) {
-        console.log('⏭️  No successful fixes to commit');
+        console.log("⏭️  No successful fixes to commit");
       }
       return {
         success: false,
-        reason: 'no_fixes',
-        message: 'No successful fixes to commit'
+        reason: "no_fixes",
+        message: "No successful fixes to commit",
       };
     }
 
     // 3. Extract unique file paths
-    const filePaths = [...new Set(
-      successfulFixes.map(f => f.finding?.filePath || f.filePath).filter(Boolean)
-    )];
+    const filePaths = [
+      ...new Set(
+        successfulFixes
+          .map((f) => f.finding?.filePath || f.filePath)
+          .filter(Boolean),
+      ),
+    ];
 
     if (filePaths.length === 0) {
       return {
         success: false,
-        reason: 'no_files',
-        message: 'No file paths found in fixes'
+        reason: "no_files",
+        message: "No file paths found in fixes",
       };
     }
 
@@ -129,8 +133,8 @@ class GitIntegration {
     try {
       if (!this.config.dryRun) {
         // Convert absolute paths to relative paths
-        const relativePaths = filePaths.map(fp =>
-          path.relative(projectPath, fp)
+        const relativePaths = filePaths.map((fp) =>
+          path.relative(projectPath, fp),
         );
 
         await git.add(relativePaths);
@@ -138,7 +142,7 @@ class GitIntegration {
 
         if (this.config.verbose) {
           console.log(`📦 Staged ${relativePaths.length} file(s):`);
-          relativePaths.forEach(fp => console.log(`   - ${fp}`));
+          relativePaths.forEach((fp) => console.log(`   - ${fp}`));
         }
       } else {
         if (this.config.verbose) {
@@ -148,9 +152,9 @@ class GitIntegration {
     } catch (error) {
       return {
         success: false,
-        reason: 'git_add_failed',
+        reason: "git_add_failed",
         message: `Failed to stage files: ${error.message}`,
-        error: error.message
+        error: error.message,
       };
     }
 
@@ -158,10 +162,10 @@ class GitIntegration {
     const commitMessage = this.generateCommitMessage(successfulFixes);
 
     if (this.config.verbose) {
-      console.log('\n📝 Commit message:');
-      console.log('─'.repeat(60));
+      console.log("\n📝 Commit message:");
+      console.log("─".repeat(60));
       console.log(commitMessage);
-      console.log('─'.repeat(60));
+      console.log("─".repeat(60));
     }
 
     // 7. Create commit
@@ -181,15 +185,14 @@ class GitIntegration {
           branch: this.stats.branchCreated,
           filesStaged: this.stats.filesStaged,
           fixesApplied: successfulFixes.length,
-          message: commitMessage
+          message: commitMessage,
         };
-
       } catch (error) {
         return {
           success: false,
-          reason: 'git_commit_failed',
+          reason: "git_commit_failed",
           message: `Failed to create commit: ${error.message}`,
-          error: error.message
+          error: error.message,
         };
       }
     } else {
@@ -200,7 +203,7 @@ class GitIntegration {
         filesStaged: filePaths.length,
         fixesApplied: successfulFixes.length,
         message: commitMessage,
-        preview: 'Commit would be created (dry run mode)'
+        preview: "Commit would be created (dry run mode)",
       };
     }
   }
@@ -211,8 +214,8 @@ class GitIntegration {
   generateCommitMessage(fixes) {
     // Group fixes by category
     const categories = {};
-    fixes.forEach(fix => {
-      const category = fix.finding?.category || 'UNKNOWN';
+    fixes.forEach((fix) => {
+      const category = fix.finding?.category || "UNKNOWN";
       if (!categories[category]) {
         categories[category] = [];
       }
@@ -223,7 +226,8 @@ class GitIntegration {
     const categoryCounts = Object.entries(categories).map(([cat, fixes]) => ({
       category: cat,
       count: fixes.length,
-      confidence: fixes.reduce((sum, f) => sum + (f.confidence || 0.8), 0) / fixes.length
+      confidence:
+        fixes.reduce((sum, f) => sum + (f.confidence || 0.8), 0) / fixes.length,
     }));
 
     // Sort by count descending
@@ -231,34 +235,39 @@ class GitIntegration {
 
     // Calculate overall stats
     const totalFixes = fixes.length;
-    const avgConfidence = fixes.reduce((sum, f) => sum + (f.confidence || 0.8), 0) / totalFixes;
-    const uniqueFiles = [...new Set(fixes.map(f => f.finding?.filePath || f.filePath))].length;
+    const avgConfidence =
+      fixes.reduce((sum, f) => sum + (f.confidence || 0.8), 0) / totalFixes;
+    const uniqueFiles = [
+      ...new Set(fixes.map((f) => f.finding?.filePath || f.filePath)),
+    ].length;
 
     // Build commit message
     const lines = [];
 
     // Title
-    lines.push(`🔧 Auto-fix: Applied ${totalFixes} automated code improvement${totalFixes > 1 ? 's' : ''}`);
-    lines.push('');
+    lines.push(
+      `🔧 Auto-fix: Applied ${totalFixes} automated code improvement${totalFixes > 1 ? "s" : ""}`,
+    );
+    lines.push("");
 
     // Details by category
-    lines.push('Details:');
+    lines.push("Details:");
     categoryCounts.forEach(({ category, count }) => {
       const categoryName = this.getCategoryDisplayName(category);
-      lines.push(`- ${categoryName}: ${count} fix${count > 1 ? 'es' : ''}`);
+      lines.push(`- ${categoryName}: ${count} fix${count > 1 ? "es" : ""}`);
     });
-    lines.push('');
+    lines.push("");
 
     // Files modified
     lines.push(`Files modified: ${uniqueFiles}`);
     lines.push(`Avg confidence: ${(avgConfidence * 100).toFixed(1)}%`);
-    lines.push('');
+    lines.push("");
 
     // Footer
-    lines.push('🤖 Generated with CodeTitan Auto-Fixer');
-    lines.push('https://github.com/your-org/codetitan');
+    lines.push("🤖 Generated with CodeTitan Auto-Fixer");
+    lines.push("https://github.com/your-org/codetitan");
 
-    return lines.join('\n');
+    return lines.join("\n");
   }
 
   /**
@@ -266,17 +275,17 @@ class GitIntegration {
    */
   getCategoryDisplayName(category) {
     const categoryNames = {
-      'SYNC_IO': 'Async I/O conversions',
-      'COMMAND_EXEC': 'Command execution security',
-      'MAGIC_NUMBER': 'Magic number extraction',
-      'HARDCODED_SECRET': 'Hardcoded secret removal',
-      'SQL_INJECTION': 'SQL injection prevention',
-      'XSS': 'XSS vulnerability fixes',
-      'MISSING_DOCS': 'Documentation additions',
-      'COMPLEX_CONDITION': 'Complex condition refactoring',
-      'MISSING_TESTS': 'Test generation',
-      'UNUSED_IMPORTS': 'Unused import removal',
-      'CONSOLE_LOG': 'Logging improvements'
+      SYNC_IO: "Async I/O conversions",
+      COMMAND_EXEC: "Command execution security",
+      MAGIC_NUMBER: "Magic number extraction",
+      HARDCODED_SECRET: "Hardcoded secret removal",
+      SQL_INJECTION: "SQL injection prevention",
+      XSS: "XSS vulnerability fixes",
+      MISSING_DOCS: "Documentation additions",
+      COMPLEX_CONDITION: "Complex condition refactoring",
+      MISSING_TESTS: "Test generation",
+      UNUSED_IMPORTS: "Unused import removal",
+      CONSOLE_LOG: "Logging improvements",
     };
 
     return categoryNames[category] || category;
@@ -287,7 +296,7 @@ class GitIntegration {
    */
   getStats() {
     return {
-      ...this.stats
+      ...this.stats,
     };
   }
 
@@ -299,7 +308,7 @@ class GitIntegration {
       filesStaged: 0,
       commitCreated: false,
       commitHash: null,
-      branchCreated: null
+      branchCreated: null,
     };
   }
 }

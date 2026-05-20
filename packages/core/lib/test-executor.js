@@ -1,9 +1,9 @@
-'use strict';
+"use strict";
 
-const { exec } = require('child_process');
-const path = require('path');
-const fs = require('fs').promises;
-const fsSync = require('fs');
+const { exec } = require("child_process");
+const path = require("path");
+const fs = require("fs").promises;
+const fsSync = require("fs");
 
 /**
  * Runs tests and parses results from any supported framework.
@@ -24,15 +24,15 @@ class TestExecutor {
     const info = await this.detector.detect();
     const { stdout, stderr, timedOut } = await this.runWithTimeout(
       info.command,
-      options.timeout || 120000
+      options.timeout || 120000,
     );
-    const output = stdout + (stderr ? `\nSTDERR:\n${stderr}` : '');
+    const output = stdout + (stderr ? `\nSTDERR:\n${stderr}` : "");
     return {
       ...this.parseResults(stdout, stderr, info.framework),
       output,
       timedOut: timedOut || false,
       framework: info.framework,
-      command: info.command
+      command: info.command,
     };
   }
 
@@ -45,29 +45,41 @@ class TestExecutor {
    */
   async runRelated(filePath, options = {}) {
     const info = await this.detector.detect();
-    const relatedTests = this.detector.getRelatedTests(filePath, info.framework);
+    const relatedTests = this.detector.getRelatedTests(
+      filePath,
+      info.framework,
+    );
 
     if (relatedTests.length === 0) {
       return {
-        passed: 0, failed: 0, skipped: 0, total: 0,
-        duration: 0, output: 'No related tests found',
-        noTests: true, framework: info.framework
+        passed: 0,
+        failed: 0,
+        skipped: 0,
+        total: 0,
+        duration: 0,
+        output: "No related tests found",
+        noTests: true,
+        framework: info.framework,
       };
     }
 
-    const command = this._buildRelatedCommand(info.framework, relatedTests, filePath);
+    const command = this._buildRelatedCommand(
+      info.framework,
+      relatedTests,
+      filePath,
+    );
     const { stdout, stderr, timedOut } = await this.runWithTimeout(
       command,
-      options.timeout || 60000
+      options.timeout || 60000,
     );
-    const output = stdout + (stderr ? `\nSTDERR:\n${stderr}` : '');
+    const output = stdout + (stderr ? `\nSTDERR:\n${stderr}` : "");
     return {
       ...this.parseResults(stdout, stderr, info.framework),
       output,
       timedOut: timedOut || false,
       framework: info.framework,
       command,
-      relatedTests
+      relatedTests,
     };
   }
 
@@ -81,22 +93,23 @@ class TestExecutor {
     const basename = path.basename(absPath, path.extname(absPath));
 
     switch (framework) {
-      case 'jest':
+      case "jest":
         // Use --testPathPattern to match related test files
         return `npx jest --json --passWithNoTests --forceExit --testPathPattern="${basename}"`;
-      case 'vitest':
-        return `npx vitest run --reporter=json ${relatedTests.join(' ')}`;
-      case 'mocha':
-        return `npx mocha --reporter json ${relatedTests.join(' ')}`;
-      case 'pytest':
-        return `python -m pytest --tb=short -q ${relatedTests.join(' ')}`;
-      case 'go': {
+      case "vitest":
+        return `npx vitest run --reporter=json ${relatedTests.join(" ")}`;
+      case "mocha":
+        return `npx mocha --reporter json ${relatedTests.join(" ")}`;
+      case "pytest":
+        return `python -m pytest --tb=short -q ${relatedTests.join(" ")}`;
+      case "go": {
         // Go: run tests in the same package directory
-        const dir = path.relative(this.projectRoot, path.dirname(absPath)) || '.';
-        return `go test -json ./${dir.replace(/\\/g, '/')}`;
+        const dir =
+          path.relative(this.projectRoot, path.dirname(absPath)) || ".";
+        return `go test -json ./${dir.replace(/\\/g, "/")}`;
       }
       default:
-        return 'npm test';
+        return "npm test";
     }
   }
 
@@ -115,33 +128,47 @@ class TestExecutor {
         { cwd: this.projectRoot, maxBuffer: 10 * 1024 * 1024 },
         (err, stdout, stderr) => {
           if (didTimeout) {
-            resolve({ stdout: stdout || '', stderr: stderr || '', timedOut: true, exitCode: null });
+            resolve({
+              stdout: stdout || "",
+              stderr: stderr || "",
+              timedOut: true,
+              exitCode: null,
+            });
           } else {
             resolve({
-              stdout: stdout || '',
-              stderr: stderr || '',
+              stdout: stdout || "",
+              stderr: stderr || "",
               timedOut: false,
-              exitCode: err ? err.code : 0
+              exitCode: err ? err.code : 0,
             });
           }
-        }
+        },
       );
 
       const timer = setTimeout(() => {
         didTimeout = true;
         try {
-          if (process.platform === 'win32' && child.pid) {
+          if (process.platform === "win32" && child.pid) {
             // On Windows, exec() spawns via cmd.exe which doesn't propagate kills
-            require('child_process').execSync(`taskkill /F /T /PID ${child.pid}`, { stdio: 'ignore' });
+            require("child_process").execSync(
+              `taskkill /F /T /PID ${child.pid}`,
+              { stdio: "ignore" },
+            );
           } else {
-            child.kill('SIGKILL');
+            child.kill("SIGKILL");
           }
-        } catch { /* ignore */ }
+        } catch {
+          /* ignore */
+        }
         // Force-resolve in case the callback never fires
-        setTimeout(() => resolve({ stdout: '', stderr: '', timedOut: true, exitCode: null }), 500);
+        setTimeout(
+          () =>
+            resolve({ stdout: "", stderr: "", timedOut: true, exitCode: null }),
+          500,
+        );
       }, timeoutMs);
 
-      child.on('close', () => clearTimeout(timer));
+      child.on("close", () => clearTimeout(timer));
     });
   }
 
@@ -153,19 +180,26 @@ class TestExecutor {
    * @returns {{ passed, failed, skipped, total, duration, details }}
    */
   parseResults(stdout, stderr, framework) {
-    const base = { passed: 0, failed: 0, skipped: 0, total: 0, duration: 0, details: [] };
+    const base = {
+      passed: 0,
+      failed: 0,
+      skipped: 0,
+      total: 0,
+      duration: 0,
+      details: [],
+    };
 
     try {
       switch (framework) {
-        case 'jest':
+        case "jest":
           return this._parseJest(stdout, stderr, base);
-        case 'vitest':
+        case "vitest":
           return this._parseVitest(stdout, stderr, base);
-        case 'mocha':
+        case "mocha":
           return this._parseMocha(stdout, stderr, base);
-        case 'pytest':
+        case "pytest":
           return this._parsePytest(stdout, stderr, base);
-        case 'go':
+        case "go":
           return this._parseGoTest(stdout, stderr, base);
         default:
           return this._parseFallback(stdout, stderr, base);
@@ -177,7 +211,7 @@ class TestExecutor {
 
   _parseJest(stdout, stderr, base) {
     // Jest outputs a JSON object — find the opening brace of the top-level object
-    const combined = stdout + '\n' + stderr;
+    const combined = stdout + "\n" + stderr;
 
     // Try known entry-points in order of specificity
     const markers = ['{"numTotalTestSuites"', '{"numTotalTests"'];
@@ -186,12 +220,12 @@ class TestExecutor {
       if (idx === -1) continue;
       try {
         const json = JSON.parse(combined.slice(idx));
-        const details = (json.testResults || []).flatMap(suite =>
-          (suite.testResults || []).map(t => ({
+        const details = (json.testResults || []).flatMap((suite) =>
+          (suite.testResults || []).map((t) => ({
             name: t.fullName || t.title,
             status: t.status,
-            duration: t.duration
-          }))
+            duration: t.duration,
+          })),
         );
         return {
           passed: json.numPassedTests || 0,
@@ -199,27 +233,35 @@ class TestExecutor {
           skipped: json.numPendingTests || 0,
           total: json.numTotalTests || 0,
           duration: (json.testResults || []).reduce(
-            (s, r) => s + ((r.endTime || 0) - (r.startTime || 0)), 0
+            (s, r) => s + ((r.endTime || 0) - (r.startTime || 0)),
+            0,
           ),
-          details
+          details,
         };
-      } catch { /* try next marker */ }
+      } catch {
+        /* try next marker */
+      }
     }
 
     // Last resort: try parsing the entire stdout as JSON
     try {
       const json = JSON.parse(stdout.trim());
-      if (json.numPassedTests !== undefined || json.numTotalTests !== undefined) {
+      if (
+        json.numPassedTests !== undefined ||
+        json.numTotalTests !== undefined
+      ) {
         return {
           passed: json.numPassedTests || 0,
           failed: json.numFailedTests || 0,
           skipped: json.numPendingTests || 0,
           total: json.numTotalTests || 0,
           duration: 0,
-          details: []
+          details: [],
         };
       }
-    } catch { /* fall through */ }
+    } catch {
+      /* fall through */
+    }
 
     return this._parseFallback(stdout, stderr, base);
   }
@@ -232,8 +274,9 @@ class TestExecutor {
         failed: json.numFailedTests || 0,
         skipped: json.numSkippedTests || 0,
         total: json.numTotalTests || 0,
-        duration: json.testResults?.reduce((s, r) => s + (r.duration || 0), 0) || 0,
-        details: []
+        duration:
+          json.testResults?.reduce((s, r) => s + (r.duration || 0), 0) || 0,
+        details: [],
       };
     } catch {
       return this._parseFallback(stdout, stderr, base);
@@ -250,11 +293,11 @@ class TestExecutor {
         skipped: stats.pending || 0,
         total: stats.tests || (stats.passes || 0) + (stats.failures || 0),
         duration: stats.duration || 0,
-        details: (json.failures || []).map(f => ({
+        details: (json.failures || []).map((f) => ({
           name: f.fullTitle,
-          status: 'failed',
-          error: f.err?.message
-        }))
+          status: "failed",
+          error: f.err?.message,
+        })),
       };
     } catch {
       return this._parseFallback(stdout, stderr, base);
@@ -262,7 +305,7 @@ class TestExecutor {
   }
 
   _parsePytest(stdout, stderr, base) {
-    const combined = stdout + '\n' + stderr;
+    const combined = stdout + "\n" + stderr;
     const result = { ...base };
 
     // "5 passed, 2 failed, 1 warning"
@@ -286,16 +329,18 @@ class TestExecutor {
 
   _parseGoTest(stdout, stderr, base) {
     const result = { ...base };
-    const lines = (stdout + '\n' + stderr).split('\n');
+    const lines = (stdout + "\n" + stderr).split("\n");
 
     for (const line of lines) {
       try {
         const ev = JSON.parse(line);
-        if (ev.Action === 'pass' && ev.Test) result.passed++;
-        else if (ev.Action === 'fail' && ev.Test) result.failed++;
-        else if (ev.Action === 'skip' && ev.Test) result.skipped++;
+        if (ev.Action === "pass" && ev.Test) result.passed++;
+        else if (ev.Action === "fail" && ev.Test) result.failed++;
+        else if (ev.Action === "skip" && ev.Test) result.skipped++;
         if (ev.Elapsed) result.duration += Math.round(ev.Elapsed * 1000);
-      } catch { /* skip non-JSON lines */ }
+      } catch {
+        /* skip non-JSON lines */
+      }
     }
 
     result.total = result.passed + result.failed + result.skipped;
@@ -303,7 +348,7 @@ class TestExecutor {
   }
 
   _parseFallback(stdout, stderr, base) {
-    const combined = stdout + '\n' + stderr;
+    const combined = stdout + "\n" + stderr;
     const result = { ...base };
 
     const passMatch = combined.match(/(\d+)\s*pass(?:ed|ing)?/i);
@@ -330,16 +375,16 @@ class TestExecutor {
 
     const ext = path.extname(absPath).toLowerCase();
 
-    if (['.js', '.jsx', '.mjs', '.cjs'].includes(ext)) {
+    if ([".js", ".jsx", ".mjs", ".cjs"].includes(ext)) {
       return this._checkJsSyntax(absPath);
     }
-    if (['.ts', '.tsx'].includes(ext)) {
+    if ([".ts", ".tsx"].includes(ext)) {
       return this._checkTsSyntax(absPath);
     }
-    if (ext === '.py') {
+    if (ext === ".py") {
       return this._checkPythonSyntax(absPath);
     }
-    if (ext === '.go') {
+    if (ext === ".go") {
       return this._checkGoSyntax(absPath);
     }
 
@@ -349,11 +394,11 @@ class TestExecutor {
 
   async _checkJsSyntax(filePath) {
     try {
-      const { parse } = require('@babel/parser');
-      const code = await fs.readFile(filePath, 'utf-8');
+      const { parse } = require("@babel/parser");
+      const code = await fs.readFile(filePath, "utf-8");
       parse(code, {
-        sourceType: 'unambiguous',
-        plugins: ['jsx', 'typescript', 'decorators-legacy', 'classProperties']
+        sourceType: "unambiguous",
+        plugins: ["jsx", "typescript", "decorators-legacy", "classProperties"],
       });
       return { valid: true, errors: [] };
     } catch (err) {
@@ -369,12 +414,12 @@ class TestExecutor {
   async _checkPythonSyntax(filePath) {
     const { stdout, stderr } = await this.runWithTimeout(
       `python -c "import ast; ast.parse(open(${JSON.stringify(filePath)}).read())"`,
-      10000
+      10000,
     );
     const errors = stderr.trim();
     return {
       valid: !errors,
-      errors: errors ? [errors] : []
+      errors: errors ? [errors] : [],
     };
   }
 
@@ -382,12 +427,12 @@ class TestExecutor {
     const dir = path.dirname(filePath);
     const { stderr } = await this.runWithTimeout(
       `go vet ${JSON.stringify(filePath)}`,
-      15000
+      15000,
     );
     const errors = stderr.trim();
     return {
       valid: !errors,
-      errors: errors ? [errors] : []
+      errors: errors ? [errors] : [],
     };
   }
 }

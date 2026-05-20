@@ -3,13 +3,13 @@
  * Converts string concatenation to parameterized queries
  */
 
-const fs = require('fs').promises;
+const fs = require("fs").promises;
 
 class SQLInjectionFixer {
   async fix(finding, config) {
     try {
-      const code = await fs.readFile(finding.filePath, 'utf8');
-      const lines = code.split('\n');
+      const code = await fs.readFile(finding.filePath, "utf8");
+      const lines = code.split("\n");
 
       const lineIndex = (finding.line || finding.lineNumber) - 1;
       const originalLine = lines[lineIndex];
@@ -31,31 +31,31 @@ class SQLInjectionFixer {
             });
 
             // Extract variable names
-            const varNames = vars.map(v => v.replace(/\$\{|\}/g, ''));
+            const varNames = vars.map((v) => v.replace(/\$\{|\}/g, ""));
 
-            return `${method}(\`${fixedQuery}\`, [${varNames.join(', ')}])`;
-          }
+            return `${method}(\`${fixedQuery}\`, [${varNames.join(", ")}])`;
+          },
         },
         // query("SELECT * FROM users WHERE id = " + id)
         {
           regex: /(query|execute)\s*\(\s*["']([^"']+)["']\s*\+\s*(\w+)/,
           replacement: (match, method, query, variable) => {
             return `${method}("${query}$1", [${variable}])`;
-          }
+          },
         },
         // db.query(`SELECT * FROM ${table}`)
         {
           regex: /db\.(query|execute)\s*\(\s*`([^`]*\$\{[^}]+\}[^`]*)`/,
           replacement: (match, method, query) => {
             // Add comment to use parameterized query
-            return match + ' // TODO: Use parameterized query';
-          }
-        }
+            return match + " // TODO: Use parameterized query";
+          },
+        },
       ];
 
       let fixedLine = originalLine;
       let matched = false;
-      let confidence = 0.70;
+      let confidence = 0.7;
 
       for (const pattern of patterns) {
         if (pattern.regex.test(originalLine)) {
@@ -68,16 +68,21 @@ class SQLInjectionFixer {
 
       if (!matched) {
         // Generic fix: add warning comment
-        if (originalLine.includes('query') || originalLine.includes('execute')) {
-          fixedLine = originalLine + ' // WARNING: Potential SQL injection - use parameterized queries';
-          confidence = 0.60;
+        if (
+          originalLine.includes("query") ||
+          originalLine.includes("execute")
+        ) {
+          fixedLine =
+            originalLine +
+            " // WARNING: Potential SQL injection - use parameterized queries";
+          confidence = 0.6;
         }
       }
 
       // Apply fix
       if (!config.dryRun && fixedLine !== originalLine) {
         lines[lineIndex] = fixedLine;
-        await fs.writeFile(finding.filePath, lines.join('\n'), 'utf8');
+        await fs.writeFile(finding.filePath, lines.join("\n"), "utf8");
 
         return {
           success: true,
@@ -85,8 +90,8 @@ class SQLInjectionFixer {
           fixedLine,
           confidence,
           message: matched
-            ? 'Converted to parameterized query'
-            : 'Added SQL injection warning comment'
+            ? "Converted to parameterized query"
+            : "Added SQL injection warning comment",
         };
       }
 
@@ -95,13 +100,12 @@ class SQLInjectionFixer {
         originalLine,
         fixedLine,
         confidence,
-        dryRun: config.dryRun
+        dryRun: config.dryRun,
       };
-
     } catch (error) {
       return {
         success: false,
-        error: error.message
+        error: error.message,
       };
     }
   }

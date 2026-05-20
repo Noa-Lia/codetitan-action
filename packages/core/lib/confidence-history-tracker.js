@@ -15,7 +15,7 @@
  * @module confidence-history-tracker
  */
 
-const { createClient } = require('@supabase/supabase-js');
+const { createClient } = require("@supabase/supabase-js");
 
 class ConfidenceHistoryTracker {
   constructor(config = {}) {
@@ -25,14 +25,14 @@ class ConfidenceHistoryTracker {
       enableTracking: config.enableTracking !== false,
       batchSize: config.batchSize || 100,
       flushInterval: config.flushInterval || 30000, // 30 seconds
-      ...config
+      ...config,
     };
 
     // Initialize Supabase client
     if (this.config.supabaseUrl && this.config.supabaseKey) {
       this.supabase = createClient(
         this.config.supabaseUrl,
-        this.config.supabaseKey
+        this.config.supabaseKey,
       );
     }
 
@@ -44,7 +44,7 @@ class ConfidenceHistoryTracker {
     if (this.config.enableTracking && this.supabase) {
       this.flushInterval = setInterval(
         () => this.flush(),
-        this.config.flushInterval
+        this.config.flushInterval,
       );
     }
 
@@ -53,7 +53,7 @@ class ConfidenceHistoryTracker {
       scoresTracked: 0,
       outcomesRecorded: 0,
       batchesFlushed: 0,
-      errors: 0
+      errors: 0,
     };
   }
 
@@ -71,10 +71,10 @@ class ConfidenceHistoryTracker {
       confidenceResult,
       sourceProvider,
       supportingProviders = [],
-      algorithmVersion = 'v1.0',
+      algorithmVersion = "v1.0",
       experimentId = null,
       fixApplied = false,
-      fixSucceeded = null
+      fixSucceeded = null,
     } = params;
 
     if (!this.config.enableTracking || !this.supabase) {
@@ -89,7 +89,7 @@ class ConfidenceHistoryTracker {
       // Finding context
       category: finding.category,
       severity: finding.severity,
-      domain: finding.domain || 'unknown',
+      domain: finding.domain || "unknown",
       file_path: finding.file_path || finding.filePath,
       line_number: finding.line_number || finding.lineNumber,
 
@@ -104,18 +104,28 @@ class ConfidenceHistoryTracker {
       uncertainty_score: Math.round(confidenceResult.uncertainty || 0),
 
       // Score breakdown
-      score_provider_agreement: Math.round(confidenceResult.breakdown.providerAgreement || 0),
-      score_severity_consistency: Math.round(confidenceResult.breakdown.severityConsistency || 0),
-      score_pattern_strength: Math.round(confidenceResult.breakdown.patternStrength || 0),
-      score_historical_accuracy: Math.round(confidenceResult.breakdown.historicalAccuracy || 0),
-      score_context_signals: Math.round(confidenceResult.breakdown.contextSignals || 0),
+      score_provider_agreement: Math.round(
+        confidenceResult.breakdown.providerAgreement || 0,
+      ),
+      score_severity_consistency: Math.round(
+        confidenceResult.breakdown.severityConsistency || 0,
+      ),
+      score_pattern_strength: Math.round(
+        confidenceResult.breakdown.patternStrength || 0,
+      ),
+      score_historical_accuracy: Math.round(
+        confidenceResult.breakdown.historicalAccuracy || 0,
+      ),
+      score_context_signals: Math.round(
+        confidenceResult.breakdown.contextSignals || 0,
+      ),
 
       // Weights (from confidence scorer config)
-      weight_provider_agreement: 0.40,
+      weight_provider_agreement: 0.4,
       weight_severity_consistency: 0.15,
-      weight_pattern_strength: 0.20,
+      weight_pattern_strength: 0.2,
       weight_historical_accuracy: 0.15,
-      weight_context_signals: 0.10,
+      weight_context_signals: 0.1,
 
       // Explanation
       explanation: confidenceResult.explanation,
@@ -133,8 +143,8 @@ class ConfidenceHistoryTracker {
       // Metadata
       metadata: {
         finding_message: finding.message?.substring(0, 500),
-        code_snippet: finding.code_snippet?.substring(0, 200)
-      }
+        code_snippet: finding.code_snippet?.substring(0, 200),
+      },
     };
 
     try {
@@ -152,12 +162,12 @@ class ConfidenceHistoryTracker {
       } else {
         // Immediate insert
         const { data, error } = await this.supabase
-          .from('confidence_scores')
+          .from("confidence_scores")
           .insert([scoreRecord])
           .select();
 
         if (error) {
-          console.error('[ConfidenceTracker] Error tracking score:', error);
+          console.error("[ConfidenceTracker] Error tracking score:", error);
           this.stats.errors++;
           return { tracked: false, error };
         }
@@ -166,7 +176,7 @@ class ConfidenceHistoryTracker {
         return { tracked: true, scoreId: data[0].id, data: data[0] };
       }
     } catch (error) {
-      console.error('[ConfidenceTracker] Exception tracking score:', error);
+      console.error("[ConfidenceTracker] Exception tracking score:", error);
       this.stats.errors++;
       return { tracked: false, error: error.message };
     }
@@ -183,7 +193,7 @@ class ConfidenceHistoryTracker {
       confidenceScoreId,
       findingId = null,
       outcomeType,
-      outcomeStatus = 'SUCCESS',
+      outcomeStatus = "SUCCESS",
       wasCorrect = null,
       fixWorked = null,
       introducedBugs = false,
@@ -194,8 +204,8 @@ class ConfidenceHistoryTracker {
       userComment = null,
       userId = null,
       timeToOutcomeMs = null,
-      validationMethod = 'automated',
-      impactAssessment = null
+      validationMethod = "automated",
+      impactAssessment = null,
     } = params;
 
     if (!this.config.enableTracking || !this.supabase) {
@@ -224,7 +234,7 @@ class ConfidenceHistoryTracker {
       time_to_outcome_ms: timeToOutcomeMs,
       validation_method: validationMethod,
 
-      impact_assessment: impactAssessment
+      impact_assessment: impactAssessment,
     };
 
     try {
@@ -242,12 +252,12 @@ class ConfidenceHistoryTracker {
       } else {
         // Immediate insert
         const { data, error } = await this.supabase
-          .from('confidence_outcomes')
+          .from("confidence_outcomes")
           .insert([outcomeRecord])
           .select();
 
         if (error) {
-          console.error('[ConfidenceTracker] Error recording outcome:', error);
+          console.error("[ConfidenceTracker] Error recording outcome:", error);
           this.stats.errors++;
           return { recorded: false, error };
         }
@@ -256,7 +266,7 @@ class ConfidenceHistoryTracker {
         return { recorded: true, outcomeId: data[0].id, data: data[0] };
       }
     } catch (error) {
-      console.error('[ConfidenceTracker] Exception recording outcome:', error);
+      console.error("[ConfidenceTracker] Exception recording outcome:", error);
       this.stats.errors++;
       return { recorded: false, error: error.message };
     }
@@ -272,12 +282,12 @@ class ConfidenceHistoryTracker {
 
     try {
       const { data, error } = await this.supabase
-        .from('confidence_scores')
+        .from("confidence_scores")
         .insert(batch)
         .select();
 
       if (error) {
-        console.error('[ConfidenceTracker] Error flushing scores:', error);
+        console.error("[ConfidenceTracker] Error flushing scores:", error);
         this.stats.errors++;
         // Re-queue on error
         this.scoreQueue.unshift(...batch);
@@ -287,7 +297,7 @@ class ConfidenceHistoryTracker {
       this.stats.batchesFlushed++;
       return { flushed: batch.length, data };
     } catch (error) {
-      console.error('[ConfidenceTracker] Exception flushing scores:', error);
+      console.error("[ConfidenceTracker] Exception flushing scores:", error);
       this.stats.errors++;
       // Re-queue on error
       this.scoreQueue.unshift(...batch);
@@ -305,12 +315,12 @@ class ConfidenceHistoryTracker {
 
     try {
       const { data, error } = await this.supabase
-        .from('confidence_outcomes')
+        .from("confidence_outcomes")
         .insert(batch)
         .select();
 
       if (error) {
-        console.error('[ConfidenceTracker] Error flushing outcomes:', error);
+        console.error("[ConfidenceTracker] Error flushing outcomes:", error);
         this.stats.errors++;
         // Re-queue on error
         this.outcomeQueue.unshift(...batch);
@@ -320,7 +330,7 @@ class ConfidenceHistoryTracker {
       this.stats.batchesFlushed++;
       return { flushed: batch.length, data };
     } catch (error) {
-      console.error('[ConfidenceTracker] Exception flushing outcomes:', error);
+      console.error("[ConfidenceTracker] Exception flushing outcomes:", error);
       this.stats.errors++;
       // Re-queue on error
       this.outcomeQueue.unshift(...batch);
@@ -334,12 +344,18 @@ class ConfidenceHistoryTracker {
   async flush() {
     const results = await Promise.allSettled([
       this.flushScores(),
-      this.flushOutcomes()
+      this.flushOutcomes(),
     ]);
 
     return {
-      scores: results[0].status === 'fulfilled' ? results[0].value : { flushed: 0, error: results[0].reason },
-      outcomes: results[1].status === 'fulfilled' ? results[1].value : { flushed: 0, error: results[1].reason }
+      scores:
+        results[0].status === "fulfilled"
+          ? results[0].value
+          : { flushed: 0, error: results[0].reason },
+      outcomes:
+        results[1].status === "fulfilled"
+          ? results[1].value
+          : { flushed: 0, error: results[1].reason },
     };
   }
 
@@ -351,14 +367,17 @@ class ConfidenceHistoryTracker {
 
     try {
       const { data, error } = await this.supabase
-        .from('confidence_accuracy_by_level')
-        .select('*')
-        .order('confidence_level');
+        .from("confidence_accuracy_by_level")
+        .select("*")
+        .order("confidence_level");
 
       if (error) throw error;
       return data;
     } catch (error) {
-      console.error('[ConfidenceTracker] Error getting accuracy by level:', error);
+      console.error(
+        "[ConfidenceTracker] Error getting accuracy by level:",
+        error,
+      );
       return null;
     }
   }
@@ -371,14 +390,17 @@ class ConfidenceHistoryTracker {
 
     try {
       const { data, error } = await this.supabase
-        .from('provider_comparison')
-        .select('*')
-        .order('accuracy_pct', { ascending: false, nullsFirst: false });
+        .from("provider_comparison")
+        .select("*")
+        .order("accuracy_pct", { ascending: false, nullsFirst: false });
 
       if (error) throw error;
       return data;
     } catch (error) {
-      console.error('[ConfidenceTracker] Error getting provider comparison:', error);
+      console.error(
+        "[ConfidenceTracker] Error getting provider comparison:",
+        error,
+      );
       return null;
     }
   }
@@ -391,15 +413,15 @@ class ConfidenceHistoryTracker {
 
     try {
       const { data, error } = await this.supabase
-        .from('recent_confidence_trends')
-        .select('*')
-        .order('date', { ascending: false })
+        .from("recent_confidence_trends")
+        .select("*")
+        .order("date", { ascending: false })
         .limit(days);
 
       if (error) throw error;
       return data;
     } catch (error) {
-      console.error('[ConfidenceTracker] Error getting recent trends:', error);
+      console.error("[ConfidenceTracker] Error getting recent trends:", error);
       return null;
     }
   }
@@ -411,33 +433,33 @@ class ConfidenceHistoryTracker {
     if (!this.supabase) return null;
 
     const {
-      periodType = 'daily',
+      periodType = "daily",
       projectId = null,
       category = null,
       domain = null,
       provider = null,
-      limit = 30
+      limit = 30,
     } = params;
 
     try {
       let query = this.supabase
-        .from('confidence_calibration')
-        .select('*')
-        .eq('period_type', periodType);
+        .from("confidence_calibration")
+        .select("*")
+        .eq("period_type", periodType);
 
-      if (projectId) query = query.eq('project_id', projectId);
-      if (category) query = query.eq('category', category);
-      if (domain) query = query.eq('domain', domain);
-      if (provider) query = query.eq('provider', provider);
+      if (projectId) query = query.eq("project_id", projectId);
+      if (category) query = query.eq("category", category);
+      if (domain) query = query.eq("domain", domain);
+      if (provider) query = query.eq("provider", provider);
 
       const { data, error } = await query
-        .order('period_start', { ascending: false })
+        .order("period_start", { ascending: false })
         .limit(limit);
 
       if (error) throw error;
       return data;
     } catch (error) {
-      console.error('[ConfidenceTracker] Error getting calibration:', error);
+      console.error("[ConfidenceTracker] Error getting calibration:", error);
       return null;
     }
   }
@@ -457,30 +479,32 @@ class ConfidenceHistoryTracker {
       providerAccuracy,
       trafficAllocation = 0.1,
       targetDomains = [],
-      targetCategories = []
+      targetCategories = [],
     } = params;
 
     try {
       const { data, error } = await this.supabase
-        .from('confidence_experiments')
-        .insert([{
-          experiment_name: name,
-          description,
-          status: 'active',
-          algorithm_version: algorithmVersion,
-          weights,
-          thresholds,
-          provider_accuracy: providerAccuracy,
-          traffic_allocation: trafficAllocation,
-          target_domains: targetDomains,
-          target_categories: targetCategories
-        }])
+        .from("confidence_experiments")
+        .insert([
+          {
+            experiment_name: name,
+            description,
+            status: "active",
+            algorithm_version: algorithmVersion,
+            weights,
+            thresholds,
+            provider_accuracy: providerAccuracy,
+            traffic_allocation: trafficAllocation,
+            target_domains: targetDomains,
+            target_categories: targetCategories,
+          },
+        ])
         .select();
 
       if (error) throw error;
       return data[0];
     } catch (error) {
-      console.error('[ConfidenceTracker] Error creating experiment:', error);
+      console.error("[ConfidenceTracker] Error creating experiment:", error);
       return null;
     }
   }
@@ -493,21 +517,21 @@ class ConfidenceHistoryTracker {
 
     try {
       const { data, error } = await this.supabase
-        .from('confidence_experiments')
+        .from("confidence_experiments")
         .update({
           scores_generated: results.scoresGenerated,
           fixes_applied: results.fixesApplied,
           outcomes_recorded: results.outcomesRecorded,
           accuracy: results.accuracy,
-          improvement_over_baseline: results.improvementOverBaseline
+          improvement_over_baseline: results.improvementOverBaseline,
         })
-        .eq('id', experimentId)
+        .eq("id", experimentId)
         .select();
 
       if (error) throw error;
       return data[0];
     } catch (error) {
-      console.error('[ConfidenceTracker] Error updating experiment:', error);
+      console.error("[ConfidenceTracker] Error updating experiment:", error);
       return null;
     }
   }
@@ -516,10 +540,10 @@ class ConfidenceHistoryTracker {
    * Get recommendation based on confidence score
    */
   getRecommendation(score) {
-    if (score >= 90) return 'AUTO_APPLY';
-    if (score >= 75) return 'REVIEW_RECOMMENDED';
-    if (score >= 50) return 'MANUAL_REVIEW';
-    return 'SKIP';
+    if (score >= 90) return "AUTO_APPLY";
+    if (score >= 75) return "REVIEW_RECOMMENDED";
+    if (score >= 50) return "MANUAL_REVIEW";
+    return "SKIP";
   }
 
   /**
@@ -530,7 +554,7 @@ class ConfidenceHistoryTracker {
       ...this.stats,
       queuedScores: this.scoreQueue.length,
       queuedOutcomes: this.outcomeQueue.length,
-      enabled: this.config.enableTracking && !!this.supabase
+      enabled: this.config.enableTracking && !!this.supabase,
     };
   }
 

@@ -1,19 +1,19 @@
 /**
  * ML-Enhanced Confidence Scoring Engine
- * 
+ *
  * Provides machine learning-based confidence scoring that learns from:
  * - Historical accept/reject decisions
  * - Project-specific patterns
  * - Context-aware adjustments
  * - False positive feedback loops
- * 
+ *
  * @module ml-confidence-scorer
  */
 
-const { createClient } = require('@supabase/supabase-js');
+const { createClient } = require("@supabase/supabase-js");
 
 function normalizeFindingIdentityPath(value) {
-    return String(value || '').replace(/\\/g, '/');
+  return String(value || "").replace(/\\/g, "/");
 }
 
 /**
@@ -21,847 +21,925 @@ function normalizeFindingIdentityPath(value) {
  * e.g. "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
  */
 function looksLikeCharsetString(val) {
-    if (!val || val.length < 20) return false;
-    // Must contain uppercase run, lowercase run, AND digit run — hallmark of a charset constant
-    return /ABCDEFGHIJKLMNOPQRSTUVWXYZ/.test(val) &&
-           /abcdefghijklmnopqrstuvwxyz/.test(val) &&
-           /0123456789/.test(val) &&
-           /^[A-Za-z0-9+/=_\-\s'"]*$/.test(val);
+  if (!val || val.length < 20) return false;
+  // Must contain uppercase run, lowercase run, AND digit run — hallmark of a charset constant
+  return (
+    /ABCDEFGHIJKLMNOPQRSTUVWXYZ/.test(val) &&
+    /abcdefghijklmnopqrstuvwxyz/.test(val) &&
+    /0123456789/.test(val) &&
+    /^[A-Za-z0-9+/=_\-\s'"]*$/.test(val)
+  );
 }
 
 /**
  * Feature weights learned from historical data
  */
 const DEFAULT_WEIGHTS = {
-    // Code characteristics
-    patternMatch: 0.25,
-    codeComplexity: 0.15,
-    contextSimilarity: 0.15,
+  // Code characteristics
+  patternMatch: 0.25,
+  codeComplexity: 0.15,
+  contextSimilarity: 0.15,
 
-    // Historical signals
-    categoryAcceptRate: 0.15,
-    projectAcceptRate: 0.10,
-    userAcceptRate: 0.05,
+  // Historical signals
+  categoryAcceptRate: 0.15,
+  projectAcceptRate: 0.1,
+  userAcceptRate: 0.05,
 
-    // Verification signals
-    aiConsensus: 0.10,
-    testCoverage: 0.05,
+  // Verification signals
+  aiConsensus: 0.1,
+  testCoverage: 0.05,
 };
 
 /**
  * Context-aware threshold configurations
  */
 const CONTEXT_THRESHOLDS = {
-    // File type contexts
-    'test-file': { autoApply: 0.95, suggest: 0.80, ignore: 0.30 },
-    'production-code': { autoApply: 0.98, suggest: 0.85, ignore: 0.40 },
-    'config-file': { autoApply: 0.99, suggest: 0.90, ignore: 0.50 },
+  // File type contexts
+  "test-file": { autoApply: 0.95, suggest: 0.8, ignore: 0.3 },
+  "production-code": { autoApply: 0.98, suggest: 0.85, ignore: 0.4 },
+  "config-file": { autoApply: 0.99, suggest: 0.9, ignore: 0.5 },
 
-    // Severity contexts
-    'security-critical': { autoApply: 0.99, suggest: 0.90, ignore: 0.50 },
-    'performance': { autoApply: 0.90, suggest: 0.75, ignore: 0.35 },
-    'style': { autoApply: 0.85, suggest: 0.60, ignore: 0.25 },
+  // Severity contexts
+  "security-critical": { autoApply: 0.99, suggest: 0.9, ignore: 0.5 },
+  performance: { autoApply: 0.9, suggest: 0.75, ignore: 0.35 },
+  style: { autoApply: 0.85, suggest: 0.6, ignore: 0.25 },
 
-    // Risk contexts
-    'breaking-change': { autoApply: 0.99, suggest: 0.95, ignore: 0.60 },
-    'non-breaking': { autoApply: 0.90, suggest: 0.75, ignore: 0.30 },
+  // Risk contexts
+  "breaking-change": { autoApply: 0.99, suggest: 0.95, ignore: 0.6 },
+  "non-breaking": { autoApply: 0.9, suggest: 0.75, ignore: 0.3 },
 
-    // Default
-    'default': { autoApply: 0.92, suggest: 0.75, ignore: 0.35 },
+  // Default
+  default: { autoApply: 0.92, suggest: 0.75, ignore: 0.35 },
 };
 
 /**
  * ML-Enhanced Confidence Scorer
  */
 class MLConfidenceScorer {
-    constructor(config = {}) {
-        this.config = {
-            supabaseUrl: config.supabaseUrl || process.env.SUPABASE_URL,
-            supabaseKey: config.supabaseKey || process.env.SUPABASE_SERVICE_KEY,
-            learningRate: config.learningRate || 0.01,
-            minSamples: config.minSamples || 10,
-            cacheExpiry: config.cacheExpiry || 3600000, // 1 hour
-            ...config,
-        };
+  constructor(config = {}) {
+    this.config = {
+      supabaseUrl: config.supabaseUrl || process.env.SUPABASE_URL,
+      supabaseKey: config.supabaseKey || process.env.SUPABASE_SERVICE_KEY,
+      learningRate: config.learningRate || 0.01,
+      minSamples: config.minSamples || 10,
+      cacheExpiry: config.cacheExpiry || 3600000, // 1 hour
+      ...config,
+    };
 
-        // Learned weights (start with defaults, update from DB)
-        this.weights = { ...DEFAULT_WEIGHTS };
+    // Learned weights (start with defaults, update from DB)
+    this.weights = { ...DEFAULT_WEIGHTS };
 
-        // Project-specific weight overrides
-        this.projectWeights = new Map();
+    // Project-specific weight overrides
+    this.projectWeights = new Map();
 
-        // Category-specific adjustment factors
-        this.categoryFactors = new Map();
+    // Category-specific adjustment factors
+    this.categoryFactors = new Map();
 
-        // False positive tracking
-        this.falsePositiveCache = new Map();
+    // False positive tracking
+    this.falsePositiveCache = new Map();
 
-        // Pattern memory for similar fixes
-        this.patternMemory = new Map();
+    // Pattern memory for similar fixes
+    this.patternMemory = new Map();
 
-        // Initialize Supabase client if credentials available
-        if (this.config.supabaseUrl && this.config.supabaseKey) {
-            this.supabase = createClient(
-                this.config.supabaseUrl,
-                this.config.supabaseKey
-            );
-        }
-
-        // Load learned weights from DB
-        this.initializeWeights();
+    // Initialize Supabase client if credentials available
+    if (this.config.supabaseUrl && this.config.supabaseKey) {
+      this.supabase = createClient(
+        this.config.supabaseUrl,
+        this.config.supabaseKey,
+      );
     }
 
-    /**
-     * Initialize weights from historical data
-     */
-    async initializeWeights() {
-        if (!this.supabase) return;
+    // Load learned weights from DB
+    this.initializeWeights();
+  }
 
-        try {
-            // Load global learned weights
-            const { data: globalWeights } = await this.supabase
-                .from('ml_confidence_weights')
-                .select('*')
-                .eq('scope', 'global')
-                .single();
+  /**
+   * Initialize weights from historical data
+   */
+  async initializeWeights() {
+    if (!this.supabase) return;
 
-            if (globalWeights?.weights) {
-                this.weights = { ...this.weights, ...globalWeights.weights };
-            }
+    try {
+      // Load global learned weights
+      const { data: globalWeights } = await this.supabase
+        .from("ml_confidence_weights")
+        .select("*")
+        .eq("scope", "global")
+        .single();
 
-            // Load category factors
-            const { data: categoryData } = await this.supabase
-                .from('ml_category_factors')
-                .select('*');
+      if (globalWeights?.weights) {
+        this.weights = { ...this.weights, ...globalWeights.weights };
+      }
 
-            if (categoryData) {
-                for (const row of categoryData) {
-                    this.categoryFactors.set(row.category, row.factor);
-                }
-            }
+      // Load category factors
+      const { data: categoryData } = await this.supabase
+        .from("ml_category_factors")
+        .select("*");
 
-            console.log('[MLConfidence] Loaded weights from database');
-        } catch (error) {
-            // Silently use defaults if DB not available
+      if (categoryData) {
+        for (const row of categoryData) {
+          this.categoryFactors.set(row.category, row.factor);
         }
+      }
+
+      console.log("[MLConfidence] Loaded weights from database");
+    } catch (error) {
+      // Silently use defaults if DB not available
+    }
+  }
+
+  /**
+   * Calculate ML-enhanced confidence score
+   */
+  async calculateConfidence(finding, context = {}) {
+    const features = await this.extractFeatures(finding, context);
+
+    // Base weighted score
+    let score = this.calculateWeightedScore(features);
+
+    // Apply context-aware adjustments
+    score = this.applyContextAdjustments(score, context);
+
+    // Apply false positive penalty
+    score = this.applyFalsePositivePenalty(score, {
+      ...finding,
+      learned_signals: context.learnedProfileSignals || {},
+    });
+
+    // Apply category-specific factors
+    score = this.applyCategoryFactor(score, finding.category);
+
+    // Apply project-specific learned adjustments
+    score = await this.applyProjectLearning(score, finding, context);
+
+    // Clamp to valid range
+    score = Math.max(0, Math.min(1, score));
+
+    // Determine action thresholds based on context
+    const thresholds = this.getContextThresholds(context);
+    const action = this.determineAction(score, thresholds);
+
+    return {
+      score: Math.round(score * 100) / 100,
+      confidence: Math.round(score * 100),
+      level: this.getConfidenceLevel(score),
+      action,
+      thresholds,
+      features,
+      explanation: this.generateExplanation(score, features, action),
+      adjustments: {
+        contextFactor: context.contextFactor || 1,
+        falsePositivePenalty: this.getFalsePositivePenalty(finding),
+        categoryFactor: this.categoryFactors.get(finding.category) || 1,
+      },
+    };
+  }
+
+  /**
+   * Score and rerank a list of findings using project-specific context.
+   */
+  async scoreFindings(findings = [], context = {}) {
+    const scoredFindings = [];
+
+    for (const finding of findings) {
+      const identity = `${finding.category || "UNKNOWN"}:${normalizeFindingIdentityPath(finding.file_path || finding.file || "")}:${finding.line_number || finding.line || 0}`;
+      const learnedSignals = context.findingContexts?.[identity] || {};
+      const scoreContext = {
+        ...context,
+        learnedProfileSignals: learnedSignals,
+        isSecurity: ["CRITICAL", "HIGH"].includes(
+          String(finding.severity || "").toUpperCase(),
+        ),
+        isPerformance: /PERF|PERFORMANCE|SYNC_IO/i.test(
+          String(finding.category || ""),
+        ),
+        isStyle: /STYLE|DOC/i.test(String(finding.category || "")),
+      };
+      const result = await this.calculateConfidence(finding, scoreContext);
+
+      scoredFindings.push({
+        ...finding,
+        confidence: result.confidence,
+        confidence_score: result.score,
+        confidence_level: result.level,
+        confidence_action: result.action,
+        confidence_explanation: result.explanation,
+        learned_signals: learnedSignals,
+      });
     }
 
-    /**
-     * Calculate ML-enhanced confidence score
-     */
-    async calculateConfidence(finding, context = {}) {
-        const features = await this.extractFeatures(finding, context);
+    const severityOrder = {
+      CRITICAL: 4,
+      HIGH: 3,
+      MEDIUM: 2,
+      LOW: 1,
+    };
 
-        // Base weighted score
-        let score = this.calculateWeightedScore(features);
+    scoredFindings.sort((left, right) => {
+      const confidenceDelta =
+        Number(right.confidence || 0) - Number(left.confidence || 0);
+      if (confidenceDelta !== 0) {
+        return confidenceDelta;
+      }
+      return (
+        (severityOrder[String(right.severity || "").toUpperCase()] || 0) -
+        (severityOrder[String(left.severity || "").toUpperCase()] || 0)
+      );
+    });
 
-        // Apply context-aware adjustments
-        score = this.applyContextAdjustments(score, context);
+    return {
+      findings: scoredFindings,
+      averageConfidence:
+        scoredFindings.length > 0
+          ? Number(
+              (
+                scoredFindings.reduce(
+                  (sum, finding) => sum + Number(finding.confidence || 0),
+                  0,
+                ) / scoredFindings.length
+              ).toFixed(2),
+            )
+          : 0,
+    };
+  }
 
-        // Apply false positive penalty
-        score = this.applyFalsePositivePenalty(score, {
-            ...finding,
-            learned_signals: context.learnedProfileSignals || {}
-        });
+  /**
+   * Extract ML features from finding and context
+   */
+  async extractFeatures(finding, context) {
+    const features = {};
+    const learnedSignals = context.learnedProfileSignals || {};
 
-        // Apply category-specific factors
-        score = this.applyCategoryFactor(score, finding.category);
+    // Pattern match quality (0-1)
+    features.patternMatch = this.assessPatternMatch(finding);
 
-        // Apply project-specific learned adjustments
-        score = await this.applyProjectLearning(score, finding, context);
+    // Code complexity score (0-1, lower is better)
+    features.codeComplexity = 1 - Math.min(context.complexity || 5, 10) / 10;
 
-        // Clamp to valid range
-        score = Math.max(0, Math.min(1, score));
+    // Context similarity to successful fixes (0-1)
+    features.contextSimilarity =
+      learnedSignals.contextSimilarity !== undefined
+        ? learnedSignals.contextSimilarity
+        : await this.calculateContextSimilarity(finding, context);
 
-        // Determine action thresholds based on context
-        const thresholds = this.getContextThresholds(context);
-        const action = this.determineAction(score, thresholds);
+    // Historical accept rate for this category.
+    // When no Supabase data, use category-based priors instead of flat 0.5
+    // so security-critical categories start high and style/docs start low.
+    features.categoryAcceptRate =
+      learnedSignals.categoryAcceptRate !== undefined
+        ? learnedSignals.categoryAcceptRate
+        : ((await this.getCategoryAcceptRate(finding.category)) ??
+          this.getCategoryPrior(finding.category));
 
-        return {
-            score: Math.round(score * 100) / 100,
-            confidence: Math.round(score * 100),
-            level: this.getConfidenceLevel(score),
-            action,
-            thresholds,
-            features,
-            explanation: this.generateExplanation(score, features, action),
-            adjustments: {
-                contextFactor: context.contextFactor || 1,
-                falsePositivePenalty: this.getFalsePositivePenalty(finding),
-                categoryFactor: this.categoryFactors.get(finding.category) || 1,
-            },
-        };
+    // Project-specific accept rate — prior is severity-based when no history
+    features.projectAcceptRate =
+      learnedSignals.projectAcceptRate !== undefined
+        ? learnedSignals.projectAcceptRate
+        : ((await this.getProjectAcceptRate(context.projectId)) ??
+          this.getSeverityPrior(finding.severity));
+
+    // User accept rate (0-1)
+    features.userAcceptRate = await this.getUserAcceptRate(context.userId);
+
+    // AI consensus (did multiple AI models agree?) (0-1)
+    features.aiConsensus = context.aiConsensus || 0.5;
+
+    // Test coverage indicator (0-1)
+    features.testCoverage = context.hasTests ? 0.8 : 0.5;
+
+    return features;
+  }
+
+  /**
+   * Category-based confidence priors — used when no Supabase history exists.
+   * High-signal security categories get high prior; style/quality get low prior.
+   */
+  getCategoryPrior(category) {
+    if (!category) return 0.5;
+    const c = String(category).toUpperCase();
+
+    // Very high confidence: taint-tracked or exact-match security issues
+    if (
+      c.startsWith("TAINT_") ||
+      c === "SQL_INJECTION" ||
+      c === "COMMAND_EXEC" ||
+      c === "COMMAND_INJECTION" ||
+      c === "EVAL_USAGE" ||
+      c === "PROTOTYPE_POLLUTION" ||
+      c === "PROTOTYPE_POLLUTION_MERGE" ||
+      c === "JWT_NONE_ALGORITHM" ||
+      c === "INSECURE_DESERIALIZATION" ||
+      c === "TIMING_ATTACK" ||
+      c === "SESSION_FIXATION" ||
+      c === "CSRF_PROTECTION_MISSING"
+    ) {
+      return 0.85;
     }
 
-    /**
-     * Score and rerank a list of findings using project-specific context.
-     */
-    async scoreFindings(findings = [], context = {}) {
-        const scoredFindings = [];
-
-        for (const finding of findings) {
-            const identity = `${finding.category || 'UNKNOWN'}:${normalizeFindingIdentityPath(finding.file_path || finding.file || '')}:${finding.line_number || finding.line || 0}`;
-            const learnedSignals = context.findingContexts?.[identity] || {};
-            const scoreContext = {
-                ...context,
-                learnedProfileSignals: learnedSignals,
-                isSecurity: ['CRITICAL', 'HIGH'].includes(String(finding.severity || '').toUpperCase()),
-                isPerformance: /PERF|PERFORMANCE|SYNC_IO/i.test(String(finding.category || '')),
-                isStyle: /STYLE|DOC/i.test(String(finding.category || ''))
-            };
-            const result = await this.calculateConfidence(finding, scoreContext);
-
-            scoredFindings.push({
-                ...finding,
-                confidence: result.confidence,
-                confidence_score: result.score,
-                confidence_level: result.level,
-                confidence_action: result.action,
-                confidence_explanation: result.explanation,
-                learned_signals: learnedSignals
-            });
-        }
-
-        const severityOrder = {
-            CRITICAL: 4,
-            HIGH: 3,
-            MEDIUM: 2,
-            LOW: 1
-        };
-
-        scoredFindings.sort((left, right) => {
-            const confidenceDelta = Number(right.confidence || 0) - Number(left.confidence || 0);
-            if (confidenceDelta !== 0) {
-                return confidenceDelta;
-            }
-            return (severityOrder[String(right.severity || '').toUpperCase()] || 0) -
-                (severityOrder[String(left.severity || '').toUpperCase()] || 0);
-        });
-
-        return {
-            findings: scoredFindings,
-            averageConfidence: scoredFindings.length > 0
-                ? Number((scoredFindings.reduce((sum, finding) => sum + Number(finding.confidence || 0), 0) / scoredFindings.length).toFixed(2))
-                : 0
-        };
+    // High confidence: well-known security patterns
+    if (
+      c === "XSS" ||
+      c === "DANGEROUSLY_SET_INNER_HTML" ||
+      c === "OPEN_REDIRECT" ||
+      c === "PATH_TRAVERSAL" ||
+      c === "SSRF" ||
+      c === "XXE" ||
+      c === "POTENTIAL_XXE" ||
+      c === "REGEX_INJECTION" ||
+      c === "WEAK_HASH" ||
+      c === "WEAK_CIPHER_DES" ||
+      c === "JWT_WEAK_ALGORITHM" ||
+      c === "CORS_ALL_METHODS" ||
+      c === "CORS_ALL_HEADERS" ||
+      c === "HARDCODED_SECRET" ||
+      c === "CI_SECRET_IN_PLAINTEXT"
+    ) {
+      return 0.75;
     }
 
-    /**
-     * Extract ML features from finding and context
-     */
-    async extractFeatures(finding, context) {
-        const features = {};
-        const learnedSignals = context.learnedProfileSignals || {};
-
-        // Pattern match quality (0-1)
-        features.patternMatch = this.assessPatternMatch(finding);
-
-        // Code complexity score (0-1, lower is better)
-        features.codeComplexity = 1 - (Math.min(context.complexity || 5, 10) / 10);
-
-        // Context similarity to successful fixes (0-1)
-        features.contextSimilarity = learnedSignals.contextSimilarity !== undefined
-            ? learnedSignals.contextSimilarity
-            : await this.calculateContextSimilarity(finding, context);
-
-        // Historical accept rate for this category.
-        // When no Supabase data, use category-based priors instead of flat 0.5
-        // so security-critical categories start high and style/docs start low.
-        features.categoryAcceptRate = learnedSignals.categoryAcceptRate !== undefined
-            ? learnedSignals.categoryAcceptRate
-            : (await this.getCategoryAcceptRate(finding.category)) ?? this.getCategoryPrior(finding.category);
-
-        // Project-specific accept rate — prior is severity-based when no history
-        features.projectAcceptRate = learnedSignals.projectAcceptRate !== undefined
-            ? learnedSignals.projectAcceptRate
-            : (await this.getProjectAcceptRate(context.projectId)) ?? this.getSeverityPrior(finding.severity);
-
-        // User accept rate (0-1)
-        features.userAcceptRate = await this.getUserAcceptRate(context.userId);
-
-        // AI consensus (did multiple AI models agree?) (0-1)
-        features.aiConsensus = context.aiConsensus || 0.5;
-
-        // Test coverage indicator (0-1)
-        features.testCoverage = context.hasTests ? 0.8 : 0.5;
-
-        return features;
+    // Medium-high: secrets that may have FPs (charset strings, placeholders)
+    if (
+      c.includes("SECRET") ||
+      c.includes("PASSWORD") ||
+      c.includes("KEY") ||
+      c.includes("TOKEN") ||
+      c.includes("CREDENTIAL") ||
+      c.includes("API_KEY")
+    ) {
+      return 0.65;
     }
 
-    /**
-     * Category-based confidence priors — used when no Supabase history exists.
-     * High-signal security categories get high prior; style/quality get low prior.
-     */
-    getCategoryPrior(category) {
-        if (!category) return 0.5;
-        const c = String(category).toUpperCase();
+    // Medium: performance, quality
+    if (
+      c === "SYNC_IO" ||
+      c === "AWAIT_IN_LOOP" ||
+      c === "ASYNC_TIMEOUT" ||
+      c === "NESTED_LOOPS"
+    ) {
+      return 0.6;
+    }
 
-        // Very high confidence: taint-tracked or exact-match security issues
-        if (
-            c.startsWith('TAINT_') ||
-            c === 'SQL_INJECTION' || c === 'COMMAND_EXEC' || c === 'COMMAND_INJECTION' ||
-            c === 'EVAL_USAGE' || c === 'PROTOTYPE_POLLUTION' || c === 'PROTOTYPE_POLLUTION_MERGE' ||
-            c === 'JWT_NONE_ALGORITHM' || c === 'INSECURE_DESERIALIZATION' ||
-            c === 'TIMING_ATTACK' || c === 'SESSION_FIXATION' || c === 'CSRF_PROTECTION_MISSING'
-        ) {
-            return 0.85;
-        }
+    // Low: style / docs / structure rules — high FP potential
+    if (
+      c === "LONG_FUNCTION" ||
+      c === "FILE_TOO_LONG" ||
+      c === "LONG_LINE" ||
+      c === "MISSING_HEADER" ||
+      c === "POOR_DOCUMENTATION" ||
+      c === "MISSING_TESTS" ||
+      c === "TODO_TESTS" ||
+      c === "FOCUSED_TEST"
+    ) {
+      return 0.3;
+    }
 
-        // High confidence: well-known security patterns
-        if (
-            c === 'XSS' || c === 'DANGEROUSLY_SET_INNER_HTML' || c === 'OPEN_REDIRECT' ||
-            c === 'PATH_TRAVERSAL' || c === 'SSRF' || c === 'XXE' || c === 'POTENTIAL_XXE' ||
-            c === 'REGEX_INJECTION' || c === 'WEAK_HASH' || c === 'WEAK_CIPHER_DES' ||
-            c === 'JWT_WEAK_ALGORITHM' || c === 'CORS_ALL_METHODS' || c === 'CORS_ALL_HEADERS' ||
-            c === 'HARDCODED_SECRET' || c === 'CI_SECRET_IN_PLAINTEXT'
-        ) {
-            return 0.75;
-        }
+    return 0.5;
+  }
 
-        // Medium-high: secrets that may have FPs (charset strings, placeholders)
-        if (
-            c.includes('SECRET') || c.includes('PASSWORD') || c.includes('KEY') ||
-            c.includes('TOKEN') || c.includes('CREDENTIAL') || c.includes('API_KEY')
-        ) {
-            return 0.65;
-        }
-
-        // Medium: performance, quality
-        if (
-            c === 'SYNC_IO' || c === 'AWAIT_IN_LOOP' || c === 'ASYNC_TIMEOUT' ||
-            c === 'NESTED_LOOPS'
-        ) {
-            return 0.60;
-        }
-
-        // Low: style / docs / structure rules — high FP potential
-        if (
-            c === 'LONG_FUNCTION' || c === 'FILE_TOO_LONG' || c === 'LONG_LINE' ||
-            c === 'MISSING_HEADER' || c === 'POOR_DOCUMENTATION' || c === 'MISSING_TESTS' ||
-            c === 'TODO_TESTS' || c === 'FOCUSED_TEST'
-        ) {
-            return 0.30;
-        }
-
+  /**
+   * Severity-based prior for projectAcceptRate when no project history exists.
+   */
+  getSeverityPrior(severity) {
+    switch (String(severity || "").toUpperCase()) {
+      case "CRITICAL":
+        return 0.9;
+      case "HIGH":
+        return 0.75;
+      case "MEDIUM":
+        return 0.55;
+      case "LOW":
+        return 0.35;
+      default:
         return 0.5;
     }
+  }
 
-    /**
-     * Severity-based prior for projectAcceptRate when no project history exists.
-     */
-    getSeverityPrior(severity) {
-        switch (String(severity || '').toUpperCase()) {
-            case 'CRITICAL': return 0.90;
-            case 'HIGH':     return 0.75;
-            case 'MEDIUM':   return 0.55;
-            case 'LOW':      return 0.35;
-            default:         return 0.50;
-        }
+  /**
+   * Calculate weighted score from features
+   */
+  calculateWeightedScore(features) {
+    let score = 0;
+    let totalWeight = 0;
+
+    for (const [feature, value] of Object.entries(features)) {
+      const weight = this.weights[feature] || 0;
+      score += value * weight;
+      totalWeight += weight;
     }
 
-    /**
-     * Calculate weighted score from features
-     */
-    calculateWeightedScore(features) {
-        let score = 0;
-        let totalWeight = 0;
+    return totalWeight > 0 ? (score / totalWeight) * totalWeight : 0.5;
+  }
 
-        for (const [feature, value] of Object.entries(features)) {
-            const weight = this.weights[feature] || 0;
-            score += value * weight;
-            totalWeight += weight;
-        }
+  /**
+   * Assess pattern match quality
+   */
+  assessPatternMatch(finding) {
+    let score = 0.5;
 
-        return totalWeight > 0 ? score / totalWeight * totalWeight : 0.5;
+    // Higher confidence if rule exists
+    if (finding.ruleId) score += 0.2;
+
+    // Higher confidence if CWE mapped
+    if (finding.cwe) score += 0.1;
+
+    // Higher confidence if exact line found
+    if (finding.line && finding.column) score += 0.1;
+
+    // Higher confidence if fix is suggested
+    if (finding.fix) score += 0.1;
+
+    // Penalty: charset strings ("0123456789ABCabc...") are almost never real secrets
+    const snippet = String(finding.snippet || finding.message || "");
+    if (looksLikeCharsetString(snippet)) {
+      score *= 0.2;
     }
 
-    /**
-     * Assess pattern match quality
-     */
-    assessPatternMatch(finding) {
-        let score = 0.5;
+    return Math.min(1, score);
+  }
 
-        // Higher confidence if rule exists
-        if (finding.ruleId) score += 0.2;
+  /**
+   * Calculate similarity to past successful fixes
+   */
+  async calculateContextSimilarity(finding, context) {
+    // Check pattern memory for similar patterns
+    const key = `${finding.category}:${finding.ruleId || "unknown"}`;
+    const cached = this.patternMemory.get(key);
 
-        // Higher confidence if CWE mapped
-        if (finding.cwe) score += 0.1;
-
-        // Higher confidence if exact line found
-        if (finding.line && finding.column) score += 0.1;
-
-        // Higher confidence if fix is suggested
-        if (finding.fix) score += 0.1;
-
-        // Penalty: charset strings ("0123456789ABCabc...") are almost never real secrets
-        const snippet = String(finding.snippet || finding.message || '');
-        if (looksLikeCharsetString(snippet)) {
-            score *= 0.2;
-        }
-
-        return Math.min(1, score);
+    if (cached && Date.now() - cached.timestamp < this.config.cacheExpiry) {
+      return cached.similarity;
     }
 
-    /**
-     * Calculate similarity to past successful fixes
-     */
-    async calculateContextSimilarity(finding, context) {
-        // Check pattern memory for similar patterns
-        const key = `${finding.category}:${finding.ruleId || 'unknown'}`;
-        const cached = this.patternMemory.get(key);
+    if (!this.supabase || !context.projectId) return 0.5;
 
-        if (cached && Date.now() - cached.timestamp < this.config.cacheExpiry) {
-            return cached.similarity;
-        }
+    try {
+      // Find similar fixes in history
+      const { data: similar } = await this.supabase
+        .from("fix_outcomes")
+        .select("confidence_score, was_accepted, file_type")
+        .eq("category", finding.category)
+        .eq("project_id", context.projectId)
+        .order("created_at", { ascending: false })
+        .limit(20);
 
-        if (!this.supabase || !context.projectId) return 0.5;
+      if (!similar || similar.length < 3) return 0.5;
 
-        try {
-            // Find similar fixes in history
-            const { data: similar } = await this.supabase
-                .from('fix_outcomes')
-                .select('confidence_score, was_accepted, file_type')
-                .eq('category', finding.category)
-                .eq('project_id', context.projectId)
-                .order('created_at', { ascending: false })
-                .limit(20);
+      // Calculate similarity based on accept rate and average confidence
+      const acceptedCount = similar.filter((s) => s.was_accepted).length;
+      const similarity = acceptedCount / similar.length;
 
-            if (!similar || similar.length < 3) return 0.5;
+      this.patternMemory.set(key, { similarity, timestamp: Date.now() });
 
-            // Calculate similarity based on accept rate and average confidence
-            const acceptedCount = similar.filter(s => s.was_accepted).length;
-            const similarity = acceptedCount / similar.length;
+      return similarity;
+    } catch {
+      return 0.5;
+    }
+  }
 
-            this.patternMemory.set(key, { similarity, timestamp: Date.now() });
+  /**
+   * Get historical accept rate for category.
+   * Returns null when there is insufficient data so callers can fall back to priors.
+   */
+  async getCategoryAcceptRate(category) {
+    if (!this.supabase) return null;
 
-            return similarity;
-        } catch {
-            return 0.5;
-        }
+    const cached = this.categoryFactors.get(`rate:${category}`);
+    if (cached !== undefined) return cached;
+
+    try {
+      const { data } = await this.supabase
+        .from("fix_outcomes")
+        .select("was_accepted")
+        .eq("category", category)
+        .limit(100);
+
+      if (!data || data.length < 5) return null;
+
+      const rate = data.filter((d) => d.was_accepted).length / data.length;
+      this.categoryFactors.set(`rate:${category}`, rate);
+
+      return rate;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Get project-specific accept rate.
+   * Returns null when there is insufficient data so callers can fall back to priors.
+   */
+  async getProjectAcceptRate(projectId) {
+    if (!this.supabase || !projectId) return null;
+
+    try {
+      const { data } = await this.supabase
+        .from("fix_outcomes")
+        .select("was_accepted")
+        .eq("project_id", projectId)
+        .limit(50);
+
+      if (!data || data.length < 5) return null;
+
+      return data.filter((d) => d.was_accepted).length / data.length;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Get user-specific accept rate
+   */
+  async getUserAcceptRate(userId) {
+    if (!this.supabase || !userId) return 0.5;
+
+    try {
+      const { data } = await this.supabase
+        .from("fix_outcomes")
+        .select("was_accepted")
+        .eq("user_id", userId)
+        .limit(50);
+
+      if (!data || data.length < 5) return 0.5;
+
+      return data.filter((d) => d.was_accepted).length / data.length;
+    } catch {
+      return 0.5;
+    }
+  }
+
+  /**
+   * Apply context-aware adjustments
+   */
+  applyContextAdjustments(score, context) {
+    let adjusted = score;
+
+    // Boost for test files (safer to modify)
+    if (context.isTestFile) {
+      adjusted *= 1.05;
     }
 
-    /**
-     * Get historical accept rate for category.
-     * Returns null when there is insufficient data so callers can fall back to priors.
-     */
-    async getCategoryAcceptRate(category) {
-        if (!this.supabase) return null;
-
-        const cached = this.categoryFactors.get(`rate:${category}`);
-        if (cached !== undefined) return cached;
-
-        try {
-            const { data } = await this.supabase
-                .from('fix_outcomes')
-                .select('was_accepted')
-                .eq('category', category)
-                .limit(100);
-
-            if (!data || data.length < 5) return null;
-
-            const rate = data.filter(d => d.was_accepted).length / data.length;
-            this.categoryFactors.set(`rate:${category}`, rate);
-
-            return rate;
-        } catch {
-            return null;
-        }
+    // Reduce for config files (more sensitive)
+    if (context.isConfigFile) {
+      adjusted *= 0.95;
     }
 
-    /**
-     * Get project-specific accept rate.
-     * Returns null when there is insufficient data so callers can fall back to priors.
-     */
-    async getProjectAcceptRate(projectId) {
-        if (!this.supabase || !projectId) return null;
-
-        try {
-            const { data } = await this.supabase
-                .from('fix_outcomes')
-                .select('was_accepted')
-                .eq('project_id', projectId)
-                .limit(50);
-
-            if (!data || data.length < 5) return null;
-
-            return data.filter(d => d.was_accepted).length / data.length;
-        } catch {
-            return null;
-        }
+    // Reduce for breaking changes
+    if (context.isBreakingChange) {
+      adjusted *= 0.9;
     }
 
-    /**
-     * Get user-specific accept rate
-     */
-    async getUserAcceptRate(userId) {
-        if (!this.supabase || !userId) return 0.5;
-
-        try {
-            const { data } = await this.supabase
-                .from('fix_outcomes')
-                .select('was_accepted')
-                .eq('user_id', userId)
-                .limit(50);
-
-            if (!data || data.length < 5) return 0.5;
-
-            return data.filter(d => d.was_accepted).length / data.length;
-        } catch {
-            return 0.5;
-        }
+    // Boost if has test coverage
+    if (context.hasTests) {
+      adjusted *= 1.05;
     }
 
-    /**
-     * Apply context-aware adjustments
-     */
-    applyContextAdjustments(score, context) {
-        let adjusted = score;
-
-        // Boost for test files (safer to modify)
-        if (context.isTestFile) {
-            adjusted *= 1.05;
-        }
-
-        // Reduce for config files (more sensitive)
-        if (context.isConfigFile) {
-            adjusted *= 0.95;
-        }
-
-        // Reduce for breaking changes
-        if (context.isBreakingChange) {
-            adjusted *= 0.90;
-        }
-
-        // Boost if has test coverage
-        if (context.hasTests) {
-            adjusted *= 1.05;
-        }
-
-        // Adjust based on file age (older files = more conservative)
-        if (context.fileAge) {
-            const ageYears = context.fileAge / (365 * 24 * 60 * 60 * 1000);
-            if (ageYears > 2) {
-                adjusted *= 0.95;
-            }
-        }
-
-        // Adjust based on recent changes to file
-        if (context.recentChanges && context.recentChanges > 10) {
-            adjusted *= 0.95; // More active files = more careful
-        }
-
-        return adjusted;
+    // Adjust based on file age (older files = more conservative)
+    if (context.fileAge) {
+      const ageYears = context.fileAge / (365 * 24 * 60 * 60 * 1000);
+      if (ageYears > 2) {
+        adjusted *= 0.95;
+      }
     }
 
-    /**
-     * Apply false positive penalty
-     */
-    applyFalsePositivePenalty(score, finding) {
-        const key = `${finding.category}:${finding.ruleId || 'unknown'}`;
-        const learnedPenalty = Number(finding.learned_signals?.falsePositivePenalty || 0);
-        const penalty = Math.max(this.falsePositiveCache.get(key) || 0, learnedPenalty);
-
-        return score * (1 - penalty);
+    // Adjust based on recent changes to file
+    if (context.recentChanges && context.recentChanges > 10) {
+      adjusted *= 0.95; // More active files = more careful
     }
 
-    /**
-     * Get false positive penalty for a finding type
-     */
-    getFalsePositivePenalty(finding) {
-        const key = `${finding.category}:${finding.ruleId || 'unknown'}`;
-        return this.falsePositiveCache.get(key) || 0;
+    return adjusted;
+  }
+
+  /**
+   * Apply false positive penalty
+   */
+  applyFalsePositivePenalty(score, finding) {
+    const key = `${finding.category}:${finding.ruleId || "unknown"}`;
+    const learnedPenalty = Number(
+      finding.learned_signals?.falsePositivePenalty || 0,
+    );
+    const penalty = Math.max(
+      this.falsePositiveCache.get(key) || 0,
+      learnedPenalty,
+    );
+
+    return score * (1 - penalty);
+  }
+
+  /**
+   * Get false positive penalty for a finding type
+   */
+  getFalsePositivePenalty(finding) {
+    const key = `${finding.category}:${finding.ruleId || "unknown"}`;
+    return this.falsePositiveCache.get(key) || 0;
+  }
+
+  /**
+   * Apply category-specific factor
+   */
+  applyCategoryFactor(score, category) {
+    const factor = this.categoryFactors.get(category) || 1;
+    return score * factor;
+  }
+
+  /**
+   * Apply project-specific learning
+   */
+  async applyProjectLearning(score, finding, context) {
+    if (!context.projectId) return score;
+
+    if (context.learnedProfileSignals?.profileFactor) {
+      return score * context.learnedProfileSignals.profileFactor;
     }
 
-    /**
-     * Apply category-specific factor
-     */
-    applyCategoryFactor(score, category) {
-        const factor = this.categoryFactors.get(category) || 1;
-        return score * factor;
+    // Check for project-specific weight overrides
+    const projectWeights = this.projectWeights.get(context.projectId);
+    if (projectWeights && projectWeights[finding.category]) {
+      return score * projectWeights[finding.category];
     }
 
-    /**
-     * Apply project-specific learning
-     */
-    async applyProjectLearning(score, finding, context) {
-        if (!context.projectId) return score;
+    return score;
+  }
 
-        if (context.learnedProfileSignals?.profileFactor) {
-            return score * context.learnedProfileSignals.profileFactor;
-        }
+  /**
+   * Get context-aware thresholds
+   */
+  getContextThresholds(context) {
+    let contextKey = "default";
 
-        // Check for project-specific weight overrides
-        const projectWeights = this.projectWeights.get(context.projectId);
-        if (projectWeights && projectWeights[finding.category]) {
-            return score * projectWeights[finding.category];
-        }
+    if (context.isTestFile) contextKey = "test-file";
+    else if (context.isConfigFile) contextKey = "config-file";
+    else if (context.isBreakingChange) contextKey = "breaking-change";
+    else if (context.isSecurity) contextKey = "security-critical";
+    else if (context.isPerformance) contextKey = "performance";
+    else if (context.isStyle) contextKey = "style";
+    else if (context.isProduction) contextKey = "production-code";
 
-        return score;
+    return CONTEXT_THRESHOLDS[contextKey] || CONTEXT_THRESHOLDS.default;
+  }
+
+  /**
+   * Determine action based on score and thresholds
+   */
+  determineAction(score, thresholds) {
+    if (score >= thresholds.autoApply) return "AUTO_APPLY";
+    if (score >= thresholds.suggest) return "SUGGEST";
+    if (score >= thresholds.ignore) return "REVIEW";
+    return "IGNORE";
+  }
+
+  /**
+   * Get confidence level label
+   */
+  getConfidenceLevel(score) {
+    if (score >= 0.95) return "VERY_HIGH";
+    if (score >= 0.85) return "HIGH";
+    if (score >= 0.7) return "MEDIUM";
+    if (score >= 0.5) return "LOW";
+    return "VERY_LOW";
+  }
+
+  /**
+   * Generate human-readable explanation
+   */
+  generateExplanation(score, features, action) {
+    const reasons = [];
+
+    // Highlight top contributing factors
+    const sortedFeatures = Object.entries(features).sort(
+      (a, b) =>
+        b[1] * (this.weights[b[0]] || 0) - a[1] * (this.weights[a[0]] || 0),
+    );
+
+    for (const [feature, value] of sortedFeatures.slice(0, 3)) {
+      const weight = this.weights[feature] || 0;
+      const contribution = value * weight;
+
+      if (contribution > 0.1) {
+        reasons.push(this.featureToReason(feature, value));
+      }
     }
 
-    /**
-     * Get context-aware thresholds
-     */
-    getContextThresholds(context) {
-        let contextKey = 'default';
+    const actionText = {
+      AUTO_APPLY: "Safe to auto-apply",
+      SUGGEST: "Recommended with review",
+      REVIEW: "Requires manual review",
+      IGNORE: "Not recommended",
+    }[action];
 
-        if (context.isTestFile) contextKey = 'test-file';
-        else if (context.isConfigFile) contextKey = 'config-file';
-        else if (context.isBreakingChange) contextKey = 'breaking-change';
-        else if (context.isSecurity) contextKey = 'security-critical';
-        else if (context.isPerformance) contextKey = 'performance';
-        else if (context.isStyle) contextKey = 'style';
-        else if (context.isProduction) contextKey = 'production-code';
+    return {
+      summary: `${actionText} (${Math.round(score * 100)}% confidence)`,
+      reasons,
+    };
+  }
 
-        return CONTEXT_THRESHOLDS[contextKey] || CONTEXT_THRESHOLDS.default;
+  /**
+   * Convert feature to human-readable reason
+   */
+  featureToReason(feature, value) {
+    const templates = {
+      patternMatch:
+        value > 0.8 ? "Strong pattern match" : "Moderate pattern match",
+      codeComplexity:
+        value > 0.7 ? "Low code complexity" : "Higher code complexity",
+      contextSimilarity:
+        value > 0.7
+          ? "Similar to past successful fixes"
+          : "Limited historical data",
+      categoryAcceptRate:
+        value > 0.7
+          ? "High accept rate for this category"
+          : "Mixed history for this category",
+      projectAcceptRate:
+        value > 0.7
+          ? "Good track record in this project"
+          : "Limited project history",
+      aiConsensus:
+        value > 0.7
+          ? "Multiple AI models agree"
+          : "Single model recommendation",
+      testCoverage:
+        value > 0.7 ? "Test coverage available" : "No test coverage",
+    };
+
+    return templates[feature] || `${feature}: ${Math.round(value * 100)}%`;
+  }
+
+  /**
+   * Record feedback for learning (accept/reject)
+   */
+  async recordFeedback(findingId, finding, wasAccepted, context = {}) {
+    // Update false positive cache
+    const key = `${finding.category}:${finding.ruleId || "unknown"}`;
+
+    if (!wasAccepted) {
+      const current = this.falsePositiveCache.get(key) || 0;
+      const newPenalty = Math.min(0.5, current + 0.05);
+      this.falsePositiveCache.set(key, newPenalty);
+    } else {
+      // Reduce penalty on accept
+      const current = this.falsePositiveCache.get(key) || 0;
+      const newPenalty = Math.max(0, current - 0.02);
+      this.falsePositiveCache.set(key, newPenalty);
     }
 
-    /**
-     * Determine action based on score and thresholds
-     */
-    determineAction(score, thresholds) {
-        if (score >= thresholds.autoApply) return 'AUTO_APPLY';
-        if (score >= thresholds.suggest) return 'SUGGEST';
-        if (score >= thresholds.ignore) return 'REVIEW';
-        return 'IGNORE';
+    if (!this.supabase) return;
+
+    try {
+      // Store outcome for learning
+      await this.supabase.from("fix_outcomes").insert({
+        finding_id: findingId,
+        category: finding.category,
+        rule_id: finding.ruleId,
+        was_accepted: wasAccepted,
+        confidence_score: finding.confidence || 0,
+        project_id: context.projectId,
+        user_id: context.userId,
+        file_type: context.fileType,
+        created_at: new Date().toISOString(),
+      });
+
+      // Trigger weight update if enough samples
+      await this.maybeUpdateWeights();
+    } catch (error) {
+      console.error("[MLConfidence] Failed to record feedback:", error);
+    }
+  }
+
+  /**
+   * Update weights if enough new data
+   */
+  async maybeUpdateWeights() {
+    if (!this.supabase) return;
+
+    try {
+      // Count recent outcomes
+      const { count } = await this.supabase
+        .from("fix_outcomes")
+        .select("id", { count: "exact", head: true })
+        .gte(
+          "created_at",
+          new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
+        );
+
+      if (count >= this.config.minSamples) {
+        await this.trainWeights();
+      }
+    } catch {
+      // Silently fail
+    }
+  }
+
+  /**
+   * Train weights using gradient descent on recent data
+   */
+  async trainWeights() {
+    if (!this.supabase) return;
+
+    try {
+      // Get recent outcomes with features
+      const { data: outcomes } = await this.supabase
+        .from("fix_outcomes")
+        .select("*")
+        .order("created_at", { ascending: false })
+        .limit(500);
+
+      if (!outcomes || outcomes.length < this.config.minSamples) return;
+
+      // Simple online learning update
+      for (const outcome of outcomes) {
+        const prediction = outcome.confidence_score || 0.5;
+        const actual = outcome.was_accepted ? 1 : 0;
+        const error = actual - prediction;
+
+        // Update category factor
+        const category = outcome.category;
+        const currentFactor = this.categoryFactors.get(category) || 1;
+        const newFactor = currentFactor + this.config.learningRate * error;
+        this.categoryFactors.set(
+          category,
+          Math.max(0.5, Math.min(1.5, newFactor)),
+        );
+      }
+
+      // Persist updated weights
+      await this.persistWeights();
+    } catch (error) {
+      console.error("[MLConfidence] Training failed:", error);
+    }
+  }
+
+  /**
+   * Persist learned weights to database
+   */
+  async persistWeights() {
+    if (!this.supabase) return;
+
+    try {
+      await this.supabase.from("ml_confidence_weights").upsert({
+        scope: "global",
+        weights: this.weights,
+        updated_at: new Date().toISOString(),
+      });
+
+      // Persist category factors
+      const categoryRows = Array.from(this.categoryFactors.entries())
+        .filter(([key]) => !key.startsWith("rate:"))
+        .map(([category, factor]) => ({
+          category,
+          factor,
+          updated_at: new Date().toISOString(),
+        }));
+
+      if (categoryRows.length > 0) {
+        await this.supabase.from("ml_category_factors").upsert(categoryRows);
+      }
+    } catch (error) {
+      console.error("[MLConfidence] Failed to persist weights:", error);
+    }
+  }
+
+  /**
+   * Adjust category weights based on production incident correlations.
+   * Categories that correlate to production incidents get a severity boost
+   * (capped at 2× the baseline factor).
+   *
+   * @param {Array<{ category: string }>} incidentCorrelations
+   */
+  async incorporateProductionData(incidentCorrelations) {
+    if (!incidentCorrelations || incidentCorrelations.length === 0) return;
+
+    for (const corr of incidentCorrelations) {
+      if (!corr.category) continue;
+      const current = this.categoryFactors.get(corr.category) || 1.0;
+      // Boost by 15% per correlated incident, capped at 2.0×
+      const updated = Math.min(current * 1.15, 2.0);
+      this.categoryFactors.set(corr.category, updated);
     }
 
-    /**
-     * Get confidence level label
-     */
-    getConfidenceLevel(score) {
-        if (score >= 0.95) return 'VERY_HIGH';
-        if (score >= 0.85) return 'HIGH';
-        if (score >= 0.70) return 'MEDIUM';
-        if (score >= 0.50) return 'LOW';
-        return 'VERY_LOW';
-    }
+    await this.persistWeights();
+  }
 
-    /**
-     * Generate human-readable explanation
-     */
-    generateExplanation(score, features, action) {
-        const reasons = [];
+  /**
+   * Get learning statistics
+   */
+  getStats() {
+    return {
+      weights: { ...this.weights },
+      categoryFactors: Object.fromEntries(this.categoryFactors),
+      falsePositivePenalties: Object.fromEntries(this.falsePositiveCache),
+      patternMemorySize: this.patternMemory.size,
+    };
+  }
 
-        // Highlight top contributing factors
-        const sortedFeatures = Object.entries(features)
-            .sort((a, b) => (b[1] * (this.weights[b[0]] || 0)) - (a[1] * (this.weights[a[0]] || 0)));
-
-        for (const [feature, value] of sortedFeatures.slice(0, 3)) {
-            const weight = this.weights[feature] || 0;
-            const contribution = value * weight;
-
-            if (contribution > 0.1) {
-                reasons.push(this.featureToReason(feature, value));
-            }
-        }
-
-        const actionText = {
-            AUTO_APPLY: 'Safe to auto-apply',
-            SUGGEST: 'Recommended with review',
-            REVIEW: 'Requires manual review',
-            IGNORE: 'Not recommended',
-        }[action];
-
-        return {
-            summary: `${actionText} (${Math.round(score * 100)}% confidence)`,
-            reasons,
-        };
-    }
-
-    /**
-     * Convert feature to human-readable reason
-     */
-    featureToReason(feature, value) {
-        const templates = {
-            patternMatch: value > 0.8 ? 'Strong pattern match' : 'Moderate pattern match',
-            codeComplexity: value > 0.7 ? 'Low code complexity' : 'Higher code complexity',
-            contextSimilarity: value > 0.7 ? 'Similar to past successful fixes' : 'Limited historical data',
-            categoryAcceptRate: value > 0.7 ? 'High accept rate for this category' : 'Mixed history for this category',
-            projectAcceptRate: value > 0.7 ? 'Good track record in this project' : 'Limited project history',
-            aiConsensus: value > 0.7 ? 'Multiple AI models agree' : 'Single model recommendation',
-            testCoverage: value > 0.7 ? 'Test coverage available' : 'No test coverage',
-        };
-
-        return templates[feature] || `${feature}: ${Math.round(value * 100)}%`;
-    }
-
-    /**
-     * Record feedback for learning (accept/reject)
-     */
-    async recordFeedback(findingId, finding, wasAccepted, context = {}) {
-        // Update false positive cache
-        const key = `${finding.category}:${finding.ruleId || 'unknown'}`;
-
-        if (!wasAccepted) {
-            const current = this.falsePositiveCache.get(key) || 0;
-            const newPenalty = Math.min(0.5, current + 0.05);
-            this.falsePositiveCache.set(key, newPenalty);
-        } else {
-            // Reduce penalty on accept
-            const current = this.falsePositiveCache.get(key) || 0;
-            const newPenalty = Math.max(0, current - 0.02);
-            this.falsePositiveCache.set(key, newPenalty);
-        }
-
-        if (!this.supabase) return;
-
-        try {
-            // Store outcome for learning
-            await this.supabase.from('fix_outcomes').insert({
-                finding_id: findingId,
-                category: finding.category,
-                rule_id: finding.ruleId,
-                was_accepted: wasAccepted,
-                confidence_score: finding.confidence || 0,
-                project_id: context.projectId,
-                user_id: context.userId,
-                file_type: context.fileType,
-                created_at: new Date().toISOString(),
-            });
-
-            // Trigger weight update if enough samples
-            await this.maybeUpdateWeights();
-        } catch (error) {
-            console.error('[MLConfidence] Failed to record feedback:', error);
-        }
-    }
-
-    /**
-     * Update weights if enough new data
-     */
-    async maybeUpdateWeights() {
-        if (!this.supabase) return;
-
-        try {
-            // Count recent outcomes
-            const { count } = await this.supabase
-                .from('fix_outcomes')
-                .select('id', { count: 'exact', head: true })
-                .gte('created_at', new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString());
-
-            if (count >= this.config.minSamples) {
-                await this.trainWeights();
-            }
-        } catch {
-            // Silently fail
-        }
-    }
-
-    /**
-     * Train weights using gradient descent on recent data
-     */
-    async trainWeights() {
-        if (!this.supabase) return;
-
-        try {
-            // Get recent outcomes with features
-            const { data: outcomes } = await this.supabase
-                .from('fix_outcomes')
-                .select('*')
-                .order('created_at', { ascending: false })
-                .limit(500);
-
-            if (!outcomes || outcomes.length < this.config.minSamples) return;
-
-            // Simple online learning update
-            for (const outcome of outcomes) {
-                const prediction = outcome.confidence_score || 0.5;
-                const actual = outcome.was_accepted ? 1 : 0;
-                const error = actual - prediction;
-
-                // Update category factor
-                const category = outcome.category;
-                const currentFactor = this.categoryFactors.get(category) || 1;
-                const newFactor = currentFactor + (this.config.learningRate * error);
-                this.categoryFactors.set(category, Math.max(0.5, Math.min(1.5, newFactor)));
-            }
-
-            // Persist updated weights
-            await this.persistWeights();
-
-        } catch (error) {
-            console.error('[MLConfidence] Training failed:', error);
-        }
-    }
-
-    /**
-     * Persist learned weights to database
-     */
-    async persistWeights() {
-        if (!this.supabase) return;
-
-        try {
-            await this.supabase
-                .from('ml_confidence_weights')
-                .upsert({
-                    scope: 'global',
-                    weights: this.weights,
-                    updated_at: new Date().toISOString(),
-                });
-
-            // Persist category factors
-            const categoryRows = Array.from(this.categoryFactors.entries())
-                .filter(([key]) => !key.startsWith('rate:'))
-                .map(([category, factor]) => ({
-                    category,
-                    factor,
-                    updated_at: new Date().toISOString(),
-                }));
-
-            if (categoryRows.length > 0) {
-                await this.supabase
-                    .from('ml_category_factors')
-                    .upsert(categoryRows);
-            }
-        } catch (error) {
-            console.error('[MLConfidence] Failed to persist weights:', error);
-        }
-    }
-
-    /**
-     * Adjust category weights based on production incident correlations.
-     * Categories that correlate to production incidents get a severity boost
-     * (capped at 2× the baseline factor).
-     *
-     * @param {Array<{ category: string }>} incidentCorrelations
-     */
-    async incorporateProductionData(incidentCorrelations) {
-        if (!incidentCorrelations || incidentCorrelations.length === 0) return;
-
-        for (const corr of incidentCorrelations) {
-            if (!corr.category) continue;
-            const current = this.categoryFactors.get(corr.category) || 1.0;
-            // Boost by 15% per correlated incident, capped at 2.0×
-            const updated = Math.min(current * 1.15, 2.0);
-            this.categoryFactors.set(corr.category, updated);
-        }
-
-        await this.persistWeights();
-    }
-
-    /**
-     * Get learning statistics
-     */
-    getStats() {
-        return {
-            weights: { ...this.weights },
-            categoryFactors: Object.fromEntries(this.categoryFactors),
-            falsePositivePenalties: Object.fromEntries(this.falsePositiveCache),
-            patternMemorySize: this.patternMemory.size,
-        };
-    }
-
-    /**
-     * Reset learned state (for testing)
-     */
-    reset() {
-        this.weights = { ...DEFAULT_WEIGHTS };
-        this.categoryFactors.clear();
-        this.falsePositiveCache.clear();
-        this.patternMemory.clear();
-        this.projectWeights.clear();
-    }
+  /**
+   * Reset learned state (for testing)
+   */
+  reset() {
+    this.weights = { ...DEFAULT_WEIGHTS };
+    this.categoryFactors.clear();
+    this.falsePositiveCache.clear();
+    this.patternMemory.clear();
+    this.projectWeights.clear();
+  }
 }
 
 // Database migration SQL for ML confidence tables
@@ -908,8 +986,8 @@ CREATE INDEX IF NOT EXISTS idx_fix_outcomes_created ON fix_outcomes(created_at);
 `;
 
 module.exports = {
-    MLConfidenceScorer,
-    DEFAULT_WEIGHTS,
-    CONTEXT_THRESHOLDS,
-    MIGRATION_SQL,
+  MLConfidenceScorer,
+  DEFAULT_WEIGHTS,
+  CONTEXT_THRESHOLDS,
+  MIGRATION_SQL,
 };

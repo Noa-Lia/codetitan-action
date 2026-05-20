@@ -1,6 +1,6 @@
-const fs = require('fs');
-const path = require('path');
-const sqlite3 = require('sqlite3').verbose();
+const fs = require("fs");
+const path = require("path");
+const sqlite3 = require("sqlite3").verbose();
 
 class CollectiveInsight {
   constructor(dbPath) {
@@ -11,7 +11,7 @@ class CollectiveInsight {
   async init() {
     await fs.promises.mkdir(path.dirname(this.dbPath), { recursive: true });
     await new Promise((resolve, reject) => {
-      this.db = new sqlite3.Database(this.dbPath, err => {
+      this.db = new sqlite3.Database(this.dbPath, (err) => {
         if (err) {
           reject(err);
         } else {
@@ -139,29 +139,26 @@ class CollectiveInsight {
 
   async ingestReport(report, metadata = {}) {
     const timestamp = new Date().toISOString();
-    const {
-      projectPath,
-      applyFixes = false
-    } = metadata;
+    const { projectPath, applyFixes = false } = metadata;
 
     const runInfo = report.summary || {};
     const metrics = report.metrics || {};
 
-    await this.run('BEGIN TRANSACTION');
+    await this.run("BEGIN TRANSACTION");
     try {
       const runInsert = await this.run(
         `INSERT INTO runs (timestamp, project_path, session_id, duration_ms, files_analyzed, total_findings, quality_score, health_grade)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           timestamp,
-          projectPath || 'unknown',
+          projectPath || "unknown",
           report.sessionId || null,
           report.duration || null,
           runInfo.totalFiles || null,
           runInfo.totalFindings || null,
           metrics.qualityScore ? Number(metrics.qualityScore) : null,
-          metrics.healthGrade || null
-        ]
+          metrics.healthGrade || null,
+        ],
       );
 
       const runId = runInsert.lastID;
@@ -178,8 +175,8 @@ class CollectiveInsight {
             issue.severity || null,
             issue.message || null,
             issue.file || null,
-            issue.line || null
-          ]
+            issue.line || null,
+          ],
         );
       }
 
@@ -192,15 +189,15 @@ class CollectiveInsight {
             report.fixSummary.attempted || 0,
             report.fixSummary.applied || 0,
             report.fixSummary.skipped || 0,
-            (report.fixSummary.filesTouched || []).length
-          ]
+            (report.fixSummary.filesTouched || []).length,
+          ],
         );
       }
 
-      await this.run('COMMIT');
+      await this.run("COMMIT");
       return { runId, timestamp, findings: findings.length, applyFixes };
     } catch (error) {
-      await this.run('ROLLBACK');
+      await this.run("ROLLBACK");
       throw error;
     }
   }
@@ -215,12 +212,14 @@ class CollectiveInsight {
       FROM runs
     `);
 
-    return rows[0] || {
-      runCount: 0,
-      findingsLogged: 0,
-      avgQuality: null,
-      lastRun: null
-    };
+    return (
+      rows[0] || {
+        runCount: 0,
+        findingsLogged: 0,
+        avgQuality: null,
+        lastRun: null,
+      }
+    );
   }
 
   async getTopCategories(limit = 5) {
@@ -231,7 +230,7 @@ class CollectiveInsight {
        GROUP BY category
        ORDER BY count DESC
        LIMIT ?`,
-      [limit]
+      [limit],
     );
     return rows;
   }
@@ -242,7 +241,7 @@ class CollectiveInsight {
        FROM runs
        WHERE quality_score IS NOT NULL
        ORDER BY timestamp DESC
-       LIMIT 2`
+       LIMIT 2`,
     );
 
     if (rows.length === 0) {
@@ -259,7 +258,7 @@ class CollectiveInsight {
     return {
       latest,
       previous,
-      delta
+      delta,
     };
   }
 
@@ -270,14 +269,14 @@ class CollectiveInsight {
     return {
       summary,
       topCategories,
-      qualityTrend
+      qualityTrend,
     };
   }
 
   async close() {
     if (!this.db) return;
     await new Promise((resolve, reject) => {
-      this.db.close(err => (err ? reject(err) : resolve()));
+      this.db.close((err) => (err ? reject(err) : resolve()));
     });
     this.db = null;
   }
@@ -299,8 +298,8 @@ class CollectiveInsight {
         metadata.severity || null,
         success ? 1 : 0,
         metadata.runId || null,
-        metadata.file || null
-      ]
+        metadata.file || null,
+      ],
     );
   }
 
@@ -319,12 +318,12 @@ class CollectiveInsight {
     sql += ` ORDER BY timestamp DESC`;
 
     const rows = await this.all(sql, params);
-    return rows.map(r => ({
+    return rows.map((r) => ({
       timestamp: r.timestamp,
       category: r.category,
       severity: r.severity,
       success: Boolean(r.success),
-      file: r.file
+      file: r.file,
     }));
   }
 
@@ -345,8 +344,8 @@ class CollectiveInsight {
         cluster.dominantSeverity || null,
         cluster.rootCause?.type || null,
         cluster.rootCause?.confidence || null,
-        cluster.rootCause?.suggestion || null
-      ]
+        cluster.rootCause?.suggestion || null,
+      ],
     );
   }
 
@@ -356,7 +355,7 @@ class CollectiveInsight {
   async getPatternClusters(limit = 10) {
     return await this.all(
       `SELECT * FROM pattern_clusters ORDER BY size DESC LIMIT ?`,
-      [limit]
+      [limit],
     );
   }
 
@@ -368,7 +367,7 @@ class CollectiveInsight {
       await this.run(
         `INSERT INTO predictions (run_id, predicted_category, probability, confidence)
          VALUES (?, ?, ?, ?)`,
-        [runId, pred.category, pred.probability, pred.confidence || 0.5]
+        [runId, pred.category, pred.probability, pred.confidence || 0.5],
       );
     }
   }
@@ -380,24 +379,24 @@ class CollectiveInsight {
     // Get predictions for this run
     const predictions = await this.all(
       `SELECT id, predicted_category FROM predictions WHERE run_id = ?`,
-      [runId]
+      [runId],
     );
 
     // Get actual findings
     const actualCategories = await this.all(
       `SELECT DISTINCT category FROM findings WHERE run_id = ?`,
-      [runId]
+      [runId],
     );
 
-    const actualSet = new Set(actualCategories.map(r => r.category));
+    const actualSet = new Set(actualCategories.map((r) => r.category));
 
     // Mark predictions as occurred or not
     for (const pred of predictions) {
       const occurred = actualSet.has(pred.predicted_category);
-      await this.run(
-        `UPDATE predictions SET occurred = ? WHERE id = ?`,
-        [occurred ? 1 : 0, pred.id]
-      );
+      await this.run(`UPDATE predictions SET occurred = ? WHERE id = ?`, [
+        occurred ? 1 : 0,
+        pred.id,
+      ]);
     }
 
     // Calculate accuracy
@@ -407,17 +406,16 @@ class CollectiveInsight {
         SUM(occurred) as hits
        FROM predictions
        WHERE run_id = ?`,
-      [runId]
+      [runId],
     );
 
-    const accuracy = results[0].total > 0
-      ? results[0].hits / results[0].total
-      : 0;
+    const accuracy =
+      results[0].total > 0 ? results[0].hits / results[0].total : 0;
 
     return {
       total: results[0].total,
       hits: results[0].hits,
-      accuracy
+      accuracy,
     };
   }
 
@@ -427,15 +425,14 @@ class CollectiveInsight {
   async getHistoricalRuns(limit = 20) {
     const runs = await this.all(
       `SELECT * FROM runs ORDER BY timestamp DESC LIMIT ?`,
-      [limit]
+      [limit],
     );
 
     // Enrich with findings
     for (const run of runs) {
-      run.findings = await this.all(
-        `SELECT * FROM findings WHERE run_id = ?`,
-        [run.id]
-      );
+      run.findings = await this.all(`SELECT * FROM findings WHERE run_id = ?`, [
+        run.id,
+      ]);
     }
 
     return runs;
@@ -451,7 +448,7 @@ class CollectiveInsight {
        JOIN runs r ON f.run_id = r.id
        ORDER BY r.timestamp DESC
        LIMIT ?`,
-      [limit]
+      [limit],
     );
   }
 
@@ -465,7 +462,8 @@ class CollectiveInsight {
     const clusters = await this.getPatternClusters(limit);
 
     // Add fix success rates
-    const fixStats = await this.all(`
+    const fixStats = await this.all(
+      `
       SELECT
         category,
         COUNT(*) as attempts,
@@ -476,7 +474,9 @@ class CollectiveInsight {
       HAVING COUNT(*) >= 2
       ORDER BY success_rate DESC
       LIMIT ?
-    `, [limit]);
+    `,
+      [limit],
+    );
 
     // Add prediction accuracy
     const predictionStats = await this.all(`
@@ -489,22 +489,22 @@ class CollectiveInsight {
     return {
       ...basicDashboard,
       ml: {
-        clusters: clusters.map(c => ({
+        clusters: clusters.map((c) => ({
           id: c.cluster_id,
           size: c.size,
           category: c.dominant_category,
           severity: c.dominant_severity,
-          rootCause: c.root_cause_suggestion
+          rootCause: c.root_cause_suggestion,
         })),
-        fixSuccessRates: fixStats.map(f => ({
+        fixSuccessRates: fixStats.map((f) => ({
           category: f.category,
           attempts: f.attempts,
           successes: f.successes,
-          successRate: f.success_rate
+          successRate: f.success_rate,
         })),
         predictionAccuracy: predictionStats[0]?.avg_accuracy || null,
-        totalPredictions: predictionStats[0]?.total_predictions || 0
-      }
+        totalPredictions: predictionStats[0]?.total_predictions || 0,
+      },
     };
   }
 }

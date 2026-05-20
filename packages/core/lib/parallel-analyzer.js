@@ -12,11 +12,11 @@
  * - Memory-efficient streaming
  */
 
-const { Worker } = require('worker_threads');
-const os = require('os');
-const path = require('path');
-const EventEmitter = require('events');
-const fs = require('fs');
+const { Worker } = require("worker_threads");
+const os = require("os");
+const path = require("path");
+const EventEmitter = require("events");
+const fs = require("fs");
 
 class ParallelAnalyzer extends EventEmitter {
   constructor(options = {}) {
@@ -28,9 +28,11 @@ class ParallelAnalyzer extends EventEmitter {
     this.timeout = options.timeout || 30000; // 30 seconds per file (legacy)
     this.perFileTimeout = options.perFileTimeout || options.timeout || 30000;
     this.maxDurationMs = options.maxDurationMs || 5 * 60 * 1000; // 5 minute default guardrail
-    this.maxFindings = typeof options.maxFindings === 'number' ? options.maxFindings : Infinity;
+    this.maxFindings =
+      typeof options.maxFindings === "number" ? options.maxFindings : Infinity;
     this.maxBytesPerFile = options.maxBytesPerFile || 750 * 1024; // 750KB default
-    this.maxFiles = typeof options.maxFiles === 'number' ? options.maxFiles : Infinity;
+    this.maxFiles =
+      typeof options.maxFiles === "number" ? options.maxFiles : Infinity;
 
     // State
     this.workers = [];
@@ -50,7 +52,7 @@ class ParallelAnalyzer extends EventEmitter {
       filesPerSecond: 0,
       avgTimePerFile: 0,
       totalFindings: 0,
-      workerUtilization: 0
+      workerUtilization: 0,
     };
   }
 
@@ -58,29 +60,29 @@ class ParallelAnalyzer extends EventEmitter {
    * Initialize worker pool
    */
   async initialize() {
-    const workerScript = path.join(__dirname, 'worker-analyzer.js');
+    const workerScript = path.join(__dirname, "worker-analyzer.js");
 
     for (let i = 0; i < this.maxWorkers; i++) {
       // Create worker with workerId in workerData
       const worker = new Worker(workerScript, {
         workerData: {
-          workerId: i + 1  // 1-indexed for better readability
-        }
+          workerId: i + 1, // 1-indexed for better readability
+        },
       });
 
       // Store worker metadata
       worker.workerId = i + 1;
       worker.isAvailable = true;
 
-      worker.on('message', (msg) => this.handleWorkerMessage(worker, msg));
-      worker.on('error', (err) => this.handleWorkerError(worker, err));
-      worker.on('exit', (code) => this.handleWorkerExit(worker, code));
+      worker.on("message", (msg) => this.handleWorkerMessage(worker, msg));
+      worker.on("error", (err) => this.handleWorkerError(worker, err));
+      worker.on("exit", (code) => this.handleWorkerExit(worker, code));
 
       this.workers.push(worker);
       this.availableWorkers.push(worker);
     }
 
-    this.emit('initialized', { workers: this.maxWorkers });
+    this.emit("initialized", { workers: this.maxWorkers });
   }
 
   /**
@@ -104,7 +106,12 @@ class ParallelAnalyzer extends EventEmitter {
         // Size check before scheduling
         const stat = fs.statSync(real);
         if (stat.size > this.maxBytesPerFile) {
-          this.emit('skipped', { file, reason: 'file_too_large', size: stat.size, max: this.maxBytesPerFile });
+          this.emit("skipped", {
+            file,
+            reason: "file_too_large",
+            size: stat.size,
+            max: this.maxBytesPerFile,
+          });
           continue;
         }
 
@@ -114,7 +121,11 @@ class ParallelAnalyzer extends EventEmitter {
           break;
         }
       } catch (err) {
-        this.emit('skipped', { file, reason: 'stat_failed', error: err.message });
+        this.emit("skipped", {
+          file,
+          reason: "stat_failed",
+          error: err.message,
+        });
       }
     }
 
@@ -124,10 +135,10 @@ class ParallelAnalyzer extends EventEmitter {
     this.results = [];
     this.errors = [];
     // Emit start event
-    this.emit('start', {
+    this.emit("start", {
       totalFiles: this.totalFiles,
       workers: this.maxWorkers,
-      batchSize: this.batchSize
+      batchSize: this.batchSize,
     });
 
     // Create batches for efficient processing
@@ -145,7 +156,11 @@ class ParallelAnalyzer extends EventEmitter {
         stats: this.stats,
         duration: 0,
         halted: !!this.haltReason,
-        haltReason: this.haltReason || (this.maxFiles <= 0 ? 'Max files reached (0)' : 'No files to analyze')
+        haltReason:
+          this.haltReason ||
+          (this.maxFiles <= 0
+            ? "Max files reached (0)"
+            : "No files to analyze"),
       };
     }
 
@@ -154,23 +169,23 @@ class ParallelAnalyzer extends EventEmitter {
       ...options,
       perFileTimeout: this.perFileTimeout,
       maxBytesPerFile: this.maxBytesPerFile,
-      maxDurationMs: this.maxDurationMs
+      maxDurationMs: this.maxDurationMs,
     });
 
     // Calculate final statistics
     this.calculateStats();
 
     // Emit completion
-    this.emit('complete', {
+    this.emit("complete", {
       duration: Date.now() - this.startTime,
       filesProcessed: this.processedFiles,
       filesAnalyzed: this.processedFiles,
       totalFindings: this.stats.totalFindings,
-      findings: this.results,  // Include actual findings array
+      findings: this.results, // Include actual findings array
       errors: this.errors.length,
       stats: this.stats,
       halted: !!this.haltReason,
-      haltReason: this.haltReason
+      haltReason: this.haltReason,
     });
 
     return {
@@ -181,7 +196,7 @@ class ParallelAnalyzer extends EventEmitter {
       stats: this.stats,
       duration: Date.now() - this.startTime,
       halted: !!this.haltReason,
-      haltReason: this.haltReason
+      haltReason: this.haltReason,
     };
   }
 
@@ -195,7 +210,7 @@ class ParallelAnalyzer extends EventEmitter {
       batches.push({
         id: Math.random().toString(36).substr(2, 9),
         files: files.slice(i, i + this.batchSize),
-        startIndex: i
+        startIndex: i,
       });
     }
 
@@ -214,12 +229,18 @@ class ParallelAnalyzer extends EventEmitter {
       const shouldAbort = () => {
         if (this.haltReason) return true;
 
-        if (this.maxDurationMs && Date.now() - this.startTime > this.maxDurationMs) {
+        if (
+          this.maxDurationMs &&
+          Date.now() - this.startTime > this.maxDurationMs
+        ) {
           this.haltReason = `Analysis timeout after ${this.maxDurationMs}ms`;
           return true;
         }
 
-        if (this.maxFindings !== Infinity && this.stats.totalFindings >= this.maxFindings) {
+        if (
+          this.maxFindings !== Infinity &&
+          this.stats.totalFindings >= this.maxFindings
+        ) {
           this.haltReason = `Max findings reached (${this.maxFindings})`;
           return true;
         }
@@ -240,7 +261,7 @@ class ParallelAnalyzer extends EventEmitter {
         if (timeoutHandle) {
           clearTimeout(timeoutHandle);
         }
-        this.off('worker-complete', onWorkerComplete);
+        this.off("worker-complete", onWorkerComplete);
         resolve();
       };
 
@@ -257,28 +278,33 @@ class ParallelAnalyzer extends EventEmitter {
         }
 
         // Assign work to available workers
-        while (this.availableWorkers.length > 0 && this.workQueue.length > 0 && !shouldAbort()) {
+        while (
+          this.availableWorkers.length > 0 &&
+          this.workQueue.length > 0 &&
+          !shouldAbort()
+        ) {
           const worker = this.availableWorkers.pop();
           const batch = this.workQueue.shift();
 
           activeTasks++;
 
           worker.postMessage({
-            type: 'analyze',
+            type: "analyze",
             batch,
-            options
+            options,
           });
         }
       };
 
       // Handle worker completion
-      this.on('worker-complete', onWorkerComplete);
+      this.on("worker-complete", onWorkerComplete);
 
       // Start initial work assignment
       assignWork();
 
       // Set overall timeout safety net
-      const timeoutMs = this.maxDurationMs || this.timeout * Math.max(1, this.totalFiles);
+      const timeoutMs =
+        this.maxDurationMs || this.timeout * Math.max(1, this.totalFiles);
       timeoutHandle = setTimeout(() => {
         if (!completed) {
           this.haltReason = `Analysis timeout after ${timeoutMs}ms`;
@@ -294,38 +320,38 @@ class ParallelAnalyzer extends EventEmitter {
    */
   handleWorkerMessage(worker, message) {
     switch (message.type) {
-      case 'ready':
+      case "ready":
         // Worker is initialized and ready
         break;
 
-      case 'progress':
+      case "progress":
         // Update progress for individual file
         this.processedFiles++;
 
         // Pass findings to progress event for severity grouping
-        this.emit('progress', {
+        this.emit("progress", {
           file: message.file,
           findings: message.findings || [],
           filesProcessed: this.processedFiles,
-          totalFiles: this.totalFiles
+          totalFiles: this.totalFiles,
         });
 
         this.emitProgress();
         break;
 
-      case 'result':
+      case "result":
         // Worker completed a batch
         this.handleBatchResult(worker, message.data);
         break;
 
-      case 'error':
+      case "error":
         // Worker encountered an error
         this.errors.push({
           file: message.file,
           error: message.error,
-          worker: worker.threadId
+          worker: worker.threadId,
         });
-        this.emit('error', message);
+        this.emit("error", message);
         break;
     }
   }
@@ -346,10 +372,10 @@ class ParallelAnalyzer extends EventEmitter {
     this.availableWorkers.push(worker);
 
     // Emit worker completion
-    this.emit('worker-complete', {
+    this.emit("worker-complete", {
       worker: worker.threadId,
       filesProcessed: data.filesProcessed,
-      findings: data.findingsCount
+      findings: data.findingsCount,
     });
   }
 
@@ -360,9 +386,9 @@ class ParallelAnalyzer extends EventEmitter {
     console.error(`[ParallelAnalyzer] Worker ${worker.threadId} error:`, error);
 
     this.errors.push({
-      type: 'worker_error',
+      type: "worker_error",
       worker: worker.threadId,
-      error: error.message
+      error: error.message,
     });
 
     // Remove failed worker from available pool
@@ -376,10 +402,12 @@ class ParallelAnalyzer extends EventEmitter {
    * Handle worker exit
    */
   handleWorkerExit(worker, code) {
-    const workerId = worker.workerId || worker.threadId || 'unknown';
+    const workerId = worker.workerId || worker.threadId || "unknown";
 
     if (code !== 0) {
-      console.error(`[ParallelAnalyzer] Worker ${workerId} exited with code ${code}`);
+      console.error(
+        `[ParallelAnalyzer] Worker ${workerId} exited with code ${code}`,
+      );
 
       // Remove worker from available pool
       const index = this.availableWorkers.indexOf(worker);
@@ -388,15 +416,17 @@ class ParallelAnalyzer extends EventEmitter {
       }
 
       // Emit worker error event
-      this.emit('worker-error', {
+      this.emit("worker-error", {
         workerId,
-        exitCode: code
+        exitCode: code,
       });
     } else {
       // Normal shutdown
       if (this.workers.length > 0) {
         // Only log if not during normal cleanup
-        console.log(`[ParallelAnalyzer] Worker ${workerId} shutdown gracefully`);
+        console.log(
+          `[ParallelAnalyzer] Worker ${workerId} shutdown gracefully`,
+        );
       }
     }
   }
@@ -412,10 +442,10 @@ class ParallelAnalyzer extends EventEmitter {
       elapsed: Date.now() - this.startTime,
       estimatedRemaining: this.estimateTimeRemaining(),
       filesPerSecond: this.calculateFilesPerSecond(),
-      currentFindings: this.stats.totalFindings
+      currentFindings: this.stats.totalFindings,
     };
 
-    this.emit('progress', progress);
+    this.emit("progress", progress);
   }
 
   /**
@@ -449,14 +479,18 @@ class ParallelAnalyzer extends EventEmitter {
 
     this.stats = {
       filesPerSecond: (this.processedFiles / duration).toFixed(2),
-      avgTimePerFile: this.processedFiles ? Math.round((duration / this.processedFiles) * 1000) : 0, // ms
+      avgTimePerFile: this.processedFiles
+        ? Math.round((duration / this.processedFiles) * 1000)
+        : 0, // ms
       totalFindings: this.stats.totalFindings,
-      workerUtilization: Math.round((this.processedFiles / (this.maxWorkers * duration)) * 100),
+      workerUtilization: Math.round(
+        (this.processedFiles / (this.maxWorkers * duration)) * 100,
+      ),
       throughput: {
         files: this.processedFiles,
         duration: Math.round(duration * 1000), // ms
-        findingsPerSecond: (this.stats.totalFindings / duration).toFixed(2)
-      }
+        findingsPerSecond: (this.stats.totalFindings / duration).toFixed(2),
+      },
     };
   }
 
@@ -465,21 +499,23 @@ class ParallelAnalyzer extends EventEmitter {
    */
   async shutdown() {
     // First, send graceful shutdown messages to all workers
-    await Promise.all(this.workers.map(w => {
-      return new Promise((resolve) => {
-        w.postMessage({ type: 'shutdown' });
-        // Wait a bit for graceful shutdown, then force if needed
-        const timeoutHandle = setTimeout(() => {
-          w.terminate();
-          resolve();
-        }, 500);
-        timeoutHandle.unref?.();
-      });
-    }));
+    await Promise.all(
+      this.workers.map((w) => {
+        return new Promise((resolve) => {
+          w.postMessage({ type: "shutdown" });
+          // Wait a bit for graceful shutdown, then force if needed
+          const timeoutHandle = setTimeout(() => {
+            w.terminate();
+            resolve();
+          }, 500);
+          timeoutHandle.unref?.();
+        });
+      }),
+    );
 
     this.workers = [];
     this.availableWorkers = [];
-    this.emit('shutdown');
+    this.emit("shutdown");
   }
 
   /**
@@ -490,17 +526,17 @@ class ParallelAnalyzer extends EventEmitter {
       workers: {
         total: this.maxWorkers,
         active: this.maxWorkers - this.availableWorkers.length,
-        available: this.availableWorkers.length
+        available: this.availableWorkers.length,
       },
       progress: {
         processed: this.processedFiles,
         total: this.totalFiles,
-        percentage: Math.round((this.processedFiles / this.totalFiles) * 100)
+        percentage: Math.round((this.processedFiles / this.totalFiles) * 100),
       },
       queue: {
-        pending: this.workQueue.length
+        pending: this.workQueue.length,
       },
-      stats: this.stats
+      stats: this.stats,
     };
   }
 }

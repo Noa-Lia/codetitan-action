@@ -20,7 +20,7 @@
  *   Joi/Yup/Zod .validate(), sanitize-html
  */
 
-'use strict';
+"use strict";
 
 // ── Source patterns ──────────────────────────────────────────────────────────
 const SOURCE_PATTERNS = [
@@ -31,49 +31,146 @@ const SOURCE_PATTERNS = [
   /event\.data\b/,
   /getenv\b/,
   /os\.environ\b/,
-  /ctx\.(params|query|body|request)\b/,  // Koa
-  /c\.(param|query|body)\b/,              // Gin (Go-style)
+  /ctx\.(params|query|body|request)\b/, // Koa
+  /c\.(param|query|body)\b/, // Gin (Go-style)
 ];
+
+// Internal-CLI-script taint-source classification (closes #189 follow-up, 2026-05-14).
+// Maintainer-only CLI scripts parse CLI flags via process.argv from a
+// maintainer's local shell, never from network/user input. Treating process.argv
+// as tainted there produces FPs on every path.join(args.cloneTo, ...) chain
+// (verified on scripts/sync-action-mirror.js during v1.0.10 -> v1.0.11 hotfix).
+// Other taint sources (req.body, etc.) remain active in case the script
+// accidentally embeds a local server.
+//
+// Content-based heuristic (not path-based — single-file CLI scans copy the
+// target to a temp dir, so the original `scripts/` prefix is lost). Three
+// signals must ALL be present:
+//   1. Shebang `#!/usr/bin/env node` (or similar) on the first line
+//   2. Uses process.argv (directly or via parseArgs/commander/yargs/minimist)
+//   3. Does NOT import an HTTP server framework (express/fastify/koa/http.createServer/etc.)
+// The three-way gate prevents over-suppression — a true network-facing file
+// (Next.js API route, Express handler) won't have the shebang, and a
+// maintainer CLI script won't import express.
+const SHEBANG_REGEX = /^#!\s*(?:\/usr\/bin\/env\s+)?node\b/m;
+const PROCESS_ARGV_USE_REGEX =
+  /\bprocess\.argv\b|\bparseArgs\s*\(|\brequire\s*\(\s*['"`](?:commander|yargs|minimist|arg|meow)['"`]/;
+const HTTP_SERVER_IMPORT_REGEX =
+  /\brequire\s*\(\s*['"`](?:express|fastify|koa|hono|@hono|next|@nestjs|@trpc|polka|micro)['"`]|\bfrom\s+['"`](?:express|fastify|koa|hono|@hono|next|@nestjs|@trpc|polka|micro)['"`]|\bhttp\.createServer\s*\(|\bhttps\.createServer\s*\(/;
+function isInternalCliScript(filePath, content) {
+  if (!content) return false;
+  if (!SHEBANG_REGEX.test(content)) return false;
+  if (!PROCESS_ARGV_USE_REGEX.test(content)) return false;
+  if (HTTP_SERVER_IMPORT_REGEX.test(content)) return false;
+  return true;
+}
 
 // Files that import child_process may run shell commands; otherwise name-collisions
 // (RegExp.prototype.exec, SQLite Database.exec, etc.) dominate and produce FPs.
-const CHILD_PROCESS_IMPORT_REGEX = /require\s*\(\s*['"`](?:node:)?child_process['"`]\s*\)|from\s+['"`](?:node:)?child_process['"`]|import\s+['"`](?:node:)?child_process['"`]/;
+const CHILD_PROCESS_IMPORT_REGEX =
+  /require\s*\(\s*['"`](?:node:)?child_process['"`]\s*\)|from\s+['"`](?:node:)?child_process['"`]|import\s+['"`](?:node:)?child_process['"`]/;
 
 // ── Sink patterns ────────────────────────────────────────────────────────────
 // `fileImportGuard` (optional): sink only fires when this regex matches the file.
 // Use to require an import of the dangerous module before treating a name-collision
 // call as the real sink (e.g. exec() without child_process is almost always regex/SQLite).
 const SINKS = [
-  { pattern: /\beval\s*\(/, category: 'TAINT_EVAL', message: 'Tainted user input reaches eval().' },
+  {
+    pattern: /\beval\s*\(/,
+    category: "TAINT_EVAL",
+    message: "Tainted user input reaches eval().",
+  },
   {
     // Only fires when the file imports child_process (fileImportGuard). Within such
     // files, accept both bare `exec(...)` (destructured) and `cp.exec(...)` (member).
     pattern: /\b(exec|execSync|spawnSync|spawn|execFile|execFileSync)\s*\(/,
-    category: 'TAINT_COMMAND_INJECTION',
-    message: 'Tainted user input reaches shell command.',
+    category: "TAINT_COMMAND_INJECTION",
+    message: "Tainted user input reaches shell command.",
     fileImportGuard: CHILD_PROCESS_IMPORT_REGEX,
   },
   // SQL: classic drivers + ORMs
-  { pattern: /\b(db|pool|client|conn|connection|knex|sequelize|pg|mysql|sqlite)\s*\.\s*(query|execute|run|all|get|raw)\s*\(/, category: 'TAINT_SQL_INJECTION', message: 'Tainted user input may reach a SQL query.' },
+  {
+    pattern:
+      /\b(db|pool|client|conn|connection|knex|sequelize|pg|mysql|sqlite)\s*\.\s*(query|execute|run|all|get|raw)\s*\(/,
+    category: "TAINT_SQL_INJECTION",
+    message: "Tainted user input may reach a SQL query.",
+  },
   // Prisma raw queries
-  { pattern: /\bprisma\s*\.\s*\$(?:queryRaw|executeRaw|queryRawUnsafe|executeRawUnsafe)\s*\(/, category: 'TAINT_SQL_INJECTION', message: 'Tainted user input in Prisma raw query.' },
+  {
+    pattern:
+      /\bprisma\s*\.\s*\$(?:queryRaw|executeRaw|queryRawUnsafe|executeRawUnsafe)\s*\(/,
+    category: "TAINT_SQL_INJECTION",
+    message: "Tainted user input in Prisma raw query.",
+  },
   // Mongoose / MongoDB
-  { pattern: /\b(?:Model|model|collection)\s*\.\s*(?:find|findOne|findById|update|updateOne|deleteOne|aggregate)\s*\(\s*\{/, category: 'TAINT_NOSQL_INJECTION', message: 'Tainted user input in MongoDB/Mongoose query — NoSQL injection risk.' },
+  {
+    pattern:
+      /\b(?:Model|model|collection)\s*\.\s*(?:find|findOne|findById|update|updateOne|deleteOne|aggregate)\s*\(\s*\{/,
+    category: "TAINT_NOSQL_INJECTION",
+    message:
+      "Tainted user input in MongoDB/Mongoose query — NoSQL injection risk.",
+  },
   // XSS sinks
-  { pattern: /\.innerHTML\s*=/, category: 'TAINT_XSS', message: 'Tainted user input assigned to innerHTML.' },
-  { pattern: /dangerouslySetInnerHTML\s*=/, category: 'TAINT_XSS', message: 'Tainted user input in dangerouslySetInnerHTML.' },
-  { pattern: /document\.write\s*\(/, category: 'TAINT_XSS', message: 'Tainted user input passed to document.write().' },
-  { pattern: /\.outerHTML\s*=/, category: 'TAINT_XSS', message: 'Tainted user input assigned to outerHTML.' },
+  {
+    pattern: /\.innerHTML\s*=/,
+    category: "TAINT_XSS",
+    message: "Tainted user input assigned to innerHTML.",
+  },
+  {
+    pattern: /dangerouslySetInnerHTML\s*=/,
+    category: "TAINT_XSS",
+    message: "Tainted user input in dangerouslySetInnerHTML.",
+  },
+  {
+    pattern: /document\.write\s*\(/,
+    category: "TAINT_XSS",
+    message: "Tainted user input passed to document.write().",
+  },
+  {
+    pattern: /\.outerHTML\s*=/,
+    category: "TAINT_XSS",
+    message: "Tainted user input assigned to outerHTML.",
+  },
   // Filesystem path traversal
-  { pattern: /\bfs\s*\.\s*(readFile|writeFile|appendFile|readFileSync|writeFileSync|unlink|unlinkSync|mkdir|mkdirSync)\s*\(/, category: 'TAINT_PATH_TRAVERSAL', message: 'Tainted user input used as file path.' },
-  { pattern: /\bpath\s*\.\s*(join|resolve|normalize)\s*\(/, category: 'TAINT_PATH_TRAVERSAL', message: 'Tainted user input in path.join/resolve — path traversal risk.' },
+  {
+    pattern:
+      /\bfs\s*\.\s*(readFile|writeFile|appendFile|readFileSync|writeFileSync|unlink|unlinkSync|mkdir|mkdirSync)\s*\(/,
+    category: "TAINT_PATH_TRAVERSAL",
+    message: "Tainted user input used as file path.",
+  },
+  {
+    pattern: /\bpath\s*\.\s*(join|resolve|normalize)\s*\(/,
+    category: "TAINT_PATH_TRAVERSAL",
+    message: "Tainted user input in path.join/resolve — path traversal risk.",
+  },
   // Open redirect
-  { pattern: /\bres\s*\.\s*redirect\s*\(/, category: 'TAINT_OPEN_REDIRECT', message: 'Tainted user input in res.redirect() — open redirect vulnerability.' },
-  { pattern: /\bc\s*\.\s*redirect\s*\(/, category: 'TAINT_OPEN_REDIRECT', message: 'Tainted user input in redirect() — open redirect vulnerability.' },
+  {
+    pattern: /\bres\s*\.\s*redirect\s*\(/,
+    category: "TAINT_OPEN_REDIRECT",
+    message:
+      "Tainted user input in res.redirect() — open redirect vulnerability.",
+  },
+  {
+    pattern: /\bc\s*\.\s*redirect\s*\(/,
+    category: "TAINT_OPEN_REDIRECT",
+    message: "Tainted user input in redirect() — open redirect vulnerability.",
+  },
   // SSRF
-  { pattern: /\b(?:fetch|axios|got|superagent|request|http\.get|https\.get)\s*\(/, category: 'TAINT_SSRF', message: 'Tainted user input in HTTP request URL — Server-Side Request Forgery risk.' },
+  {
+    pattern:
+      /\b(?:fetch|axios|got|superagent|request|http\.get|https\.get)\s*\(/,
+    category: "TAINT_SSRF",
+    message:
+      "Tainted user input in HTTP request URL — Server-Side Request Forgery risk.",
+  },
   // Template injection
-  { pattern: /\b(?:ejs\.render|pug\.render|handlebars\.compile|nunjucks\.render|mustache\.render)\s*\(/, category: 'TAINT_TEMPLATE_INJECTION', message: 'Tainted user input passed to template engine — template injection risk.' },
+  {
+    pattern:
+      /\b(?:ejs\.render|pug\.render|handlebars\.compile|nunjucks\.render|mustache\.render)\s*\(/,
+    category: "TAINT_TEMPLATE_INJECTION",
+    message:
+      "Tainted user input passed to template engine — template injection risk.",
+  },
 ];
 
 // ── Sanitizer patterns (break taint) ─────────────────────────────────────────
@@ -88,12 +185,12 @@ const SANITIZER_PATTERNS = [
   /\bescapeHtml\b/i,
   // Parameterized query placeholders — must be inside a string literal adjacent to the sink
   // Match '?' ONLY inside a quoted SQL string (e.g. "SELECT * WHERE id = ?")
-  /['"]\s*[^'"]*\?\s*[^'"]*['"]/,  // ? inside a string literal
-  /\$\d+/,        // $1, $2, etc. (PostgreSQL positional params)
+  /['"]\s*[^'"]*\?\s*[^'"]*['"]/, // ? inside a string literal
+  /\$\d+/, // $1, $2, etc. (PostgreSQL positional params)
   // Named params only in SQL context (after query/execute keyword)
   /(?:query|execute|run)\s*\(\s*['"]\s*[^'"]*:[a-zA-Z_]\w*/,
-  /,\s*\[/,       // array param style: query('...', [id])
-  /,\s*\{/,       // object param style: query('...', { id })
+  /,\s*\[/, // array param style: query('...', [id])
+  /,\s*\{/, // object param style: query('...', { id })
   // Joi/Yup/Zod validation
   /\.(validate|parseAsync|safeParse)\s*\(/,
   // Prepared statements
@@ -127,33 +224,51 @@ function analyzeTaint(filePath, content) {
   const issues = [];
 
   // Only analyze JS/TS/JSX/TSX files for now
-  const ext = filePath.split('.').pop().toLowerCase();
-  if (!['js', 'ts', 'jsx', 'tsx', 'mjs', 'cjs'].includes(ext)) {
+  const ext = filePath.split(".").pop().toLowerCase();
+  if (!["js", "ts", "jsx", "tsx", "mjs", "cjs"].includes(ext)) {
     return issues;
   }
 
   const taintedVars = new Set();
   const taintedLineMap = new Map(); // varName → line number where first tainted
 
+  // Internal CLI scripts (under scripts/) parse process.argv from a maintainer's
+  // local shell, not from network/user input. Filter process.argv out of the
+  // taint sources for these files; other sources (req.body, etc.) stay active.
+  // See INTERNAL_CLI_SCRIPT_REGEX above for the heuristic + rationale.
+  const activeSourcePatterns = isInternalCliScript(filePath, content)
+    ? SOURCE_PATTERNS.filter((p) => p.source !== /process\.argv\b/.source)
+    : SOURCE_PATTERNS;
+
   // ── Pass 1: Find direct tainted variable assignments ──────────────────────
   lines.forEach((line, idx) => {
     const trimmed = line.trim();
-    if (!trimmed || trimmed.startsWith('//') || trimmed.startsWith('*')) return;
+    if (!trimmed || trimmed.startsWith("//") || trimmed.startsWith("*")) return;
 
-    for (const sourcePattern of SOURCE_PATTERNS) {
+    for (const sourcePattern of activeSourcePatterns) {
       if (!sourcePattern.test(line)) continue;
 
       // const/let/var varName = <source>
-      const assignMatch = line.match(/(?:const|let|var)\s+(\w+)(?:\s*:\s*[^=;]+)?\s*=\s*.+/);
+      const assignMatch = line.match(
+        /(?:const|let|var)\s+(\w+)(?:\s*:\s*[^=;]+)?\s*=\s*.+/,
+      );
       if (assignMatch) {
         taintedVars.add(assignMatch[1]);
         taintedLineMap.set(assignMatch[1], idx + 1);
       }
 
       // const { a, b } = <source>
-      const destructureMatch = line.match(/(?:const|let|var)\s*\{([^}]+)\}\s*=\s*.+/);
+      const destructureMatch = line.match(
+        /(?:const|let|var)\s*\{([^}]+)\}\s*=\s*.+/,
+      );
       if (destructureMatch) {
-        const vars = destructureMatch[1].split(',').map(v => v.trim().split(/\s+as\s+/).pop().trim());
+        const vars = destructureMatch[1].split(",").map((v) =>
+          v
+            .trim()
+            .split(/\s+as\s+/)
+            .pop()
+            .trim(),
+        );
         for (const v of vars) {
           if (/^\w+$/.test(v)) {
             taintedVars.add(v);
@@ -163,9 +278,11 @@ function analyzeTaint(filePath, content) {
       }
 
       // const [a, b] = <source>  (array destructuring)
-      const arrDestructureMatch = line.match(/(?:const|let|var)\s*\[([^\]]+)\]\s*=\s*.+/);
+      const arrDestructureMatch = line.match(
+        /(?:const|let|var)\s*\[([^\]]+)\]\s*=\s*.+/,
+      );
       if (arrDestructureMatch) {
-        const vars = arrDestructureMatch[1].split(',').map(v => v.trim());
+        const vars = arrDestructureMatch[1].split(",").map((v) => v.trim());
         for (const v of vars) {
           if (/^\w+$/.test(v)) {
             taintedVars.add(v);
@@ -175,7 +292,9 @@ function analyzeTaint(filePath, content) {
       }
 
       // varName = <source> (reassignment without declaration)
-      const reassignMatch = line.match(/\b(\w+)\s*=\s*(?:req|request|process\.argv|event\.data|readline|ctx)\s*\./);
+      const reassignMatch = line.match(
+        /\b(\w+)\s*=\s*(?:req|request|process\.argv|event\.data|readline|ctx)\s*\./,
+      );
       if (reassignMatch) {
         taintedVars.add(reassignMatch[1]);
         taintedLineMap.set(reassignMatch[1], idx + 1);
@@ -183,7 +302,14 @@ function analyzeTaint(filePath, content) {
     }
   });
 
-  if (taintedVars.size === 0) return issues; // No sources — skip
+  // Bundle 7: don't early-exit when taintedVars is empty. Pass 5 still
+  // needs to run for the direct-source-on-sink-line fallback (handles
+  // direct-usage cases like `el.innerHTML = `<div>${req.body.x}</div>``
+  // where Pass 1's assignment-detection didn't mark any var). Passes
+  // 2-4 are no-ops when taintedVars is empty, so this is cheap.
+  // Optimization: short-circuit if content has no source patterns at all.
+  const contentHasAnySource = activeSourcePatterns.some((p) => p.test(content));
+  if (taintedVars.size === 0 && !contentHasAnySource) return issues;
 
   // ── Pass 2: Multi-round alias propagation ────────────────────────────────
   // Repeat until stable (handles chains: a=req.body, b=a, c=b → all tainted)
@@ -192,35 +318,59 @@ function analyzeTaint(filePath, content) {
     changed = false;
     lines.forEach((line, idx) => {
       // Simple alias: const x = y
-      const simpleAlias = line.match(/(?:const|let|var)\s+(\w+)(?:\s*:\s*[^=;]+)?\s*=\s*(\w+)\s*[;,\n)]/);
-      if (simpleAlias && taintedVars.has(simpleAlias[2]) && !taintedVars.has(simpleAlias[1])) {
+      const simpleAlias = line.match(
+        /(?:const|let|var)\s+(\w+)(?:\s*:\s*[^=;]+)?\s*=\s*(\w+)\s*[;,\n)]/,
+      );
+      if (
+        simpleAlias &&
+        taintedVars.has(simpleAlias[2]) &&
+        !taintedVars.has(simpleAlias[1])
+      ) {
         taintedVars.add(simpleAlias[1]);
         taintedLineMap.set(simpleAlias[1], idx + 1);
         changed = true;
       }
 
       // Property access: const x = tainted.prop
-      const propAccess = line.match(/(?:const|let|var)\s+(\w+)(?:\s*:\s*[^=;]+)?\s*=\s*(\w+)\.[\w.]+/);
-      if (propAccess && taintedVars.has(propAccess[2]) && !taintedVars.has(propAccess[1])) {
+      const propAccess = line.match(
+        /(?:const|let|var)\s+(\w+)(?:\s*:\s*[^=;]+)?\s*=\s*(\w+)\.[\w.]+/,
+      );
+      if (
+        propAccess &&
+        taintedVars.has(propAccess[2]) &&
+        !taintedVars.has(propAccess[1])
+      ) {
         taintedVars.add(propAccess[1]);
         taintedLineMap.set(propAccess[1], idx + 1);
         changed = true;
       }
 
       // Template literal: const x = `...${tainted}...`
-      const templateLit = line.match(/(?:const|let|var)\s+(\w+)(?:\s*:\s*[^=;]+)?\s*=\s*`[^`]*\$\{(\w+)\}`/);
-      if (templateLit && taintedVars.has(templateLit[2]) && !taintedVars.has(templateLit[1])) {
+      const templateLit = line.match(
+        /(?:const|let|var)\s+(\w+)(?:\s*:\s*[^=;]+)?\s*=\s*`[^`]*\$\{(\w+)\}`/,
+      );
+      if (
+        templateLit &&
+        taintedVars.has(templateLit[2]) &&
+        !taintedVars.has(templateLit[1])
+      ) {
         taintedVars.add(templateLit[1]);
         taintedLineMap.set(templateLit[1], idx + 1);
         changed = true;
       }
 
       // String concat: const x = tainted + "..." or "..." + tainted
-      const concat = line.match(/(?:const|let|var)\s+(\w+)(?:\s*:\s*[^=;]+)?\s*=\s*(?:(\w+)\s*\+|.*\+\s*(\w+))/);
+      const concat = line.match(
+        /(?:const|let|var)\s+(\w+)(?:\s*:\s*[^=;]+)?\s*=\s*(?:(\w+)\s*\+|.*\+\s*(\w+))/,
+      );
       if (concat) {
         const lhs = concat[1];
-        const rhs1 = concat[2], rhs2 = concat[3];
-        if (!taintedVars.has(lhs) && ((rhs1 && taintedVars.has(rhs1)) || (rhs2 && taintedVars.has(rhs2)))) {
+        const rhs1 = concat[2],
+          rhs2 = concat[3];
+        if (
+          !taintedVars.has(lhs) &&
+          ((rhs1 && taintedVars.has(rhs1)) || (rhs2 && taintedVars.has(rhs2)))
+        ) {
           taintedVars.add(lhs);
           taintedLineMap.set(lhs, idx + 1);
           changed = true;
@@ -244,8 +394,8 @@ function analyzeTaint(filePath, content) {
         const m = call.match(/^(\w+)\s*\(([^)]*)\)/);
         if (!m) continue;
         const fnName = m[1];
-        const args = m[2].split(',').map(a => a.trim());
-        const hasTaintedArg = args.some(arg => taintedVars.has(arg));
+        const args = m[2].split(",").map((a) => a.trim());
+        const hasTaintedArg = args.some((arg) => taintedVars.has(arg));
         if (hasTaintedArg) {
           taintedFunctions.add(fnName);
         }
@@ -260,7 +410,9 @@ function analyzeTaint(filePath, content) {
 
     lines.forEach((line, idx) => {
       // Detect function definition entry
-      const fnDefMatch = line.match(/(?:function\s+(\w+)|(?:const|let|var)\s+(\w+)\s*=\s*(?:async\s+)?(?:function|\([^)]*\)\s*=>))/);
+      const fnDefMatch = line.match(
+        /(?:function\s+(\w+)|(?:const|let|var)\s+(\w+)\s*=\s*(?:async\s+)?(?:function|\([^)]*\)\s*=>))/,
+      );
       if (fnDefMatch) {
         const fnName = fnDefMatch[1] || fnDefMatch[2];
         if (fnName && taintedFunctions.has(fnName)) {
@@ -286,8 +438,14 @@ function analyzeTaint(filePath, content) {
 
     // Mark call-site assignments: const result = taintedFn(...)
     lines.forEach((line, idx) => {
-      const callAssign = line.match(/(?:const|let|var)\s+(\w+)\s*=\s*(?:await\s+)?(\w+)\s*\(/);
-      if (callAssign && taintedFunctions.has(callAssign[2]) && !taintedVars.has(callAssign[1])) {
+      const callAssign = line.match(
+        /(?:const|let|var)\s+(\w+)\s*=\s*(?:await\s+)?(\w+)\s*\(/,
+      );
+      if (
+        callAssign &&
+        taintedFunctions.has(callAssign[2]) &&
+        !taintedVars.has(callAssign[1])
+      ) {
         taintedVars.add(callAssign[1]);
         taintedLineMap.set(callAssign[1], idx + 1);
       }
@@ -299,37 +457,68 @@ function analyzeTaint(filePath, content) {
 
   lines.forEach((line, idx) => {
     const trimmed = line.trim();
-    if (!trimmed || trimmed.startsWith('//') || trimmed.startsWith('*')) return;
+    if (!trimmed || trimmed.startsWith("//") || trimmed.startsWith("*")) return;
     if (reportedLines.has(idx)) return;
+
+    // Strip single/double-quoted string literals so sink + source patterns
+    // don't match documentation prose. Preserve backticks so template-literal
+    // interpolation (`exec(`git clone ${userInput}`)`) still detects.
+    // Sanitizer + tainted-var checks below intentionally stay on raw `line`:
+    // the `?` placeholder sanitizer (SANITIZER_PATTERNS) requires quoted
+    // content, and a tainted-var name in any context is the same risk.
+    const codeOnly = line.replace(/(['"])(?:\\.|(?!\1)[\s\S])*?\1/g, "''");
 
     for (const sink of SINKS) {
       if (sink.fileImportGuard && !sink.fileImportGuard.test(content)) continue;
-      if (!sink.pattern.test(line)) continue;
+      if (!sink.pattern.test(codeOnly)) continue;
 
-      const foundTaintedVar = [...taintedVars].find(v =>
-        new RegExp(`\\b${escapeRegex(v)}\\b`).test(line)
+      const foundTaintedVar = [...taintedVars].find((v) =>
+        new RegExp(`\\b${escapeRegex(v)}\\b`).test(line),
       );
-      if (!foundTaintedVar) continue;
+
+      // Bundle 7 (2026-05-14): direct-source-on-sink-line fallback.
+      // Handles cases where a taint source (req.body.x, etc.) appears
+      // DIRECTLY in a sink expression without prior variable assignment.
+      // Example: `el.innerHTML = \`<div>${req.body.html}</div>\`` — Pass 1
+      // only marks taint on assignment LHS, so `req.body.html` used
+      // directly inside a template literal interpolation wouldn't be in
+      // taintedVars. Check active source patterns against the sink line
+      // as a fallback when no tainted var matched.
+      // Replaces the deprecated HTML_INJECTION_INNERHTML pattern rule.
+      const foundDirectSource =
+        !foundTaintedVar && activeSourcePatterns.some((p) => p.test(codeOnly));
+
+      if (!foundTaintedVar && !foundDirectSource) continue;
 
       // Inline sanitizer check
-      const isSanitized = SANITIZER_PATTERNS.some(sp => sp.test(line));
+      const isSanitized = SANITIZER_PATTERNS.some((sp) => sp.test(line));
       if (isSanitized) continue;
 
       // Context window: 5 lines before (expanded from 3)
-      const contextBefore = lines.slice(Math.max(0, idx - 5), idx).join('\n');
-      const isSanitizedBefore = SANITIZER_PATTERNS.some(sp => sp.test(contextBefore)) &&
-        new RegExp(`\\b${escapeRegex(foundTaintedVar)}\\b`).test(contextBefore);
+      const contextBefore = lines.slice(Math.max(0, idx - 5), idx).join("\n");
+      const checkVar = foundTaintedVar; // direct-source case has no var
+      const isSanitizedBefore =
+        checkVar &&
+        SANITIZER_PATTERNS.some((sp) => sp.test(contextBefore)) &&
+        new RegExp(`\\b${escapeRegex(checkVar)}\\b`).test(contextBefore);
       if (isSanitizedBefore) continue;
+
+      const sourceDescription = foundTaintedVar
+        ? `Variable \`${foundTaintedVar}\` originates from user input (line ${taintedLineMap.get(foundTaintedVar) || "?"}).`
+        : "User input reaches sink directly on this line.";
+      const suggestionTarget = foundTaintedVar
+        ? `\`${foundTaintedVar}\``
+        : "the user input on this line";
 
       issues.push({
         line: idx + 1,
-        column: line.indexOf(foundTaintedVar),
-        severity: 'HIGH',
+        column: foundTaintedVar ? line.indexOf(foundTaintedVar) : 0,
+        severity: "HIGH",
         category: sink.category,
-        message: `${sink.message} Variable \`${foundTaintedVar}\` originates from user input (line ${taintedLineMap.get(foundTaintedVar) || '?'}).`,
+        message: `${sink.message} ${sourceDescription}`,
         impact: 9,
         snippet: trimmed,
-        suggestion: `Validate and sanitize \`${foundTaintedVar}\` before use. For SQL, use parameterized queries. For shell commands, use argument arrays (not string interpolation).`
+        suggestion: `Validate and sanitize ${suggestionTarget} before use. For SQL, use parameterized queries. For shell commands, use argument arrays (not string interpolation).`,
       });
 
       reportedLines.add(idx);
@@ -341,7 +530,7 @@ function analyzeTaint(filePath, content) {
 }
 
 function escapeRegex(str) {
-  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 module.exports = { analyzeTaint };

@@ -1,5 +1,5 @@
-const fs = require('fs');
-const path = require('path');
+const fs = require("fs");
+const path = require("path");
 
 let cache = null;
 let cachePath = null;
@@ -9,23 +9,23 @@ function resolveConfigPath() {
   if (override) {
     return path.resolve(override);
   }
-  return path.join(__dirname, '..', 'config', 'defaults.json');
+  return path.join(__dirname, "..", "config", "defaults.json");
 }
 
 function buildFallbackConfig() {
   return {
-    version: '1.0.0',
+    version: "1.0.0",
     settings: {},
-    environment: process.env.NODE_ENV || 'development'
+    environment: process.env.NODE_ENV || "development",
   };
 }
 
 function loadConfig() {
   const targetPath = resolveConfigPath();
   if (!cache || cachePath !== targetPath) {
-// TODO: Fix SYNC_IO - Synchronous fs operation blocks the event loop. Consider async alternatives.
+    // TODO: Fix SYNC_IO - Synchronous fs operation blocks the event loop. Consider async alternatives.
     if (fs.existsSync(targetPath)) {
-      cache = JSON.parse(fs.readFileSync(targetPath, 'utf8'));
+      cache = JSON.parse(fs.readFileSync(targetPath, "utf8"));
     } else if (process.env.CLAUDE_CONFIG_PATH) {
       throw new Error(`Config file does not exist: ${targetPath}`);
     } else {
@@ -43,5 +43,5 @@ function resetConfig() {
 
 module.exports = {
   loadConfig,
-  resetConfig
+  resetConfig,
 };

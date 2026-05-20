@@ -18,8 +18,8 @@
  * - Markov chains for issue prediction
  */
 
-const fs = require('fs');
-const path = require('path');
+const fs = require("fs");
+const path = require("path");
 
 /**
  * Cosine similarity for vector comparison
@@ -35,7 +35,9 @@ function cosineSimilarity(vecA, vecB) {
  * Euclidean distance for clustering
  */
 function euclideanDistance(vecA, vecB) {
-  return Math.sqrt(vecA.reduce((sum, val, i) => sum + Math.pow(val - vecB[i], 2), 0));
+  return Math.sqrt(
+    vecA.reduce((sum, val, i) => sum + Math.pow(val - vecB[i], 2), 0),
+  );
 }
 
 /**
@@ -177,7 +179,7 @@ class BayesianFixerModel {
       lower: Math.max(0, mean - z * stdDev),
       upper: Math.min(1, mean + z * stdDev),
       confidence,
-      sampleSize: n - 4 // Subtract prior
+      sampleSize: n - 4, // Subtract prior
     };
   }
 
@@ -187,12 +189,14 @@ class BayesianFixerModel {
   toJSON() {
     return {
       prior: this.prior,
-      categories: Array.from(this.categoryModels.entries()).map(([cat, model]) => ({
-        category: cat,
-        alpha: model.alpha,
-        beta: model.beta,
-        successRate: this.getSuccessProbability(cat)
-      }))
+      categories: Array.from(this.categoryModels.entries()).map(
+        ([cat, model]) => ({
+          category: cat,
+          alpha: model.alpha,
+          beta: model.beta,
+          successRate: this.getSuccessProbability(cat),
+        }),
+      ),
     };
   }
 
@@ -228,7 +232,10 @@ class CodePatternAnalyzer {
     const tokens = [];
 
     // Keywords
-    const keywords = code.match(/\b(function|const|let|var|if|for|while|return|await|async|class|import|export|require)\b/g) || [];
+    const keywords =
+      code.match(
+        /\b(function|const|let|var|if|for|while|return|await|async|class|import|export|require)\b/g,
+      ) || [];
     tokens.push(...keywords);
 
     // API calls and method names
@@ -237,7 +244,7 @@ class CodePatternAnalyzer {
 
     // Function/constructor calls
     const calls = code.match(/\w+\s*\(/g) || [];
-    tokens.push(...calls.map(c => c.trim()));
+    tokens.push(...calls.map((c) => c.trim()));
 
     return tokens;
   }
@@ -250,24 +257,24 @@ class CodePatternAnalyzer {
     this.totalDocuments = documents.length;
 
     // Build vocabulary and document frequency
-    documents.forEach(doc => {
+    documents.forEach((doc) => {
       const tokens = this.tokenize(doc.code);
       const uniqueTokens = new Set(tokens);
 
-      uniqueTokens.forEach(token => {
+      uniqueTokens.forEach((token) => {
         this.documentFrequency.set(
           token,
-          (this.documentFrequency.get(token) || 0) + 1
+          (this.documentFrequency.get(token) || 0) + 1,
         );
       });
     });
 
     // Calculate TF-IDF vectors
-    return documents.map(doc => {
+    return documents.map((doc) => {
       const tokens = this.tokenize(doc.code);
       const termFreq = new Map();
 
-      tokens.forEach(token => {
+      tokens.forEach((token) => {
         termFreq.set(token, (termFreq.get(token) || 0) + 1);
       });
 
@@ -287,7 +294,7 @@ class CodePatternAnalyzer {
         id: doc.id,
         vector,
         features,
-        originalTokens: tokens
+        originalTokens: tokens,
       };
     });
   }
@@ -303,18 +310,18 @@ class CodePatternAnalyzer {
     const targetVector = [];
 
     this.documentFrequency.forEach((df, term) => {
-      const tf = targetTokens.filter(t => t === term).length;
+      const tf = targetTokens.filter((t) => t === term).length;
       const idf = Math.log(this.totalDocuments / df);
       targetVector.push(tf * idf);
     });
 
-    const similarities = vectors.map(vec => ({
+    const similarities = vectors.map((vec) => ({
       id: vec.id,
-      similarity: cosineSimilarity(targetVector, vec.vector)
+      similarity: cosineSimilarity(targetVector, vec.vector),
     }));
 
     return similarities
-      .filter(s => s.similarity >= threshold)
+      .filter((s) => s.similarity >= threshold)
       .sort((a, b) => b.similarity - a.similarity);
   }
 }
@@ -335,20 +342,20 @@ class TemporalPatternDetector {
    */
   analyzeTemporalPatterns(historicalRuns) {
     // Sort runs by timestamp
-    const sortedRuns = historicalRuns.sort((a, b) =>
-      new Date(a.timestamp) - new Date(b.timestamp)
+    const sortedRuns = historicalRuns.sort(
+      (a, b) => new Date(a.timestamp) - new Date(b.timestamp),
     );
 
     // Build co-occurrence matrix
-    sortedRuns.forEach(run => {
-      const categories = run.findings.map(f => f.category);
+    sortedRuns.forEach((run) => {
+      const categories = run.findings.map((f) => f.category);
 
       for (let i = 0; i < categories.length; i++) {
         for (let j = i + 1; j < categories.length; j++) {
-          const pair = [categories[i], categories[j]].sort().join('|');
+          const pair = [categories[i], categories[j]].sort().join("|");
           this.cooccurrenceMatrix.set(
             pair,
-            (this.cooccurrenceMatrix.get(pair) || 0) + 1
+            (this.cooccurrenceMatrix.get(pair) || 0) + 1,
           );
         }
       }
@@ -356,18 +363,27 @@ class TemporalPatternDetector {
 
     // Detect cascade patterns (A appears, then B appears in next run)
     for (let i = 0; i < sortedRuns.length - 1; i++) {
-      const currentCategories = new Set(sortedRuns[i].findings.map(f => f.category));
-      const nextCategories = new Set(sortedRuns[i + 1].findings.map(f => f.category));
+      const currentCategories = new Set(
+        sortedRuns[i].findings.map((f) => f.category),
+      );
+      const nextCategories = new Set(
+        sortedRuns[i + 1].findings.map((f) => f.category),
+      );
 
-      currentCategories.forEach(current => {
-        nextCategories.forEach(next => {
+      currentCategories.forEach((current) => {
+        nextCategories.forEach((next) => {
           if (current !== next) {
             const chain = `${current} -> ${next}`;
-            const existing = this.cascadeChains.find(c => c.chain === chain);
+            const existing = this.cascadeChains.find((c) => c.chain === chain);
             if (existing) {
               existing.count++;
             } else {
-              this.cascadeChains.push({ chain, from: current, to: next, count: 1 });
+              this.cascadeChains.push({
+                chain,
+                from: current,
+                to: next,
+                count: 1,
+              });
             }
           }
         });
@@ -378,7 +394,7 @@ class TemporalPatternDetector {
       cooccurring: this.getTopCooccurrences(5),
       cascades: this.cascadeChains
         .sort((a, b) => b.count - a.count)
-        .slice(0, 5)
+        .slice(0, 5),
     };
   }
 
@@ -388,8 +404,8 @@ class TemporalPatternDetector {
   getTopCooccurrences(limit = 5) {
     return Array.from(this.cooccurrenceMatrix.entries())
       .map(([pair, count]) => ({
-        categories: pair.split('|'),
-        count
+        categories: pair.split("|"),
+        count,
       }))
       .sort((a, b) => b.count - a.count)
       .slice(0, limit);
@@ -403,13 +419,18 @@ class TemporalPatternDetector {
   predictNextIssues(currentCategories) {
     const predictions = new Map();
 
-    currentCategories.forEach(category => {
-      const relevantCascades = this.cascadeChains.filter(c => c.from === category);
+    currentCategories.forEach((category) => {
+      const relevantCascades = this.cascadeChains.filter(
+        (c) => c.from === category,
+      );
       const total = relevantCascades.reduce((sum, c) => sum + c.count, 0);
 
-      relevantCascades.forEach(cascade => {
+      relevantCascades.forEach((cascade) => {
         const probability = cascade.count / total;
-        predictions.set(cascade.to, (predictions.get(cascade.to) || 0) + probability);
+        predictions.set(
+          cascade.to,
+          (predictions.get(cascade.to) || 0) + probability,
+        );
       });
     });
 
@@ -435,7 +456,7 @@ class RootCauseAnalyzer {
    */
   analyzeCorrelations(findings) {
     // Group by file path patterns
-    findings.forEach(finding => {
+    findings.forEach((finding) => {
       if (!finding.file) return;
 
       // Extract path patterns (e.g., lib/*, scripts/*, etc.)
@@ -445,7 +466,7 @@ class RootCauseAnalyzer {
         this.filePathPatterns.set(pathPattern, {
           pattern: pathPattern,
           categories: new Map(),
-          count: 0
+          count: 0,
         });
       }
 
@@ -453,18 +474,18 @@ class RootCauseAnalyzer {
       pattern.count++;
       pattern.categories.set(
         finding.category,
-        (pattern.categories.get(finding.category) || 0) + 1
+        (pattern.categories.get(finding.category) || 0) + 1,
       );
     });
 
     // Find categories that correlate (appear together frequently)
     const categoryPairs = new Map();
 
-    this.filePathPatterns.forEach(pattern => {
+    this.filePathPatterns.forEach((pattern) => {
       const categories = Array.from(pattern.categories.keys());
       for (let i = 0; i < categories.length; i++) {
         for (let j = i + 1; j < categories.length; j++) {
-          const pair = [categories[i], categories[j]].sort().join('|');
+          const pair = [categories[i], categories[j]].sort().join("|");
           categoryPairs.set(pair, (categoryPairs.get(pair) || 0) + 1);
         }
       }
@@ -478,11 +499,11 @@ class RootCauseAnalyzer {
         .slice(0, 10),
       correlatedCategories: Array.from(categoryPairs.entries())
         .map(([pair, count]) => ({
-          categories: pair.split('|'),
-          count
+          categories: pair.split("|"),
+          count,
         }))
         .sort((a, b) => b.count - a.count)
-        .slice(0, 10)
+        .slice(0, 10),
     };
   }
 
@@ -493,42 +514,42 @@ class RootCauseAnalyzer {
     const parts = filePath.split(/[/\\]/);
 
     if (parts.length <= 2) {
-      return parts.join('/');
+      return parts.join("/");
     }
 
     // Return first two levels: lib/*, scripts/*, etc.
-    return parts.slice(0, 2).join('/') + '/*';
+    return parts.slice(0, 2).join("/") + "/*";
   }
 
   /**
    * Identify root cause based on finding cluster
    */
   identifyRootCause(findingCluster) {
-    const categories = findingCluster.map(f => f.category);
-    const files = findingCluster.map(f => f.file);
+    const categories = findingCluster.map((f) => f.category);
+    const files = findingCluster.map((f) => f.file);
 
     // Check if all in same path pattern
-    const pathPatterns = files.map(f => this.extractPathPattern(f));
+    const pathPatterns = files.map((f) => this.extractPathPattern(f));
     const uniquePatterns = new Set(pathPatterns);
 
     let rootCause = {
-      type: 'distributed',
-      confidence: 0.3
+      type: "distributed",
+      confidence: 0.3,
     };
 
     if (uniquePatterns.size === 1) {
       rootCause = {
-        type: 'localized',
+        type: "localized",
         location: Array.from(uniquePatterns)[0],
         confidence: 0.8,
-        suggestion: `Issues concentrated in ${Array.from(uniquePatterns)[0]}. Consider refactoring this module.`
+        suggestion: `Issues concentrated in ${Array.from(uniquePatterns)[0]}. Consider refactoring this module.`,
       };
     } else if (categories.length > 0 && new Set(categories).size === 1) {
       rootCause = {
-        type: 'systemic',
+        type: "systemic",
         category: categories[0],
         confidence: 0.7,
-        suggestion: `Pattern of ${categories[0]} across multiple files suggests systemic issue. Review coding standards.`
+        suggestion: `Pattern of ${categories[0]} across multiple files suggests systemic issue. Review coding standards.`,
       };
     }
 
@@ -555,41 +576,46 @@ class PatternLearner {
    * @returns {object} Detected patterns and clusters
    */
   detectPatterns(findingsHistory) {
-    console.log(`\n[BRAIN] Pattern Detection: Analyzing ${findingsHistory.length} historical findings...`);
+    console.log(
+      `\n[BRAIN] Pattern Detection: Analyzing ${findingsHistory.length} historical findings...`,
+    );
 
     // Convert findings to feature vectors
     const features = this.extractFeatures(findingsHistory);
 
     // Cluster similar findings
     const clusterResult = this.clustering.cluster(features);
-    console.log(`   Found ${clusterResult.clusters.length} clusters and ${clusterResult.noise.length} unique issues`);
+    console.log(
+      `   Found ${clusterResult.clusters.length} clusters and ${clusterResult.noise.length} unique issues`,
+    );
 
     // Build TF-IDF vectors for code patterns
     const codeDocuments = findingsHistory
-      .filter(f => f.snippet)
-      .map(f => ({ id: f.id, code: f.snippet }));
+      .filter((f) => f.snippet)
+      .map((f) => ({ id: f.id, code: f.snippet }));
 
-    const codeVectors = codeDocuments.length > 0
-      ? this.codeAnalyzer.buildVectors(codeDocuments)
-      : [];
+    const codeVectors =
+      codeDocuments.length > 0
+        ? this.codeAnalyzer.buildVectors(codeDocuments)
+        : [];
 
     console.log(`   Analyzed ${codeVectors.length} code patterns`);
 
     // Map clusters back to findings
     const patternClusters = clusterResult.clusters.map((cluster, idx) => {
-      const clusterFindings = cluster.map(id =>
-        findingsHistory.find(f => f.id === id)
-      ).filter(Boolean);
+      const clusterFindings = cluster
+        .map((id) => findingsHistory.find((f) => f.id === id))
+        .filter(Boolean);
 
       return {
         id: `cluster_${idx}`,
         size: cluster.length,
-        categories: [...new Set(clusterFindings.map(f => f.category))],
-        severities: [...new Set(clusterFindings.map(f => f.severity))],
-        dominantCategory: this.getDominantValue(clusterFindings, 'category'),
-        dominantSeverity: this.getDominantValue(clusterFindings, 'severity'),
+        categories: [...new Set(clusterFindings.map((f) => f.category))],
+        severities: [...new Set(clusterFindings.map((f) => f.severity))],
+        dominantCategory: this.getDominantValue(clusterFindings, "category"),
+        dominantSeverity: this.getDominantValue(clusterFindings, "severity"),
         rootCause: this.rootCauseAnalyzer.identifyRootCause(clusterFindings),
-        findings: clusterFindings
+        findings: clusterFindings,
       };
     });
 
@@ -599,12 +625,14 @@ class PatternLearner {
       uniqueIssues: clusterResult.noise.length,
       codePatterns: codeVectors,
       summary: {
-        mostCommonCategory: this.getDominantValue(findingsHistory, 'category'),
-        mostCommonSeverity: this.getDominantValue(findingsHistory, 'severity'),
-        avgClusterSize: clusterResult.clusters.length > 0
-          ? clusterResult.clusters.reduce((sum, c) => sum + c.length, 0) / clusterResult.clusters.length
-          : 0
-      }
+        mostCommonCategory: this.getDominantValue(findingsHistory, "category"),
+        mostCommonSeverity: this.getDominantValue(findingsHistory, "severity"),
+        avgClusterSize:
+          clusterResult.clusters.length > 0
+            ? clusterResult.clusters.reduce((sum, c) => sum + c.length, 0) /
+              clusterResult.clusters.length
+            : 0,
+      },
     };
   }
 
@@ -612,25 +640,31 @@ class PatternLearner {
    * Extract feature vectors from findings
    */
   extractFeatures(findings) {
-    return findings.map(finding => {
+    return findings.map((finding) => {
       // Categorical encoding
       const severityMap = { CRITICAL: 4, HIGH: 3, MEDIUM: 2, LOW: 1 };
-      const domainMap = { Security: 4, Performance: 3, Testing: 2, 'Code Quality': 1, Documentation: 0 };
+      const domainMap = {
+        Security: 4,
+        Performance: 3,
+        Testing: 2,
+        "Code Quality": 1,
+        Documentation: 0,
+      };
 
       const features = [
         severityMap[finding.severity] || 0,
         domainMap[finding.domain] || 0,
         // Category hash (simple numeric encoding)
-        this.hashString(finding.category || '') % 100 / 100,
+        (this.hashString(finding.category || "") % 100) / 100,
         // File depth indicator
-        (finding.file || '').split(/[/\\]/).length / 10,
+        (finding.file || "").split(/[/\\]/).length / 10,
         // Line position (normalized)
-        (finding.line || 0) / 1000
+        (finding.line || 0) / 1000,
       ];
 
       return {
         id: finding.id,
-        features
+        features,
       };
     });
   }
@@ -640,14 +674,18 @@ class PatternLearner {
    * @param {Array} fixHistory - Array of {category, success, timestamp} objects
    */
   learnFromFixes(fixHistory) {
-    console.log(`\n[BOOKS] Learning Pipeline: Processing ${fixHistory.length} fix attempts...`);
+    console.log(
+      `\n[BOOKS] Learning Pipeline: Processing ${fixHistory.length} fix attempts...`,
+    );
 
-    fixHistory.forEach(fix => {
+    fixHistory.forEach((fix) => {
       this.fixerModel.updateModel(fix.category, fix.success);
     });
 
     const modelSummary = this.fixerModel.toJSON();
-    console.log(`   Learned success rates for ${modelSummary.categories.length} categories`);
+    console.log(
+      `   Learned success rates for ${modelSummary.categories.length} categories`,
+    );
 
     return {
       model: modelSummary,
@@ -656,7 +694,7 @@ class PatternLearner {
         .slice(0, 5),
       lowSuccessRates: modelSummary.categories
         .sort((a, b) => a.successRate - b.successRate)
-        .slice(0, 5)
+        .slice(0, 5),
     };
   }
 
@@ -673,20 +711,22 @@ class PatternLearner {
       return {
         predictions: [],
         confidence: 0,
-        message: 'Insufficient historical data for predictions'
+        message: "Insufficient historical data for predictions",
       };
     }
 
     // Analyze temporal patterns
-    const temporalPatterns = this.temporalDetector.analyzeTemporalPatterns(historicalRuns);
+    const temporalPatterns =
+      this.temporalDetector.analyzeTemporalPatterns(historicalRuns);
 
     // Get current categories
     const currentCategories = currentAnalysis.findings
-      ? currentAnalysis.findings.map(f => f.category)
+      ? currentAnalysis.findings.map((f) => f.category)
       : [];
 
     // Predict next likely issues
-    const predictions = this.temporalDetector.predictNextIssues(currentCategories);
+    const predictions =
+      this.temporalDetector.predictNextIssues(currentCategories);
 
     console.log(`   Generated ${predictions.length} predictions`);
 
@@ -694,7 +734,7 @@ class PatternLearner {
       predictions: predictions.slice(0, 10),
       temporalPatterns,
       currentCategories: [...new Set(currentCategories)],
-      confidence: predictions.length > 0 ? 0.7 : 0.3
+      confidence: predictions.length > 0 ? 0.7 : 0.3,
     };
   }
 
@@ -705,21 +745,26 @@ class PatternLearner {
    * @returns {Array} Ranked recommendations
    */
   rankRecommendations(findings, patterns = {}) {
-    console.log(`\n[STAR] Recommendation Engine: Ranking ${findings.length} findings...`);
+    console.log(
+      `\n[STAR] Recommendation Engine: Ranking ${findings.length} findings...`,
+    );
 
-    const recommendations = findings.map(finding => {
+    const recommendations = findings.map((finding) => {
       // Base score: severity x impact
       const severityWeight = { CRITICAL: 100, HIGH: 50, MEDIUM: 20, LOW: 5 };
-      const baseScore = (severityWeight[finding.severity] || 10) * (finding.impact || 1);
+      const baseScore =
+        (severityWeight[finding.severity] || 10) * (finding.impact || 1);
 
       // Confidence from fixer model
-      const fixerConfidence = this.fixerModel.getConfidenceInterval(finding.category);
+      const fixerConfidence = this.fixerModel.getConfidenceInterval(
+        finding.category,
+      );
 
       // Pattern frequency bonus (recurring issues get higher priority)
       let frequencyBonus = 0;
       if (patterns.clusters) {
-        const inCluster = patterns.clusters.find(c =>
-          c.categories.includes(finding.category)
+        const inCluster = patterns.clusters.find((c) =>
+          c.categories.includes(finding.category),
         );
         if (inCluster && inCluster.size > 2) {
           frequencyBonus = Math.log(inCluster.size) * 10;
@@ -727,9 +772,8 @@ class PatternLearner {
       }
 
       const totalScore = baseScore + frequencyBonus;
-      const confidence = fixerConfidence.sampleSize > 0
-        ? fixerConfidence.mean
-        : 0.5;
+      const confidence =
+        fixerConfidence.sampleSize > 0 ? fixerConfidence.mean : 0.5;
 
       return {
         finding,
@@ -738,13 +782,19 @@ class PatternLearner {
         fixSuccessRate: fixerConfidence.mean,
         fixerConfidenceInterval: fixerConfidence,
         priority: this.calculatePriority(totalScore, confidence),
-        recommendation: this.generateRecommendation(finding, fixerConfidence, patterns)
+        recommendation: this.generateRecommendation(
+          finding,
+          fixerConfidence,
+          patterns,
+        ),
       };
     });
 
     const ranked = recommendations.sort((a, b) => b.score - a.score);
 
-    console.log(`   Top priority: ${ranked[0]?.finding.category || 'none'} (score: ${ranked[0]?.score.toFixed(1) || 0})`);
+    console.log(
+      `   Top priority: ${ranked[0]?.finding.category || "none"} (score: ${ranked[0]?.score.toFixed(1) || 0})`,
+    );
 
     return ranked;
   }
@@ -754,10 +804,10 @@ class PatternLearner {
    */
   calculatePriority(score, confidence) {
     const combined = score * confidence;
-    if (combined > 100) return 'CRITICAL';
-    if (combined > 50) return 'HIGH';
-    if (combined > 20) return 'MEDIUM';
-    return 'LOW';
+    if (combined > 100) return "CRITICAL";
+    if (combined > 50) return "HIGH";
+    if (combined > 20) return "MEDIUM";
+    return "LOW";
   }
 
   /**
@@ -769,34 +819,34 @@ class PatternLearner {
     // Fix recommendation based on success rate
     if (fixerConfidence.mean > 0.7) {
       recommendations.push({
-        action: 'AUTO_FIX',
+        action: "AUTO_FIX",
         description: `Automatic fix available with ${(fixerConfidence.mean * 100).toFixed(0)}% success rate`,
-        confidence: fixerConfidence.mean
+        confidence: fixerConfidence.mean,
       });
     } else if (fixerConfidence.mean > 0.4) {
       recommendations.push({
-        action: 'MANUAL_REVIEW',
+        action: "MANUAL_REVIEW",
         description: `Review automated fix suggestion (${(fixerConfidence.mean * 100).toFixed(0)}% success rate)`,
-        confidence: fixerConfidence.mean
+        confidence: fixerConfidence.mean,
       });
     } else {
       recommendations.push({
-        action: 'MANUAL_FIX',
-        description: 'Manual intervention recommended',
-        confidence: 0.8
+        action: "MANUAL_FIX",
+        description: "Manual intervention recommended",
+        confidence: 0.8,
       });
     }
 
     // Pattern-based recommendations
     if (patterns.clusters) {
-      const relatedCluster = patterns.clusters.find(c =>
-        c.categories.includes(finding.category)
+      const relatedCluster = patterns.clusters.find((c) =>
+        c.categories.includes(finding.category),
       );
       if (relatedCluster && relatedCluster.rootCause.suggestion) {
         recommendations.push({
-          action: 'ROOT_CAUSE',
+          action: "ROOT_CAUSE",
           description: relatedCluster.rootCause.suggestion,
-          confidence: relatedCluster.rootCause.confidence
+          confidence: relatedCluster.rootCause.confidence,
         });
       }
     }
@@ -809,7 +859,7 @@ class PatternLearner {
    */
   getDominantValue(items, key) {
     const counts = new Map();
-    items.forEach(item => {
+    items.forEach((item) => {
       const value = item[key];
       counts.set(value, (counts.get(value) || 0) + 1);
     });
@@ -833,7 +883,7 @@ class PatternLearner {
     let hash = 0;
     for (let i = 0; i < str.length; i++) {
       const char = str.charCodeAt(i);
-      hash = ((hash << 5) - hash) + char;
+      hash = (hash << 5) - hash + char;
       hash = hash & hash;
     }
     return Math.abs(hash);
@@ -854,7 +904,7 @@ class PatternLearner {
     const state = {
       fixerModel: this.fixerModel.toJSON(),
       timestamp: new Date().toISOString(),
-      version: '1.0.0'
+      version: "1.0.0",
     };
 
     // TODO: Fix SYNC_IO - Synchronous fs operation blocks the event loop. Consider async alternatives.
@@ -871,7 +921,7 @@ class PatternLearner {
     }
     // TODO: Fix SYNC_IO - Synchronous fs operation blocks the event loop. Consider async alternatives.
 
-    const state = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+    const state = JSON.parse(fs.readFileSync(filePath, "utf8"));
     this.fixerModel = BayesianFixerModel.fromJSON(state.fixerModel);
     return state;
   }
@@ -883,5 +933,5 @@ module.exports = {
   BayesianFixerModel,
   CodePatternAnalyzer,
   TemporalPatternDetector,
-  RootCauseAnalyzer
+  RootCauseAnalyzer,
 };

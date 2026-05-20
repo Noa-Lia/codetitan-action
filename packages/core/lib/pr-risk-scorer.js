@@ -1,61 +1,88 @@
-'use strict';
+"use strict";
 
-const { severityWeight } = require('./ai-attribution');
+const { severityWeight } = require("./ai-attribution");
 
 function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value));
 }
 
 function classifyRisk(score) {
-  if (score >= 80) return 'critical';
-  if (score >= 60) return 'high';
-  if (score >= 35) return 'medium';
-  return 'low';
+  if (score >= 80) return "critical";
+  if (score >= 60) return "high";
+  if (score >= 35) return "medium";
+  return "low";
 }
 
 function gradeRisk(score) {
-  if (score >= 90) return 'F';
-  if (score >= 75) return 'D';
-  if (score >= 60) return 'C';
-  if (score >= 40) return 'B';
-  return 'A';
+  if (score >= 90) return "F";
+  if (score >= 75) return "D";
+  if (score >= 60) return "C";
+  if (score >= 40) return "B";
+  return "A";
 }
 
 class PRRiskScorer {
   score(input = {}) {
     const findingAttribution = input.findingAttribution || {};
-    const toolQualityScores = Array.isArray(input.toolQualityScores) ? input.toolQualityScores : [];
-    const latestFindings = Array.isArray(input.latestFindings) ? input.latestFindings : [];
+    const toolQualityScores = Array.isArray(input.toolQualityScores)
+      ? input.toolQualityScores
+      : [];
+    const latestFindings = Array.isArray(input.latestFindings)
+      ? input.latestFindings
+      : [];
 
-    const totalWeightedFindings = latestFindings.reduce((sum, finding) => sum + severityWeight(finding.severity), 0);
+    const totalWeightedFindings = latestFindings.reduce(
+      (sum, finding) => sum + severityWeight(finding.severity),
+      0,
+    );
     const severityComponent = clamp(totalWeightedFindings * 4, 0, 70);
 
-    const toolQualityMap = new Map(toolQualityScores.map(tool => [tool.toolId, tool]));
-    const byTool = (Array.isArray(findingAttribution.tools) ? findingAttribution.tools : []).map(tool => {
-      const quality = toolQualityMap.get(tool.toolId);
-      const qualityScore = quality ? quality.qualityScore : 100;
-      const contribution = Number((tool.weightedFindings * ((100 - qualityScore) / 100)).toFixed(2));
-      return {
-        toolId: tool.toolId,
-        tool: tool.tool,
-        weightedFindings: tool.weightedFindings,
-        qualityScore,
-        scoreContribution: contribution
-      };
-    }).sort((left, right) => right.scoreContribution - left.scoreContribution);
+    const toolQualityMap = new Map(
+      toolQualityScores.map((tool) => [tool.toolId, tool]),
+    );
+    const byTool = (
+      Array.isArray(findingAttribution.tools) ? findingAttribution.tools : []
+    )
+      .map((tool) => {
+        const quality = toolQualityMap.get(tool.toolId);
+        const qualityScore = quality ? quality.qualityScore : 100;
+        const contribution = Number(
+          (tool.weightedFindings * ((100 - qualityScore) / 100)).toFixed(2),
+        );
+        return {
+          toolId: tool.toolId,
+          tool: tool.tool,
+          weightedFindings: tool.weightedFindings,
+          qualityScore,
+          scoreContribution: contribution,
+        };
+      })
+      .sort((left, right) => right.scoreContribution - left.scoreContribution);
 
-    const aiQualityComponent = clamp(byTool.reduce((sum, tool) => sum + (tool.scoreContribution * 3), 0), 0, 25);
+    const aiQualityComponent = clamp(
+      byTool.reduce((sum, tool) => sum + tool.scoreContribution * 3, 0),
+      0,
+      25,
+    );
     const attributionCoverage = Number(findingAttribution.coverage || 0);
-    const coverageComponent = attributionCoverage >= 60 ? 5 : attributionCoverage >= 30 ? 3 : 0;
-    const score = Number(clamp(severityComponent + aiQualityComponent + coverageComponent, 0, 100).toFixed(1));
+    const coverageComponent =
+      attributionCoverage >= 60 ? 5 : attributionCoverage >= 30 ? 3 : 0;
+    const score = Number(
+      clamp(
+        severityComponent + aiQualityComponent + coverageComponent,
+        0,
+        100,
+      ).toFixed(1),
+    );
     const level = classifyRisk(score);
     const highestRiskTool = byTool[0] || null;
 
-    let reason = 'Risk is driven primarily by current finding severity.';
+    let reason = "Risk is driven primarily by current finding severity.";
     if (highestRiskTool && highestRiskTool.scoreContribution > 0) {
       reason = `${highestRiskTool.tool} contributes the largest AI-quality penalty in the current finding set.`;
     } else if (attributionCoverage === 0) {
-      reason = 'No findings could be attributed back to AI-authored commits, so only severity contributes to PR risk.';
+      reason =
+        "No findings could be attributed back to AI-authored commits, so only severity contributes to PR risk.";
     }
 
     return {
@@ -66,9 +93,9 @@ class PRRiskScorer {
       components: {
         severity: Number(severityComponent.toFixed(1)),
         aiQuality: Number(aiQualityComponent.toFixed(1)),
-        attributionCoverage: coverageComponent
+        attributionCoverage: coverageComponent,
       },
-      byTool
+      byTool,
     };
   }
 
@@ -85,10 +112,19 @@ class PRRiskScorer {
     let novelPaths = 0;
 
     for (const finding of findings) {
-      const filePath = String(finding.file_path || finding.file || '').replace(/\\/g, '/');
-      const directory = filePath.includes('/') ? filePath.split('/').slice(0, -1).join('/') : '.';
-      const fileRisk = Number(learnedProfile.fileRiskScores?.[filePath]?.score || 0);
-      const hotDirectory = Number(learnedProfile.hotDirectories?.[directory]?.frequency || 0);
+      const filePath = String(finding.file_path || finding.file || "").replace(
+        /\\/g,
+        "/",
+      );
+      const directory = filePath.includes("/")
+        ? filePath.split("/").slice(0, -1).join("/")
+        : ".";
+      const fileRisk = Number(
+        learnedProfile.fileRiskScores?.[filePath]?.score || 0,
+      );
+      const hotDirectory = Number(
+        learnedProfile.hotDirectories?.[directory]?.frequency || 0,
+      );
 
       files.add(filePath);
       directories.add(directory);
@@ -104,30 +140,45 @@ class PRRiskScorer {
     const fileCount = Math.max(1, files.size);
     const severityComponent = clamp(weightedSeverity * 2.5, 0, 30);
     const fileRiskComponent = clamp((knownFileRisk / fileCount) * 20, 0, 20);
-    const historicalDirs = Object.keys(learnedProfile.hotDirectories || {}).length;
-    const patternDeviationRatio = historicalDirs > 0
-      ? clamp(1 - (hotDirectoryHits / Math.max(1, directories.size)), 0, 1)
-      : 0.5;
-    const patternDeviationComponent = Number((patternDeviationRatio * 20).toFixed(1));
-    const concentrationRatio = files.size > 0 ? clamp(findings.length / fileCount / 3, 0, 1) : 0;
-    const changeConcentrationComponent = Number((concentrationRatio * 10).toFixed(1));
+    const historicalDirs = Object.keys(
+      learnedProfile.hotDirectories || {},
+    ).length;
+    const patternDeviationRatio =
+      historicalDirs > 0
+        ? clamp(1 - hotDirectoryHits / Math.max(1, directories.size), 0, 1)
+        : 0.5;
+    const patternDeviationComponent = Number(
+      (patternDeviationRatio * 20).toFixed(1),
+    );
+    const concentrationRatio =
+      files.size > 0 ? clamp(findings.length / fileCount / 3, 0, 1) : 0;
+    const changeConcentrationComponent = Number(
+      (concentrationRatio * 10).toFixed(1),
+    );
     const aiCoverage = Number(findingAttribution.coverage || 0) / 100;
-    const aiCodeDensityComponent = Number((clamp(aiCoverage, 0, 1) * 10).toFixed(1));
+    const aiCodeDensityComponent = Number(
+      (clamp(aiCoverage, 0, 1) * 10).toFixed(1),
+    );
     const noveltyRatio = clamp(novelPaths / findingsCount, 0, 1);
     const noveltyComponent = Number((noveltyRatio * 10).toFixed(1));
-    const score = Number(clamp(
-      severityComponent +
-      fileRiskComponent +
-      patternDeviationComponent +
-      changeConcentrationComponent +
-      aiCodeDensityComponent +
-      noveltyComponent,
-      0,
-      100
-    ).toFixed(1));
+    const score = Number(
+      clamp(
+        severityComponent +
+          fileRiskComponent +
+          patternDeviationComponent +
+          changeConcentrationComponent +
+          aiCodeDensityComponent +
+          noveltyComponent,
+        0,
+        100,
+      ).toFixed(1),
+    );
 
-    const elevatedFiles = Array.from(files).filter(filePath => Number(learnedProfile.fileRiskScores?.[filePath]?.score || 0) >= 0.6);
-    let reason = 'Risk is driven by current finding severity and repo history.';
+    const elevatedFiles = Array.from(files).filter(
+      (filePath) =>
+        Number(learnedProfile.fileRiskScores?.[filePath]?.score || 0) >= 0.6,
+    );
+    let reason = "Risk is driven by current finding severity and repo history.";
     if (elevatedFiles.length > 0) {
       reason = `${elevatedFiles.length} touched file(s) already carry elevated risk in this repo's history.`;
     } else if (novelPaths > 0) {
@@ -147,15 +198,15 @@ class PRRiskScorer {
         patternDeviation: patternDeviationComponent,
         changeConcentration: changeConcentrationComponent,
         aiCodeDensity: aiCodeDensityComponent,
-        novelty: noveltyComponent
+        novelty: noveltyComponent,
       },
       repoContext: {
         personalizationScore: Number(learnedProfile.personalizationScore || 0),
         runCount: Number(learnedProfile.runCount || 0),
         touchedFiles: files.size,
         novelPaths,
-        elevatedRiskFiles: elevatedFiles.slice(0, 10)
-      }
+        elevatedRiskFiles: elevatedFiles.slice(0, 10),
+      },
     };
   }
 }

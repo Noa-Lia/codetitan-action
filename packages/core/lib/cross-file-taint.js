@@ -17,10 +17,10 @@
  *   - Named exports only (not default export detection)
  */
 
-'use strict';
+"use strict";
 
-const fs = require('fs');
-const path = require('path');
+const fs = require("fs");
+const path = require("path");
 
 // ── Re-use the same source / sink definitions as taint-analyzer.js ────────────
 const SOURCE_PATTERNS = [
@@ -36,20 +36,73 @@ const SOURCE_PATTERNS = [
 ];
 
 const SINKS = [
-  { pattern: /\beval\s*\(/, category: 'EVAL' },
-  { pattern: /\b(exec|execSync|spawnSync|spawn|execFile|execFileSync)\s*\(/, category: 'COMMAND_INJECTION' },
-  { pattern: /\b(db|pool|client|conn|connection|knex|sequelize|pg|mysql|sqlite)\s*\.\s*(query|execute|run|all|get|raw)\s*\(/, category: 'SQL_INJECTION' },
-  { pattern: /\bprisma\s*\.\s*\$(?:queryRaw|executeRaw|queryRawUnsafe|executeRawUnsafe)\s*\(/, category: 'SQL_INJECTION' },
-  { pattern: /\b(?:Model|model|collection)\s*\.\s*(?:find|findOne|findById|update|updateOne|deleteOne|aggregate)\s*\(\s*\{/, category: 'NOSQL_INJECTION' },
-  { pattern: /\.innerHTML\s*=/, category: 'XSS' },
-  { pattern: /dangerouslySetInnerHTML\s*=/, category: 'XSS' },
-  { pattern: /document\.write\s*\(/, category: 'XSS' },
-  { pattern: /\.outerHTML\s*=/, category: 'XSS' },
-  { pattern: /\bfs\s*\.\s*(readFile|writeFile|appendFile|readFileSync|writeFileSync|unlink|unlinkSync|mkdir|mkdirSync)\s*\(/, category: 'PATH_TRAVERSAL' },
-  { pattern: /\bpath\s*\.\s*(join|resolve|normalize)\s*\(/, category: 'PATH_TRAVERSAL' },
-  { pattern: /\bres\s*\.\s*redirect\s*\(/, category: 'OPEN_REDIRECT' },
-  { pattern: /\b(?:fetch|axios|got|superagent|request|http\.get|https\.get)\s*\(/, category: 'SSRF' },
-  { pattern: /\b(?:ejs\.render|pug\.render|handlebars\.compile|nunjucks\.render|mustache\.render)\s*\(/, category: 'TEMPLATE_INJECTION' },
+  { pattern: /\beval\s*\(/, category: "EVAL" },
+  {
+    pattern: /\b(exec|execSync|spawnSync|spawn|execFile|execFileSync)\s*\(/,
+    category: "COMMAND_INJECTION",
+  },
+  {
+    pattern:
+      /\b(db|pool|client|conn|connection|knex|sequelize|pg|mysql|sqlite)\s*\.\s*(query|execute|run|all|get|raw)\s*\(/,
+    category: "SQL_INJECTION",
+  },
+  // FN-3 Tier 1 (2026-05-18): Prisma standard API (findUnique/findMany/create/etc.)
+  // with chain-prefix support (this.prisma, dbRead.prisma, tx.prisma).
+  // Primary blocker for Prisma-heavy codebases (cal.com: 1912 such calls, 0 caught pre-fix).
+  {
+    pattern:
+      /\b(?:\w+\.)*prisma\w*\s*\.\s*\w+\s*\.\s*(?:findUnique|findUniqueOrThrow|findFirst|findFirstOrThrow|findMany|create|createMany|update|updateMany|upsert|delete|deleteMany|count|aggregate|groupBy)\s*\(/,
+    category: "SQL_INJECTION",
+  },
+  // FN-3 Tier 1: Prisma raw — supports tagged-template form, type generics,
+  // and chain prefixes (this.prisma, tx.$queryRaw, this.prismaClient.$queryRaw).
+  // Replaces the prior call-only pattern that missed cal.com's dominant tagged-template form.
+  {
+    pattern:
+      /\b(?:\w+\.)*(?:prisma\w*|tx|client)\s*\.\s*\$(?:queryRaw|executeRaw|queryRawUnsafe|executeRawUnsafe)(?:<[^>]+>)?\s*[`(]/,
+    category: "SQL_INJECTION",
+  },
+  // FN-3 Tier 1: Drizzle ORM — top-level query builder verbs with chain prefix.
+  {
+    pattern:
+      /\b(?:\w+\.)*(?:db|drizzle)\s*\.\s*(?:select|insert|update|delete|with|transaction)\s*\(/,
+    category: "SQL_INJECTION",
+  },
+  // better-sqlite3 prepared-statement SINK removed 2026-05-19 per Codex audit
+  // (docs/plans/2026-05-19-cross-file-3commit-audit-codex.md, P1 finding):
+  // bodyHasSink's line-only param check cannot distinguish safe bound
+  // parameters (db.prepare("... ?").get(id)) from unsafe string concat
+  // (db.prepare("... " + id).get()) — both match the same pattern with
+  // `id` on the sink line. Pending arg-aware gate before reintroduction.
+  {
+    pattern:
+      /\b(?:Model|model|collection)\s*\.\s*(?:find|findOne|findById|update|updateOne|deleteOne|aggregate)\s*\(\s*\{/,
+    category: "NOSQL_INJECTION",
+  },
+  { pattern: /\.innerHTML\s*=/, category: "XSS" },
+  { pattern: /dangerouslySetInnerHTML\s*=/, category: "XSS" },
+  { pattern: /document\.write\s*\(/, category: "XSS" },
+  { pattern: /\.outerHTML\s*=/, category: "XSS" },
+  {
+    pattern:
+      /\bfs\s*\.\s*(readFile|writeFile|appendFile|readFileSync|writeFileSync|unlink|unlinkSync|mkdir|mkdirSync)\s*\(/,
+    category: "PATH_TRAVERSAL",
+  },
+  {
+    pattern: /\bpath\s*\.\s*(join|resolve|normalize)\s*\(/,
+    category: "PATH_TRAVERSAL",
+  },
+  { pattern: /\bres\s*\.\s*redirect\s*\(/, category: "OPEN_REDIRECT" },
+  {
+    pattern:
+      /\b(?:fetch|axios|got|superagent|request|http\.get|https\.get)\s*\(/,
+    category: "SSRF",
+  },
+  {
+    pattern:
+      /\b(?:ejs\.render|pug\.render|handlebars\.compile|nunjucks\.render|mustache\.render)\s*\(/,
+    category: "TEMPLATE_INJECTION",
+  },
 ];
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -60,7 +113,7 @@ function isJsTs(filePath) {
 
 function readSync(filePath) {
   try {
-    return fs.readFileSync(filePath, 'utf-8');
+    return fs.readFileSync(filePath, "utf-8");
   } catch (_) {
     return null;
   }
@@ -68,15 +121,67 @@ function readSync(filePath) {
 
 /**
  * Extract param names from a function signature string.
- * e.g. "(userInput, options)" → ["userInput", "options"]
+ * Handles:
+ *   ("userInput, options")          → ["userInput", "options"]
+ *   ("name: string")                → ["name"]
+ *   ("{name, email}")               → ["name", "email"]     (FN-2 M7/M8 destructuring)
+ *   ("{name: alias}")               → ["alias"]             (local rename)
+ *   ("{...rest}")                   → ["rest"]
+ *   ("req, {name, email}, opts")    → ["req", "name", "email", "opts"]
  */
+function splitTopLevelCommas(str) {
+  // Split on commas that are NOT inside {}, [], <>, or ().
+  const out = [];
+  let depth = 0;
+  let start = 0;
+  for (let i = 0; i < str.length; i++) {
+    const c = str[i];
+    if (c === "{" || c === "[" || c === "<" || c === "(") depth++;
+    else if (c === "}" || c === "]" || c === ">" || c === ")") depth--;
+    else if (c === "," && depth === 0) {
+      out.push(str.slice(start, i));
+      start = i + 1;
+    }
+  }
+  out.push(str.slice(start));
+  return out;
+}
+
 function extractParams(sigStr) {
   const m = sigStr.match(/\(([^)]*)\)/);
   if (!m) return [];
-  return m[1]
-    .split(',')
-    .map(p => p.trim().split(/[=:]/).shift().trim().replace(/^\.\.\./, ''))
-    .filter(p => /^\w+$/.test(p));
+  const tokens = splitTopLevelCommas(m[1]);
+  const results = [];
+  for (const tok of tokens) {
+    const trimmed = tok.trim();
+    if (!trimmed) continue;
+    // Destructured object pattern: {a, b: alias, ...rest}
+    const destruct = trimmed.match(/^\{([^}]*)\}/);
+    if (destruct) {
+      const inner = splitTopLevelCommas(destruct[1]);
+      for (const innerTok of inner) {
+        const innerTrim = innerTok
+          .trim()
+          .replace(/^\.\.\./, "") // ...rest → rest
+          .split(/[=]/)
+          .shift()
+          .trim();
+        // Rename: "src: local" → take local name (RHS of colon)
+        const renamed = innerTrim.match(/^(\w+)\s*:\s*(\w+)/);
+        if (renamed) results.push(renamed[2]);
+        else if (/^\w+$/.test(innerTrim)) results.push(innerTrim);
+      }
+      continue;
+    }
+    // Plain (or TS-annotated) param
+    const name = trimmed
+      .split(/[=:]/)
+      .shift()
+      .trim()
+      .replace(/^\.\.\./, "");
+    if (/^\w+$/.test(name)) results.push(name);
+  }
+  return results;
 }
 
 /**
@@ -88,12 +193,20 @@ function bodyHasSink(body, paramNames) {
   const lines = body.split(/\r?\n/);
   for (const line of lines) {
     const trimmed = line.trim();
-    if (!trimmed || trimmed.startsWith('//') || trimmed.startsWith('*')) continue;
+    if (!trimmed || trimmed.startsWith("//") || trimmed.startsWith("*"))
+      continue;
+
+    // Strip single/double-quoted strings so sink + param-name patterns don't
+    // match documentation prose inside an exported function body. Backticks
+    // preserved so template-literal sinks still detect.
+    const codeOnly = line.replace(/(['"])(?:\\.|(?!\1)[\s\S])*?\1/g, "''");
 
     for (const sink of SINKS) {
-      if (!sink.pattern.test(line)) continue;
+      if (!sink.pattern.test(codeOnly)) continue;
       // Check if any param name appears on the same line as the sink
-      const paramOnLine = paramNames.some(p => new RegExp(`\\b${p}\\b`).test(line));
+      const paramOnLine = paramNames.some((p) =>
+        new RegExp(`\\b${p}\\b`).test(codeOnly),
+      );
       if (paramOnLine) return { hasSink: true, sinkCategory: sink.category };
     }
   }
@@ -136,12 +249,12 @@ function scanExports(filePath) {
       if (!name) continue;
 
       // Grab signature group — different capture positions per pattern
-      const sigGroup = m[2] || m[3] || `(${m[3] || ''})`;
+      const sigGroup = m[2] || m[3] || `(${m[3] || ""})`;
       const paramNames = extractParams(sigGroup);
 
       // Crude body extraction: grab up to 60 lines after match position
       const afterMatch = content.slice(m.index);
-      const bodyLines = afterMatch.split(/\r?\n/).slice(0, 60).join('\n');
+      const bodyLines = afterMatch.split(/\r?\n/).slice(0, 60).join("\n");
       const { hasSink, sinkCategory } = bodyHasSink(bodyLines, paramNames);
 
       if (paramNames.length > 0) {
@@ -174,7 +287,7 @@ function buildExportMap(files) {
  * try to resolve it to an actual file in `files`.
  */
 function resolveImport(specifier, fromFile, files) {
-  if (!specifier.startsWith('.') && !specifier.startsWith('/')) return null;
+  if (!specifier.startsWith(".") && !specifier.startsWith("/")) return null;
 
   const dir = path.dirname(fromFile);
   const base = path.resolve(dir, specifier);
@@ -182,8 +295,12 @@ function resolveImport(specifier, fromFile, files) {
   // Exact match or with extension
   const candidates = [
     base,
-    base + '.js', base + '.ts', base + '.jsx', base + '.tsx',
-    path.join(base, 'index.js'), path.join(base, 'index.ts'),
+    base + ".js",
+    base + ".ts",
+    base + ".jsx",
+    base + ".tsx",
+    path.join(base, "index.js"),
+    path.join(base, "index.ts"),
   ];
 
   // Normalise the files set once for fast lookup
@@ -191,7 +308,7 @@ function resolveImport(specifier, fromFile, files) {
     const norm = path.normalize(c);
     if (files.includes(norm) || files.includes(c)) return c;
     // Case-insensitive fallback on Windows
-    const found = files.find(f => f.toLowerCase() === norm.toLowerCase());
+    const found = files.find((f) => f.toLowerCase() === norm.toLowerCase());
     if (found) return found;
   }
   return null;
@@ -209,7 +326,7 @@ function callSitePassesTaint(line, fnLocalName) {
 
   const argString = callMatch[1];
   // Does any SOURCE pattern appear directly in the argument list?
-  return SOURCE_PATTERNS.some(sp => sp.test(argString));
+  return SOURCE_PATTERNS.some((sp) => sp.test(argString));
 }
 
 // ── Phase 3: Scan all files for import + call-site taint ─────────────────────
@@ -232,34 +349,51 @@ function scanCallerFile(filePath, exportMap, files) {
     const resolvedFile = resolveImport(specifier, filePath, files);
     if (!resolvedFile || !exportMap.has(resolvedFile)) continue;
 
-    const parts = m[1].split(',');
+    const parts = m[1].split(",");
     for (const part of parts) {
       const trimmed = part.trim();
       // Handle aliasing: `fnName as localName`
       const alias = trimmed.match(/(\w+)\s+as\s+(\w+)/);
       if (alias) {
-        importedFns.push({ localName: alias[2], importedName: alias[1], resolvedFile });
+        importedFns.push({
+          localName: alias[2],
+          importedName: alias[1],
+          resolvedFile,
+        });
       } else if (/^\w+$/.test(trimmed)) {
-        importedFns.push({ localName: trimmed, importedName: trimmed, resolvedFile });
+        importedFns.push({
+          localName: trimmed,
+          importedName: trimmed,
+          resolvedFile,
+        });
       }
     }
   }
 
   // CommonJS destructured require: const { fnName } = require('./path')
-  const cjsDestructRe = /(?:const|let|var)\s*\{\s*([^}]+)\}\s*=\s*require\s*\(\s*['"]([^'"]+)['"]\s*\)/g;
+  const cjsDestructRe =
+    /(?:const|let|var)\s*\{\s*([^}]+)\}\s*=\s*require\s*\(\s*['"]([^'"]+)['"]\s*\)/g;
   while ((m = cjsDestructRe.exec(content)) !== null) {
     const specifier = m[2];
     const resolvedFile = resolveImport(specifier, filePath, files);
     if (!resolvedFile || !exportMap.has(resolvedFile)) continue;
 
-    const parts = m[1].split(',');
+    const parts = m[1].split(",");
     for (const part of parts) {
       const trimmed = part.trim();
       const alias = trimmed.match(/(\w+)\s*:\s*(\w+)/);
       if (alias) {
-        importedFns.push({ localName: alias[2], importedName: alias[1], resolvedFile });
+        importedFns.push({
+          localName: alias[2],
+          importedName: alias[1],
+          resolvedFile,
+        });
       } else if (/^\w+$/.test(trimmed)) {
-        importedFns.push({ localName: trimmed, importedName: trimmed, resolvedFile });
+        importedFns.push({
+          localName: trimmed,
+          importedName: trimmed,
+          resolvedFile,
+        });
       }
     }
   }
@@ -269,21 +403,25 @@ function scanCallerFile(filePath, exportMap, files) {
   // Scan each line for call sites
   lines.forEach((line, idx) => {
     const trimmed = line.trim();
-    if (!trimmed || trimmed.startsWith('//') || trimmed.startsWith('*')) return;
+    if (!trimmed || trimmed.startsWith("//") || trimmed.startsWith("*")) return;
 
     for (const imp of importedFns) {
       const exportedFns = exportMap.get(imp.resolvedFile) || [];
-      const exportedFn = exportedFns.find(ef => ef.name === imp.importedName);
+      const exportedFn = exportedFns.find((ef) => ef.name === imp.importedName);
       if (!exportedFn || !exportedFn.hasSink) continue;
 
       if (callSitePassesTaint(line, imp.localName)) {
-        const callerRel = path.relative(process.cwd(), filePath).replace(/\\/g, '/');
-        const importedRel = path.relative(process.cwd(), imp.resolvedFile).replace(/\\/g, '/');
+        const callerRel = path
+          .relative(process.cwd(), filePath)
+          .replace(/\\/g, "/");
+        const importedRel = path
+          .relative(process.cwd(), imp.resolvedFile)
+          .replace(/\\/g, "/");
 
         findings.push({
           line: idx + 1,
           column: 0,
-          severity: 'HIGH',
+          severity: "HIGH",
           category: `CROSS_FILE_TAINT_${exportedFn.sinkCategory}`,
           message: `Cross-file taint: user input flows from \`${callerRel}\` into \`${imp.importedName}\` in \`${importedRel}\` which reaches a ${exportedFn.sinkCategory} sink.`,
           impact: 8,

@@ -5,13 +5,15 @@
  * Automatically suggests fixes based on historical patterns.
  */
 
-const EmbeddingsEngine = require('./embeddings-engine');
-const CollectiveInsight = require('./collective-insight');
-const path = require('path');
+const EmbeddingsEngine = require("./embeddings-engine");
+const CollectiveInsight = require("./collective-insight");
+const path = require("path");
 
 class IntelligentRemediation {
   constructor(options = {}) {
-    this.dbPath = options.dbPath || path.join(__dirname, '..', 'data', 'collective-insight.db');
+    this.dbPath =
+      options.dbPath ||
+      path.join(__dirname, "..", "data", "collective-insight.db");
     this.embeddingsEngine = null;
     this.collectiveInsight = null;
     this.enabled = options.enabled !== false;
@@ -23,11 +25,11 @@ class IntelligentRemediation {
    */
   async init() {
     if (!this.enabled) {
-      console.log('Intelligent Remediation disabled');
+      console.log("Intelligent Remediation disabled");
       return;
     }
 
-    console.log('Initializing Intelligent Remediation...');
+    console.log("Initializing Intelligent Remediation...");
 
     // Initialize embeddings engine
     this.embeddingsEngine = new EmbeddingsEngine(this.dbPath);
@@ -37,7 +39,7 @@ class IntelligentRemediation {
     this.collectiveInsight = new CollectiveInsight(this.dbPath);
     await this.collectiveInsight.init();
 
-    console.log('✓ Intelligent Remediation ready');
+    console.log("✓ Intelligent Remediation ready");
   }
 
   /**
@@ -50,7 +52,9 @@ class IntelligentRemediation {
       return findings;
     }
 
-    console.log(`\n[BRAIN] Enriching ${findings.length} findings with AI recommendations...`);
+    console.log(
+      `\n[BRAIN] Enriching ${findings.length} findings with AI recommendations...`,
+    );
 
     const enriched = [];
     let recommendationsAdded = 0;
@@ -58,22 +62,25 @@ class IntelligentRemediation {
     for (const finding of findings) {
       try {
         // Get remediation recommendation
-        const recommendation = await this.embeddingsEngine.recommendRemediation(finding, 5);
+        const recommendation = await this.embeddingsEngine.recommendRemediation(
+          finding,
+          5,
+        );
 
         const enrichedFinding = {
           ...finding,
           recommendation: {
             status: recommendation.status,
             confidence: recommendation.confidence,
-            suggestedFixes: recommendation.recommendations.map(rec => ({
+            suggestedFixes: recommendation.recommendations.map((rec) => ({
               name: rec.fix,
               confidence: rec.confidence,
               description: this.getFixDescription(rec.fix),
-              examples: rec.examples
+              examples: rec.examples,
             })),
             similarIssues: recommendation.similarIssues.length,
-            autoFixable: recommendation.confidence >= this.confidenceThreshold
-          }
+            autoFixable: recommendation.confidence >= this.confidenceThreshold,
+          },
         };
 
         if (recommendation.recommendations.length > 0) {
@@ -87,7 +94,9 @@ class IntelligentRemediation {
       }
     }
 
-    console.log(`✓ Added recommendations to ${recommendationsAdded}/${findings.length} findings`);
+    console.log(
+      `✓ Added recommendations to ${recommendationsAdded}/${findings.length} findings`,
+    );
 
     return enriched;
   }
@@ -105,7 +114,9 @@ class IntelligentRemediation {
 
     try {
       await this.embeddingsEngine.learnFromFix(finding, fixApplied, success);
-      console.log(`✓ Learned from fix: ${fixApplied} (${success ? 'success' : 'failed'})`);
+      console.log(
+        `✓ Learned from fix: ${fixApplied} (${success ? "success" : "failed"})`,
+      );
     } catch (error) {
       console.warn(`Failed to record fix result: ${error.message}`);
     }
@@ -123,7 +134,7 @@ class IntelligentRemediation {
       autoFixableCandidates: 0,
       fixesByCategory: {},
       highConfidenceFixes: [],
-      summary: {}
+      summary: {},
     };
 
     for (const finding of enrichedFindings) {
@@ -138,11 +149,11 @@ class IntelligentRemediation {
         if (!report.fixesByCategory[finding.category]) {
           report.fixesByCategory[finding.category] = {
             count: 0,
-            fixes: new Set()
+            fixes: new Set(),
           };
         }
         report.fixesByCategory[finding.category].count++;
-        rec.suggestedFixes.forEach(fix => {
+        rec.suggestedFixes.forEach((fix) => {
           report.fixesByCategory[finding.category].fixes.add(fix.name);
         });
       }
@@ -157,30 +168,37 @@ class IntelligentRemediation {
           severity: finding.severity,
           message: finding.message,
           suggestedFix: rec.suggestedFixes[0].name,
-          confidence: rec.confidence
+          confidence: rec.confidence,
         });
       }
     }
 
     // Convert Sets to Arrays for JSON serialization
-    Object.keys(report.fixesByCategory).forEach(category => {
+    Object.keys(report.fixesByCategory).forEach((category) => {
       report.fixesByCategory[category].fixes = Array.from(
-        report.fixesByCategory[category].fixes
+        report.fixesByCategory[category].fixes,
       );
     });
 
     // Generate summary
     report.summary = {
-      recommendationCoverage: (report.findingsWithRecommendations / report.totalFindings * 100).toFixed(1) + '%',
-      autoFixPotential: (report.autoFixableCandidates / report.totalFindings * 100).toFixed(1) + '%',
+      recommendationCoverage:
+        (
+          (report.findingsWithRecommendations / report.totalFindings) *
+          100
+        ).toFixed(1) + "%",
+      autoFixPotential:
+        ((report.autoFixableCandidates / report.totalFindings) * 100).toFixed(
+          1,
+        ) + "%",
       topCategories: Object.entries(report.fixesByCategory)
         .sort((a, b) => b[1].count - a[1].count)
         .slice(0, 5)
         .map(([category, data]) => ({
           category,
           count: data.count,
-          uniqueFixes: data.fixes.length
-        }))
+          uniqueFixes: data.fixes.length,
+        })),
     };
 
     return report;
@@ -192,15 +210,22 @@ class IntelligentRemediation {
    */
   getFixDescription(fixName) {
     const descriptions = {
-      'sanitize-shell-input': 'Sanitize shell command inputs to prevent injection attacks',
-      'async-fs-operations': 'Convert synchronous file operations to async/await',
-      'add-jsdoc-comments': 'Add JSDoc documentation comments to exported functions',
-      'generate-test-scaffold': 'Generate test file scaffold with basic test cases',
-      'add-error-handling': 'Wrap code in try-catch block with proper error handling',
-      'extract-function': 'Extract complex logic into separate well-named function',
-      'add-input-validation': 'Add input validation and type checking',
-      'use-https': 'Replace HTTP URLs with HTTPS for secure communication',
-      'remove-todo-comment': 'Address TODO comment by implementing or removing it'
+      "sanitize-shell-input":
+        "Sanitize shell command inputs to prevent injection attacks",
+      "async-fs-operations":
+        "Convert synchronous file operations to async/await",
+      "add-jsdoc-comments":
+        "Add JSDoc documentation comments to exported functions",
+      "generate-test-scaffold":
+        "Generate test file scaffold with basic test cases",
+      "add-error-handling":
+        "Wrap code in try-catch block with proper error handling",
+      "extract-function":
+        "Extract complex logic into separate well-named function",
+      "add-input-validation": "Add input validation and type checking",
+      "use-https": "Replace HTTP URLs with HTTPS for secure communication",
+      "remove-todo-comment":
+        "Address TODO comment by implementing or removing it",
     };
 
     return descriptions[fixName] || `Apply ${fixName} fix`;
@@ -216,7 +241,7 @@ class IntelligentRemediation {
 
     return {
       enabled: true,
-      ...this.embeddingsEngine.getMetrics()
+      ...this.embeddingsEngine.getMetrics(),
     };
   }
 

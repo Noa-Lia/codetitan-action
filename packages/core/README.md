@@ -20,12 +20,12 @@ npm install @noalia/codetitan-core
 ## Basic Usage
 
 ```js
-const { analyze } = require('@noalia/codetitan-core');
+const { analyze } = require("@noalia/codetitan-core");
 
 async function main() {
   const report = await analyze(process.cwd(), {
     level: 4,
-    outputFormat: 'json',
+    outputFormat: "json",
   });
 
   console.log(report.summary);
