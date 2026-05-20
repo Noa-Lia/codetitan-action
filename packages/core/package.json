@@ -1,6 +1,6 @@
 {
   "name": "@noalia/codetitan-core",
-  "version": "1.0.11",
+  "version": "1.1.0",
   "description": "Core JS/TS verification engine that powers the CodeTitan CLI and GitHub Action",
   "main": "index.js",
   "types": "index.d.ts",
@@ -29,10 +29,16 @@
     "@babel/parser": "^7.28.5",
     "@babel/traverse": "^7.28.5",
     "@supabase/supabase-js": "^2.39.0",
-    "@xenova/transformers": "^2.17.2",
     "dotenv": "^16.3.1",
-    "simple-git": "^3.35.3",
-    "sqlite3": "^5.1.6"
+    "simple-git": "^3.35.3"
+  },
+  "peerDependenciesMeta": {
+    "@xenova/transformers": {
+      "optional": true
+    },
+    "sqlite3": {
+      "optional": true
+    }
   },
   "devDependencies": {
     "jest": "^30.2.0"
@@ -44,7 +50,17 @@
     "README.md",
     "!lib/**/__tests__/**",
     "!lib/**/.codetitan/**",
-    "!lib/**/.codetitan-benchmark/**"
+    "!lib/**/.codetitan-benchmark/**",
+    "!lib/embeddings-engine.js",
+    "!lib/collective-insight.js",
+    "!lib/intelligent-remediation.js",
+    "!lib/insight-sync.js",
+    "!lib/pattern-integration.js",
+    "!lib/pattern-learner.js",
+    "!lib/codetitan-analyze-integration.js",
+    "!lib/agent-runtime/runtime-insight-recorder.js",
+    "!lib/database/ai-results-storage.js",
+    "!lib/godmode/collective-insight-db.js"
   ],
   "publishConfig": {
     "access": "public"

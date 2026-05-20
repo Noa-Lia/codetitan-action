@@ -13,7 +13,7 @@ On 5 production-grade OSS+SaaS codebases at pinned upstream SHAs (Hono, Drizzle,
 - **Zero true-positive bugs lost** to false-positive fixes across Bundles 1-5
 - Reproducible measurement methodology published in [`docs/plans/2026-05-13-engine-fp-baseline-v6.md`](https://github.com/Noa-Lia/codetitan.dev/blob/master/docs/plans/2026-05-13-engine-fp-baseline-v6.md) (latest); [v5 baseline](https://github.com/Noa-Lia/codetitan.dev/blob/master/docs/plans/2026-05-12-engine-fp-baseline-v5.md) for the prior Bundle 4 measurement.
 
-Engine HEAD: `@noalia/codetitan-core@1.0.10`. Pin `@v1.0.11` for an immutable reference (includes PR comment footer hotfix on top of v1.0.10's engine).
+Engine HEAD: `@noalia/codetitan-core@1.1.0` (Apache-2.0). 86% smaller install footprint vs prior 1.0.x; 0 critical / 0 high CVEs. Pin `@v1.1.0` for an immutable reference.
 
 ## What it does
 

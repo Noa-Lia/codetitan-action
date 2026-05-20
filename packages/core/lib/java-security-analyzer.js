@@ -30,6 +30,22 @@ const JAVA_RULES = [
     message:
       "Java ObjectInputStream.readObject() is vulnerable to deserialization attacks. Use safe alternatives or validate class allowlists.",
   },
+  // R2 (2026-05-19): Jackson enableDefaultTyping — CVE-2017-7525 / CVE-2017-15095
+  // class. Calling .enableDefaultTyping() (or .activateDefaultTyping() in
+  // 2.10+ without a strict PolymorphicTypeValidator) allows attackers to
+  // smuggle gadget chains via the @class type discriminator when the
+  // ObjectMapper subsequently deserializes attacker-controlled JSON.
+  // Single token, low FP risk: this method is documented-dangerous.
+  // Source: docs/plans/2026-05-19-lang-canary-adversarial-fn-opus.md §7 Tier-2 #5.
+  {
+    id: "JAVA_INSECURE_DESERIALIZATION",
+    severity: "CRITICAL",
+    impact: 10,
+    pattern:
+      /\.(?:enableDefaultTyping|activateDefaultTyping)\s*\(|\.enableDefaultTypingAsProperty\s*\(/,
+    message:
+      "Jackson enableDefaultTyping / activateDefaultTyping enables polymorphic deserialization (CVE-2017-7525 class). Use a strict PolymorphicTypeValidator or @JsonTypeInfo per-class instead.",
+  },
   // XXE
   {
     id: "JAVA_XXE",
@@ -54,6 +70,7 @@ const JAVA_RULES = [
       return false; // not hardened — emit finding
     },
   },
+
   // Path traversal
   {
     id: "JAVA_PATH_TRAVERSAL",
@@ -62,6 +79,25 @@ const JAVA_RULES = [
     pattern:
       /new\s+File\s*\(\s*(?:request\.getParameter|getParameter|req\.getParameter)/,
     message: "Java File() with user input — path traversal vulnerability.",
+  },
+  // R4 (2026-05-19): Java SSRF — user input flowing into HTTP client sinks.
+  // Java has no equivalent of Python's analyzePythonTaint multi-pass aliasing,
+  // so this rule (like JAVA_PATH_TRAVERSAL above) is single-line: the SSRF
+  // pattern must directly contain the source on the same line.
+  // This means multi-step aliases like `String url = req.getParameter("u"); new URL(url);`
+  // won't fire — only `new URL(req.getParameter("u"))` will. That's
+  // intentional FP discipline; multi-line aliases need a Java taint pass.
+  // CVE class: CWE-918. Sinks chosen for direct + popular Spring/Java HTTP
+  // libraries.
+  // Source: docs/plans/2026-05-19-lang-canary-adversarial-fn-opus.md §7 Tier-1 #2.
+  {
+    id: "JAVA_SSRF",
+    severity: "HIGH",
+    impact: 8,
+    pattern:
+      /(?:new\s+URL\s*\(|URI\s*\.\s*create\s*\(|HttpClient\.\w+\.send\s*\(|RestTemplate\.\w*\s*\.\s*(?:getForObject|getForEntity|exchange|postForObject|postForEntity)\s*\(|OkHttpClient\s*\(\)\s*\.\s*newCall|WebClient\.\w*\.uri\s*\()\s*[^)]*\b(?:request\.getParameter|req\.getParameter|getParameter|getHeader|getQueryString|@RequestParam|@PathVariable|@RequestBody)/,
+    message:
+      "Java SSRF: user input flows into HTTP client URL — validate against an allowlist or restrict to expected hosts.",
   },
   // Weak crypto
   {

@@ -167,6 +167,21 @@ class FeedbackLoop {
           resolve({ Database });
         });
       } catch (err) {
+        if (
+          err &&
+          err.code === "MODULE_NOT_FOUND" &&
+          /sqlite3/.test(err.message)
+        ) {
+          reject(
+            new Error(
+              "CodeTitan: this feature requires the optional `sqlite3` dependency. " +
+                "Install it in your project to enable feedback-loop / insights: " +
+                "`npm install sqlite3`. " +
+                "Default `codetitan analyze` does not require this.",
+            ),
+          );
+          return;
+        }
         reject(err);
       }
     });

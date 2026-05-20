@@ -21,6 +21,7 @@
 
 const fs = require("fs");
 const path = require("path");
+const { hasSuppressionDirective } = require("./domain-analyzers");
 
 // ── Re-use the same source / sink definitions as taint-analyzer.js ────────────
 const SOURCE_PATTERNS = [
@@ -411,6 +412,13 @@ function scanCallerFile(filePath, exportMap, files) {
       if (!exportedFn || !exportedFn.hasSink) continue;
 
       if (callSitePassesTaint(line, imp.localName)) {
+        // Adapter-time suppression: directive on the previous line, matching
+        // the surfaced category exactly. Mirrors the JS-taint adapter contract
+        // at domain-analyzers.js:2541. #226 wired the rule-loop and adapter
+        // paths but not this cross-file path — #353 closes that gap.
+        const category = `CROSS_FILE_TAINT_${exportedFn.sinkCategory}`;
+        if (hasSuppressionDirective(lines, idx, category)) continue;
+
         const callerRel = path
           .relative(process.cwd(), filePath)
           .replace(/\\/g, "/");
@@ -422,7 +430,7 @@ function scanCallerFile(filePath, exportMap, files) {
           line: idx + 1,
           column: 0,
           severity: "HIGH",
-          category: `CROSS_FILE_TAINT_${exportedFn.sinkCategory}`,
+          category,
           message: `Cross-file taint: user input flows from \`${callerRel}\` into \`${imp.importedName}\` in \`${importedRel}\` which reaches a ${exportedFn.sinkCategory} sink.`,
           impact: 8,
           snippet: trimmed,

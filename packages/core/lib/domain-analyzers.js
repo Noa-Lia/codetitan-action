@@ -2064,12 +2064,30 @@ function detectSecurityIssues(context) {
           "pickle.load() can execute arbitrary code; never unpickle untrusted data.",
       },
       {
-        pattern: /\byaml\.load\s*\((?!.*Loader)/,
+        // R1 (2026-05-19): yaml.load is unsafe by default. Pre-fix regex used
+        // `(?!.*Loader)` which incorrectly SUPPRESSED `yaml.load(d, Loader=yaml.Loader)`
+        // (the explicitly dangerous form). Replaced with a positive-match shape:
+        // emit if the call does NOT contain SafeLoader or safe_load on the same line.
+        // Also catches yaml.unsafe_load() (added in PyYAML 5.1 as an explicit
+        // opt-in to the previous default).
+        // CVE class: pre-PyYAML-5.1 default-loader RCEs (CWE-502).
+        // Source: docs/plans/2026-05-19-lang-canary-adversarial-fn-opus.md §7 Tier-1 #3.
+        pattern: /\byaml\.(?:unsafe_load|load)\s*\(/,
         category: "INSECURE_DESERIALIZATION",
         severity: "HIGH",
         impact: 8,
         message:
-          "yaml.load() without Loader is unsafe; use yaml.safe_load() instead.",
+          "yaml.load()/yaml.unsafe_load() can execute arbitrary code via tagged YAML; use yaml.safe_load() or yaml.load(..., Loader=yaml.SafeLoader).",
+        guard: (line) => {
+          // Suppress only when the call site explicitly opts into SafeLoader
+          // — both `yaml.safe_load(...)` and `yaml.load(..., Loader=yaml.SafeLoader)`
+          // are safe. `Loader=yaml.Loader` / `Loader=Loader` / no `Loader=` are unsafe.
+          if (/\byaml\.safe_load\s*\(/.test(line)) return true;
+          if (/\bLoader\s*=\s*(?:yaml\.)?SafeLoader\b/.test(line)) return true;
+          // FullLoader is also documented as safer than Loader (post-5.1 default).
+          if (/\bLoader\s*=\s*(?:yaml\.)?FullLoader\b/.test(line)) return true;
+          return false;
+        },
       },
       {
         pattern: /\bcursor\.execute\s*\(\s*[f'""].*%.*['""]\s*%/,
@@ -2862,6 +2880,32 @@ function analyzePythonTaint(content, filePath) {
       impact: 10,
       message:
         "Python: tainted user input in pickle.load — arbitrary code execution.",
+    },
+    // R3 (2026-05-19): Python TAINT_SSRF sinks. Only fires when a tainted
+    // variable (alias-propagated from PY_SOURCES like request.args.get)
+    // reaches one of these HTTP-client sinks. The taint-pass infrastructure
+    // already enforces "source must reach sink via tainted variable" — that
+    // FP discipline carries over for free; we don't fire on hardcoded URLs
+    // like `requests.get("https://api.example.com")`.
+    // CVE class: SSRF (CWE-918) — Capital One 2019, plus any application
+    // doing internal-network requests with user-controllable URLs.
+    // Source: docs/plans/2026-05-19-lang-canary-adversarial-fn-opus.md §7 Tier-1 #1.
+    {
+      pattern:
+        /\b(?:requests|httpx|aiohttp|urllib3|http)\.(?:get|post|put|patch|delete|head|options|request)\s*\(/,
+      category: "TAINT_SSRF",
+      severity: "HIGH",
+      impact: 8,
+      message:
+        "Python: tainted user input in HTTP client (SSRF risk) — validate URL against an allowlist or restrict to expected hosts.",
+    },
+    {
+      pattern: /\burllib\.request\.urlopen\s*\(/,
+      category: "TAINT_SSRF",
+      severity: "HIGH",
+      impact: 8,
+      message:
+        "Python: tainted user input in urllib.request.urlopen (SSRF risk) — validate URL against an allowlist.",
     },
   ];
 
