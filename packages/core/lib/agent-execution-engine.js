@@ -22,9 +22,21 @@ const AgentMessageBus = require("./agent-message-bus");
 const AgentRegistryManager = require("./agent-registry-manager");
 const Guardrails = require("./agent-runtime/guardrails");
 const Planner = require("./agent-runtime/planner");
-const {
-  persistRuntimeInsight,
-} = require("./agent-runtime/runtime-insight-recorder");
+// runtime-insight-recorder is excluded from the published npm tarball
+// (see packages/core/package.json `files` exclusion list — kept out to
+// preserve the v2.1.0 install-bloat reduction). When core is consumed via
+// the published tarball the require throws MODULE_NOT_FOUND, so fall back
+// to a no-op stub. In the monorepo / source consumers, the real recorder
+// loads normally and runtime insights persist as designed.
+let persistRuntimeInsight;
+try {
+  ({
+    persistRuntimeInsight,
+  } = require("./agent-runtime/runtime-insight-recorder"));
+} catch (err) {
+  if (err && err.code !== "MODULE_NOT_FOUND") throw err;
+  persistRuntimeInsight = async () => {};
+}
 const ToolRouter = require("./agent-runtime/tool-router");
 const { createDefaultToolRegistry } = require("./agent-runtime/tool-registry");
 const { AIProviderManager } = require("./ai-providers");
