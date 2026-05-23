@@ -1448,6 +1448,214 @@ const INFRA_RULES = [
 ];
 
 // ─────────────────────────────────────────────────────────────────────────────
+// SECTION 7 — BUNDLE 5 FRAMEWORK FOOTGUNS (17 rules, 2026-05-22)
+// Spec: docs/plans/2026-05-22-bundle-5-framework-rules-spec.md (v3)
+// All rules use fileRequires to anchor to a framework import — same
+// low-FP pattern as EMAIL_INJECTION (Bundle 1) and JWT_NO_EXPIRY (line 365).
+// Verification: docs/plans/bundle-5/check-patterns.js confirmed 17/17
+// rules compile + 40/40 TP+FP smoke samples pass.
+// ─────────────────────────────────────────────────────────────────────────────
+const BUNDLE5_FRAMEWORK_RULES = [
+  // ── Hono (5 rules) ──────────────────────────────────────────────────────
+  {
+    id: "HONO_CORS_ORIGIN_REFLECTION",
+    severity: "HIGH",
+    impact: 8,
+    pattern:
+      /cors\(\s*\{[^}]*origin\s*:\s*(?:req|c\.req|context\.req\.headers)/,
+    fileRequires: /from\s+['"]hono\/cors['"]/,
+    message:
+      "Hono cors() reflects the request Origin header — defeats SOP and allows any site to call this API. Validate against an allowlist instead. (CWE-346)",
+    skipTest: true,
+    skipDoc: true,
+  },
+  {
+    id: "HONO_SERVE_STATIC_DYNAMIC_PATH",
+    severity: "HIGH",
+    impact: 8,
+    pattern: /serveStatic\s*\(\s*\{[^}]*path\s*:\s*[^'"][^,}]*(?:req|param)/,
+    fileRequires:
+      /from\s+['"]@hono\/node-server\/serve-static['"]|from\s+['"]hono\/serve-static['"]/,
+    message:
+      "Hono serveStatic() path built from user input — `../` escape allows reading files outside the public directory. (CWE-22)",
+    skipTest: true,
+    skipDoc: true,
+  },
+  {
+    id: "HONO_HTML_INJECTION_C_HTML",
+    severity: "HIGH",
+    impact: 8,
+    pattern: /c\.html\s*\(\s*[`'"][^`'"]*\$\{[^}]*(?:req|param|query)/,
+    fileRequires: /from\s+['"]hono['"]/,
+    message:
+      "Hono c.html() returns raw HTML — interpolating req/param/query without escape allows XSS. Sanitize with a library like DOMPurify or escape entities. (CWE-79)",
+    skipTest: true,
+    skipDoc: true,
+  },
+  {
+    id: "HONO_JWT_HARDCODED_SECRET",
+    severity: "CRITICAL",
+    impact: 10,
+    pattern: /jwt\(\s*\{[^}]*secret\s*:\s*['"][^'"$]+['"]/,
+    fileRequires: /from\s+['"]hono\/jwt['"]/,
+    message:
+      "Hono jwt() middleware initialized with a hardcoded secret — anyone with repo access can forge tokens. Use process.env.JWT_SECRET. (CWE-798)",
+    skipTest: true,
+    skipDoc: true,
+  },
+  {
+    id: "HONO_BEARER_AUTH_HARDCODED_TOKEN",
+    severity: "CRITICAL",
+    impact: 10,
+    pattern: /bearerAuth\s*\(\s*\{[^}]*token\s*:\s*['"][^'"$]+['"]/,
+    fileRequires: /from\s+['"]hono\/bearer-auth['"]/,
+    message:
+      "Hono bearerAuth() initialized with a hardcoded token — anyone with repo access can authenticate. Use process.env.API_TOKEN. (CWE-798)",
+    skipTest: true,
+    skipDoc: true,
+  },
+
+  // ── NestJS (7 rules) ────────────────────────────────────────────────────
+  {
+    id: "NESTJS_BODY_NO_DTO",
+    severity: "MEDIUM",
+    impact: 5,
+    pattern: /@Body\(\)\s+\w+(?:\s*:\s*(?:any|object|unknown|\{))?\s*[,)]/,
+    fileRequires: /from\s+['"]@nestjs\/common['"]/,
+    message:
+      "@Body() parameter lacks a DTO class — class-validator can't enforce shape. Define a CreateXxxDto and apply ValidationPipe. (CWE-20)",
+    skipTest: true,
+    skipDoc: true,
+  },
+  {
+    id: "NESTJS_PARAM_NO_PIPE",
+    severity: "MEDIUM",
+    impact: 5,
+    pattern: /@Param\(\s*['"][^'"]+['"]\s*\)\s+\w+\s*:\s*(?:string|any)\b/,
+    fileRequires: /from\s+['"]@nestjs\/common['"]/,
+    message:
+      "@Param() without a pipe accepts any string — add ParseIntPipe / ParseUUIDPipe / ValidationPipe to constrain. (CWE-20)",
+    skipTest: true,
+    skipDoc: true,
+  },
+  {
+    id: "NESTJS_RAW_QUERY_REPO",
+    severity: "HIGH",
+    impact: 9,
+    pattern: /(?:repository|repo)\.query\s*\(\s*[`'"][^`'"]*\$\{/,
+    fileRequires: /from\s+['"]@nestjs\/typeorm['"]|from\s+['"]typeorm['"]/,
+    message:
+      "TypeORM repository.query() with template-literal interpolation — direct SQL injection vector. Use parameterized queries: repository.query('SELECT … WHERE id=$1', [id]). (CWE-89)",
+    skipTest: true,
+    skipDoc: true,
+  },
+  {
+    id: "NESTJS_PUBLIC_ON_SENSITIVE",
+    severity: "HIGH",
+    impact: 8,
+    pattern:
+      /@Public\(\)[^@]*@(?:Post|Put|Delete|Patch)\s*\(\s*['"]\/(?:admin|user|password|delete)/,
+    fileRequires: /from\s+['"]@nestjs\/common['"]/,
+    message:
+      "@Public() decorator on a sensitive route skips auth guards — authz bypass. Remove @Public() or restrict via @UseGuards. (CWE-862)",
+    skipTest: true,
+    skipDoc: true,
+  },
+  {
+    id: "NESTJS_EXPOSE_EXCEPTION_STACK",
+    severity: "HIGH",
+    impact: 7,
+    pattern: /throw\s+new\s+\w*Exception\s*\(\s*err(?:or)?\.stack\b/,
+    fileRequires: /from\s+['"]@nestjs\/common['"]/,
+    message:
+      "NestJS exception wraps err.stack — leaks file paths and framework internals to the HTTP response. Log the stack, return a sanitized message. (CWE-209)",
+    skipTest: true,
+    skipDoc: true,
+  },
+  {
+    id: "NESTJS_EXPOSE_EXCEPTION_MESSAGE",
+    severity: "LOW",
+    impact: 3,
+    pattern: /throw\s+new\s+\w*Exception\s*\(\s*err(?:or)?\.message\b/,
+    fileRequires: /from\s+['"]@nestjs\/common['"]/,
+    message:
+      "NestJS exception forwards err.message to client — sometimes intentional post-validation, but review for sensitive content. (CWE-209)",
+    skipTest: true,
+    skipDoc: true,
+  },
+  {
+    id: "NESTJS_CORS_WILDCARD",
+    severity: "HIGH",
+    impact: 8,
+    pattern: /enableCors\s*\(\s*\{[^}]*origin\s*:\s*(?:true|['"]\*['"])/,
+    fileRequires: /from\s+['"]@nestjs\/(?:core|common)['"]/,
+    message:
+      "NestJS enableCors with origin:true or '*' reflects any origin. Restrict to a trusted-domain allowlist. (CWE-942)",
+    skipTest: true,
+    skipDoc: true,
+  },
+
+  // ── Fastify (4 rules) ───────────────────────────────────────────────────
+  {
+    id: "FASTIFY_REPLY_RAW_BYPASS",
+    severity: "HIGH",
+    impact: 8,
+    pattern: /reply\.raw\.(?:write|end)\s*\([^)]*(?:request\.|req\.)/,
+    fileRequires: /from\s+['"]fastify['"]/,
+    message:
+      "reply.raw bypasses Fastify's schema serialization and CRLF protection — writing user input directly enables HTTP response splitting and XSS. Use reply.send() instead. (CWE-79 / CWE-93)",
+    skipTest: true,
+    skipDoc: true,
+  },
+  {
+    id: "FASTIFY_SESSION_INSECURE",
+    severity: "HIGH",
+    impact: 9,
+    pattern: /@fastify\/session[\s\S]*?\{[^}]*secret\s*:\s*['"][^'"$]+['"]/,
+    fileRequires: /from\s+['"]@fastify\/session['"]/,
+    message:
+      "@fastify/session secret hardcoded — anyone with repo access can forge sessions. Use process.env.SESSION_SECRET. (CWE-798)",
+    skipTest: true,
+    skipDoc: true,
+  },
+  {
+    id: "FASTIFY_JWT_HARDCODED_SECRET",
+    severity: "CRITICAL",
+    impact: 10,
+    pattern: /@fastify\/jwt[\s\S]*?\{[^}]*secret\s*:\s*['"][^'"$]+['"]/,
+    fileRequires: /from\s+['"]@fastify\/jwt['"]/,
+    message:
+      "@fastify/jwt secret hardcoded — anyone with repo access can forge tokens. Use process.env.JWT_SECRET. (CWE-798)",
+    skipTest: true,
+    skipDoc: true,
+  },
+  {
+    id: "FASTIFY_LOG_BODY",
+    severity: "MEDIUM",
+    impact: 6,
+    pattern: /request\.log\.\w+\s*\([^)]*request\.body/,
+    fileRequires: /from\s+['"]fastify['"]/,
+    message:
+      "Logging full request.body leaks PII / passwords / tokens into log storage. Log only request.id or a redacted summary. (CWE-532)",
+    skipTest: true,
+    skipDoc: true,
+  },
+
+  // ── Koa (1 rule) ────────────────────────────────────────────────────────
+  {
+    id: "KOA_BODY_TO_RESPONSE_DIRECT",
+    severity: "HIGH",
+    impact: 8,
+    pattern: /ctx\.body\s*=\s*ctx\.request\.body/,
+    fileRequires: /from\s+['"]koa['"]/,
+    message:
+      "Echoing raw ctx.request.body to ctx.body — reflected XSS if Content-Type defaults to HTML, and mass-assigns any server fields the client sent. Sanitize + whitelist fields. (CWE-79 + CWE-915)",
+    skipTest: true,
+    skipDoc: true,
+  },
+];
+
+// ─────────────────────────────────────────────────────────────────────────────
 // COMBINED EXPORT
 // ─────────────────────────────────────────────────────────────────────────────
 const EXTENDED_SECURITY_RULES = [
@@ -1457,6 +1665,7 @@ const EXTENDED_SECURITY_RULES = [
   ...MISCONFIG_RULES, // 20 rules
   ...CLIENT_RULES, // 20 rules
   ...INFRA_RULES, // 20 rules
-]; // total: 120 rules
+  ...BUNDLE5_FRAMEWORK_RULES, // 17 rules (Bundle 5, 2026-05-22)
+]; // total: 137 rules
 
 module.exports = { EXTENDED_SECURITY_RULES };

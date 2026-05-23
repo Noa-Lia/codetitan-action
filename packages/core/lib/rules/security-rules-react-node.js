@@ -465,6 +465,134 @@ const REACT_NODE_RULES = {
         "Broadcasting sensitive data to all clients - filter by authorization",
     },
   },
+
+  // ==================== HONO (Bundle 5, 2026-05-22) ====================
+  // Pattern wiring lives in lib/security-rules-extended.js.
+  // Spec: docs/plans/2026-05-22-bundle-5-framework-rules-spec.md (v3)
+  HONO: {
+    corsOriginReflection: {
+      severity: "HIGH",
+      impact: 8,
+      cwe: "CWE-346",
+      message:
+        "Hono cors() reflects request Origin — defeats SOP. Use allowlist.",
+    },
+    serveStaticDynamicPath: {
+      severity: "HIGH",
+      impact: 8,
+      cwe: "CWE-22",
+      message: "Hono serveStatic path from user input — path traversal risk.",
+    },
+    htmlInjectionCHtml: {
+      severity: "HIGH",
+      impact: 8,
+      cwe: "CWE-79",
+      message: "c.html() with unsanitized req/param interpolation — XSS.",
+    },
+    jwtHardcodedSecret: {
+      severity: "CRITICAL",
+      impact: 10,
+      cwe: "CWE-798",
+      message: "Hono jwt() with hardcoded secret — use env var.",
+    },
+    bearerAuthHardcodedToken: {
+      severity: "CRITICAL",
+      impact: 10,
+      cwe: "CWE-798",
+      message: "Hono bearerAuth() with hardcoded token — use env var.",
+    },
+  },
+
+  // ==================== NESTJS (Bundle 5, 2026-05-22) ====================
+  NESTJS: {
+    bodyNoDto: {
+      severity: "MEDIUM",
+      impact: 5,
+      cwe: "CWE-20",
+      message:
+        "@Body() without DTO class — ValidationPipe cannot enforce shape.",
+    },
+    paramNoPipe: {
+      severity: "MEDIUM",
+      impact: 5,
+      cwe: "CWE-20",
+      message: "@Param() without a pipe — add ParseIntPipe / ParseUUIDPipe.",
+    },
+    rawQueryRepo: {
+      severity: "HIGH",
+      impact: 9,
+      cwe: "CWE-89",
+      message:
+        "TypeORM repository.query with template-literal — SQL injection.",
+    },
+    publicOnSensitive: {
+      severity: "HIGH",
+      impact: 8,
+      cwe: "CWE-862",
+      message:
+        "@Public() on admin/user/password route skips auth guards — authz bypass.",
+    },
+    exposeExceptionStack: {
+      severity: "HIGH",
+      impact: 7,
+      cwe: "CWE-209",
+      message:
+        "NestJS exception wraps err.stack — leaks paths and framework internals.",
+    },
+    exposeExceptionMessage: {
+      severity: "LOW",
+      impact: 3,
+      cwe: "CWE-209",
+      message:
+        "NestJS exception forwards err.message — review for sensitive content.",
+    },
+    corsWildcard: {
+      severity: "HIGH",
+      impact: 8,
+      cwe: "CWE-942",
+      message: "enableCors with origin:true or '*' reflects any origin.",
+    },
+  },
+
+  // ==================== FASTIFY (Bundle 5, 2026-05-22) ====================
+  FASTIFY: {
+    replyRawBypass: {
+      severity: "HIGH",
+      impact: 8,
+      cwe: "CWE-79",
+      message:
+        "reply.raw bypasses serialization + CRLF protection — response splitting / XSS.",
+    },
+    sessionInsecure: {
+      severity: "HIGH",
+      impact: 9,
+      cwe: "CWE-798",
+      message: "@fastify/session secret hardcoded — use env var.",
+    },
+    jwtHardcodedSecret: {
+      severity: "CRITICAL",
+      impact: 10,
+      cwe: "CWE-798",
+      message: "@fastify/jwt secret hardcoded — use env var.",
+    },
+    logBody: {
+      severity: "MEDIUM",
+      impact: 6,
+      cwe: "CWE-532",
+      message: "Logging request.body leaks PII / credentials.",
+    },
+  },
+
+  // ==================== KOA (Bundle 5, 2026-05-22) ====================
+  KOA: {
+    bodyToResponseDirect: {
+      severity: "HIGH",
+      impact: 8,
+      cwe: "CWE-79",
+      message:
+        "Echoing ctx.request.body to ctx.body — reflected XSS + mass-assignment.",
+    },
+  },
 };
 
 module.exports = REACT_NODE_RULES;
