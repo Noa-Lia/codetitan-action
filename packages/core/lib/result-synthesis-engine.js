@@ -8,7 +8,13 @@
  */
 
 class ResultSynthesisEngine {
-  constructor() {
+  constructor(options = {}) {
+    // `quiet` suppresses the synthesis trace ("[LINK] Synthesizing", "Collected
+    // N", "Deduplicated", "Prioritized", "Generated"). Threaded in from
+    // codetitan-orchestration.js when CLI --format json/sarif/sbom/markdown or
+    // --stream is set, so stdout stays machine-parseable. Error logs still fire.
+    this.quiet = options.quiet === true;
+
     // Severity weights for prioritization
     this.severityWeights = {
       CRITICAL: 100,
@@ -35,30 +41,40 @@ class ResultSynthesisEngine {
    * Main synthesis method: aggregate and prioritize all findings
    */
   async synthesize(rawResults) {
-    console.log(
-      `\n[LINK] Synthesizing results from ${rawResults.length} agent executions...`,
-    );
+    if (!this.quiet) {
+      console.log(
+        `\n[LINK] Synthesizing results from ${rawResults.length} agent executions...`,
+      );
+    }
 
     this.rawResults = rawResults;
 
     try {
       // Step 1: Collect all findings from all agents
       const allFindings = this.collectFindings(rawResults);
-      console.log(`   Collected ${allFindings.length} total findings`);
+      if (!this.quiet) {
+        console.log(`   Collected ${allFindings.length} total findings`);
+      }
 
       // Step 2: Deduplicate identical issues
       const uniqueFindings = this.deduplicateFindings(allFindings);
-      console.log(
-        `   Deduplicated to ${uniqueFindings.length} unique findings`,
-      );
+      if (!this.quiet) {
+        console.log(
+          `   Deduplicated to ${uniqueFindings.length} unique findings`,
+        );
+      }
 
       // Step 3: Prioritize by severity x impact
       const prioritized = this.prioritizeFindings(uniqueFindings);
-      console.log(`   Prioritized findings by severity and impact`);
+      if (!this.quiet) {
+        console.log(`   Prioritized findings by severity and impact`);
+      }
 
       // Step 4: Generate comprehensive report
       const report = this.generateReport(prioritized, rawResults);
-      console.log(`   Generated unified report`);
+      if (!this.quiet) {
+        console.log(`   Generated unified report`);
+      }
 
       return report;
     } catch (error) {

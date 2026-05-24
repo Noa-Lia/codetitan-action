@@ -70,6 +70,13 @@ class HierarchicalOrchestrator {
     this.metrics.startTime = Date.now();
     this.projectRoot = projectPath;
     this.verbose = options.verbose !== false;
+    // `quiet` is a stricter form of `!verbose`: it also suppresses unconditional
+    // status lines (wave headers, synthesis trace) that the CLI's --format json
+    // / --format sarif / --format sbom / --stream modes need eliminated for
+    // machine-parseable stdout. Wired in from codetitan-orchestration.js which
+    // receives it from packages/cli/src/lib/analyzer.ts via the runLocalAnalysis
+    // option chain.
+    this.quiet = options.quiet === true;
     this.taskOptions = options;
     this.noAi = options.noAi === true || options["no-ai"] === true;
     if (options.budget)
@@ -473,9 +480,11 @@ class HierarchicalOrchestrator {
       const end = Math.min(start + batchSize, allTasks.length);
       const waveTasks = allTasks.slice(start, end);
 
-      console.log(
-        `\n🌊 Wave ${waveNum + 1}/${totalWaves}: Processing ${waveTasks.length} files`,
-      );
+      if (!this.quiet) {
+        console.log(
+          `\n🌊 Wave ${waveNum + 1}/${totalWaves}: Processing ${waveTasks.length} files`,
+        );
+      }
 
       // Execute wave in parallel
       const waveResults = await Promise.allSettled(

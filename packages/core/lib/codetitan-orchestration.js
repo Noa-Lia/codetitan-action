@@ -20,9 +20,14 @@ const path = require("path");
 
 class CodeTitanOrchestration {
   constructor(options = {}) {
-    // Initialize all components
+    // Initialize all components.
+    // `quiet` propagates to the synthesizer (constructor) and the orchestrator
+    // (per-call via orchestrateFullAnalysis options). Used by CLI --format
+    // json/sarif/sbom/markdown / --stream paths so the engine doesn't leak
+    // status lines into machine-parseable stdout. See Bundle 5 fix arc 2.1.5.
+    this.quiet = options.quiet === true;
     this.orchestrator = new HierarchicalOrchestrator();
-    this.synthesizer = new ResultSynthesisEngine();
+    this.synthesizer = new ResultSynthesisEngine({ quiet: this.quiet });
     this.loadBalancer = new AgentLoadBalancer({
       maxAgentsPerDomain: options.maxAgentsPerDomain || 10,
       maxConcurrent: options.maxConcurrent || 50,
