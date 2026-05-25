@@ -1500,7 +1500,7 @@ function buildMarkdownSummary(report, findings, failOnSeverity, riskThreshold, r
     if (repoSignals.length > 0) {
         lines.push(...repoSignals);
     }
-    lines.push("", "## Severity", "", "| Severity | Count |", "| --- | ---: |", `| CRITICAL | ${counts.CRITICAL} |`, `| HIGH | ${counts.HIGH} |`, `| MEDIUM | ${counts.MEDIUM} |`, `| LOW | ${counts.LOW} |`, "", "## Top Findings", "", summarizeTopFindings(findings, 10), "", "_CodeTitan beta — sanity check for surface-level security smells your eslint config misses. Free for the first 30 PR scans, no signup. [codetitan.dev](https://codetitan.dev)_");
+    lines.push("", "## Severity", "", "| Severity | Count |", "| --- | ---: |", `| CRITICAL | ${counts.CRITICAL} |`, `| HIGH | ${counts.HIGH} |`, `| MEDIUM | ${counts.MEDIUM} |`, `| LOW | ${counts.LOW} |`, "", "## Top Findings", "", summarizeTopFindings(findings, 10), "", "_CodeTitan beta — sanity check for surface-level security smells your eslint config misses. Free during beta on your own runner, no quota, no signup. [codetitan.dev](https://codetitan.dev)_");
     if (reportUrl) {
         lines.push("", `**[View full report](${reportUrl})**`);
     }

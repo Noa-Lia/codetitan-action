@@ -74,7 +74,10 @@ const SINKS = [
   // bodyHasSink's line-only param check cannot distinguish safe bound
   // parameters (db.prepare("... ?").get(id)) from unsafe string concat
   // (db.prepare("... " + id).get()) — both match the same pattern with
-  // `id` on the sink line. Pending arg-aware gate before reintroduction.
+  // `id` on the sink line. #319 (2026-05-24) added a bracket-bind heuristic
+  // that closes the FP on db.query("?", [id]) shapes, but better-sqlite3
+  // uses positional bare args (.get(id)) — the bracket heuristic doesn't
+  // help. Restoration needs an arg-position gate; tracked separately.
   {
     pattern:
       /\b(?:Model|model|collection)\s*\.\s*(?:find|findOne|findById|update|updateOne|deleteOne|aggregate)\s*\(\s*\{/,
@@ -186,6 +189,48 @@ function extractParams(sigStr) {
 }
 
 /**
+ * #319 helper: returns true when *every* occurrence of any param name on
+ * the given line is inside a `[...]` bracket group. Used to recognize the
+ * `db.query("... ?", [id])` bound-parameter shape: the param is in the
+ * bind-array argument, not interpolated into the SQL string itself.
+ *
+ * Limitation: assumes a single statement per line and brackets don't span
+ * lines; misses nested array-of-arrays edge cases. Trade-off accepted for
+ * a narrow FP fix; the full "real arg-aware gate" is deferred.
+ */
+function paramOnlyInBindBrackets(line, paramNames) {
+  const bracketRegions = [];
+  let depth = 0;
+  let start = -1;
+  for (let i = 0; i < line.length; i++) {
+    const c = line[i];
+    if (c === "[") {
+      if (depth === 0) start = i;
+      depth++;
+    } else if (c === "]") {
+      depth--;
+      if (depth === 0 && start >= 0) {
+        bracketRegions.push([start, i]);
+        start = -1;
+      }
+    }
+  }
+  if (bracketRegions.length === 0) return false;
+
+  const inBracket = (idx) =>
+    bracketRegions.some(([s, e]) => idx > s && idx < e);
+
+  for (const p of paramNames) {
+    const re = new RegExp(`\\b${p}\\b`, "g");
+    let m;
+    while ((m = re.exec(line)) !== null) {
+      if (!inBracket(m.index)) return false;
+    }
+  }
+  return true;
+}
+
+/**
  * Determine if a function body (string) contains a sink that involves
  * one of the listed param names.
  * Returns { hasSink, sinkCategory } or { hasSink: false }.
@@ -208,7 +253,22 @@ function bodyHasSink(body, paramNames) {
       const paramOnLine = paramNames.some((p) =>
         new RegExp(`\\b${p}\\b`).test(codeOnly),
       );
-      if (paramOnLine) return { hasSink: true, sinkCategory: sink.category };
+      if (!paramOnLine) continue;
+
+      // #319 bracket-bind gate (SQL_INJECTION only): if every occurrence of
+      // a param is inside a `[...]` bracket group, treat as a bound parameter
+      // (db.query("... ?", [id]) shape) rather than string-built SQL. This
+      // closes the FP that #318 cited for better-sqlite3 and which equally
+      // affects the live db.query SINK. The full "real arg-aware gate" (parse
+      // the sink-call arglist, distinguish first-arg-string-concat from later
+      // bind positions) is deferred. Other categories are unaffected.
+      if (
+        sink.category === "SQL_INJECTION" &&
+        paramOnlyInBindBrackets(codeOnly, paramNames)
+      )
+        continue;
+
+      return { hasSink: true, sinkCategory: sink.category };
     }
   }
   return { hasSink: false, sinkCategory: null };
@@ -233,8 +293,11 @@ function scanExports(filePath) {
   const exportPatterns = [
     // export function fnName(params) { body }
     /export\s+(?:async\s+)?function\s+(\w+)\s*(\([^)]*\))/g,
-    // export const fnName = (params) => { body }  OR  = function(params) {
-    /export\s+const\s+(\w+)\s*=\s*(?:async\s+)?(?:\([^)]*\)|(\w+))\s*=>/g,
+    // export const fnName = (params) => { body }  OR  bare-arrow `x =>`.
+    // #320: `(\([^)]*\))` branch must capture so we can read it; the prior
+    // alternation only captured the bare-arrow form, so `(name) =>` silently
+    // landed as paramless and the export was dropped from the scan map.
+    /export\s+const\s+(\w+)\s*=\s*(?:async\s+)?(?:(\([^)]*\))|(\w+))\s*=>/g,
     /export\s+const\s+(\w+)\s*=\s*(?:async\s+)?function\s*(\([^)]*\))/g,
     // module.exports.fnName = function(params) {
     /module\.exports\.(\w+)\s*=\s*(?:async\s+)?function\s*(\([^)]*\))/g,
@@ -249,8 +312,11 @@ function scanExports(filePath) {
       const name = m[1];
       if (!name) continue;
 
-      // Grab signature group — different capture positions per pattern
-      const sigGroup = m[2] || m[3] || `(${m[3] || ""})`;
+      // Grab signature group — different capture positions per pattern.
+      // m[2] is the `(params)` form (always wrapped); m[3] is the bare-arrow
+      // form like `x =>`. extractParams needs parens, so wrap m[3] when it
+      // is the only available capture.
+      const sigGroup = m[2] || (m[3] ? `(${m[3]})` : "()");
       const paramNames = extractParams(sigGroup);
 
       // Crude body extraction: grab up to 60 lines after match position
@@ -291,7 +357,12 @@ function resolveImport(specifier, fromFile, files) {
   if (!specifier.startsWith(".") && !specifier.startsWith("/")) return null;
 
   const dir = path.dirname(fromFile);
-  const base = path.resolve(dir, specifier);
+  // `path.resolve` returns backslashes on Windows. Canonicalize to forward-slash
+  // so the candidate strings line up with the forward-slash `files` array we
+  // get from `analyzeCrossFileTaint`'s entry-normalization. Without this,
+  // consumer-side path divergence (CLI passes backslash, API consumers pass
+  // forward-slash) caused 0 findings on the second shape — see task #314.
+  const base = path.resolve(dir, specifier).replace(/\\/g, "/");
 
   // Exact match or with extension
   const candidates = [
@@ -300,16 +371,16 @@ function resolveImport(specifier, fromFile, files) {
     base + ".ts",
     base + ".jsx",
     base + ".tsx",
-    path.join(base, "index.js"),
-    path.join(base, "index.ts"),
+    base + "/index.js",
+    base + "/index.ts",
   ];
 
   // Normalise the files set once for fast lookup
   for (const c of candidates) {
-    const norm = path.normalize(c);
-    if (files.includes(norm) || files.includes(c)) return c;
+    if (files.includes(c)) return c;
     // Case-insensitive fallback on Windows
-    const found = files.find((f) => f.toLowerCase() === norm.toLowerCase());
+    const lc = c.toLowerCase();
+    const found = files.find((f) => f.toLowerCase() === lc);
     if (found) return found;
   }
   return null;
@@ -456,7 +527,15 @@ function scanCallerFile(filePath, exportMap, files) {
  */
 async function analyzeCrossFileTaint(projectPath, files, options = {}) {
   try {
-    const jsFiles = files.filter(isJsTs);
+    // Canonicalize input paths to forward-slash. CLI's discoverFiles produces
+    // backslash on Windows; external API consumers may pass forward-slash.
+    // Internal lookups in resolveImport build candidate strings via
+    // `path.resolve` (backslash on Windows) then normalize to forward-slash,
+    // so the `files` array must also be forward-slash for `.includes()` to hit.
+    // Without this canonical shape, consumer-side path divergence caused
+    // 0 cross-file findings on forward-slash inputs even though backslash
+    // worked — see task #314.
+    const jsFiles = files.filter(isJsTs).map((f) => f.replace(/\\/g, "/"));
     if (jsFiles.length < 2) return [];
 
     // Phase 1

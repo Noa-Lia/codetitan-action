@@ -482,7 +482,7 @@ class HierarchicalOrchestrator {
 
       if (!this.quiet) {
         console.log(
-          `\n🌊 Wave ${waveNum + 1}/${totalWaves}: Processing ${waveTasks.length} files`,
+          `\n🌊 Wave ${waveNum + 1}/${totalWaves}: Processing ${waveTasks.length} task${waveTasks.length === 1 ? "" : "s"}`,
         );
       }
 
