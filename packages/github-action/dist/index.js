@@ -1281,6 +1281,7 @@ var __importStar = (this && this.__importStar) || (function () {
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.findBundledRepoRoot = void 0;
 exports.buildSarifReport = buildSarifReport;
+exports.summarizeTopFindings = summarizeTopFindings;
 exports.buildMarkdownSummary = buildMarkdownSummary;
 exports.upsertPullRequestComment = upsertPullRequestComment;
 exports.fetchPullRequestChangedFiles = fetchPullRequestChangedFiles;
@@ -1357,13 +1358,24 @@ function buildSarifReport(findings) {
         ],
     };
 }
+// Findings carry attacker-controlled strings (file_path/message/category come
+// from the scanned repo, which is hostile input for a scanner). Neutralize
+// markdown-active characters before interpolating into the PR comment / step
+// output so a crafted filename like `](http://evil)` or backtick-fencing
+// can't spoof links, break out of the list, or inject into a downstream
+// consumer workflow. Also strip CR/LF so one finding can't forge extra lines.
+function escapeFindingText(value) {
+    return String(value ?? "")
+        .replace(/[\r\n]+/g, " ")
+        .replace(/[\\`*_{}[\]()<>#+!|]/g, "\\$&");
+}
 function summarizeTopFindings(findings, limit = 5) {
     if (findings.length === 0) {
         return "No MVP-scope findings surfaced.";
     }
     return findings
         .slice(0, limit)
-        .map((finding) => `- [${finding.severity}] ${finding.file_path}:${finding.line_number} ${finding.category}: ${finding.message}`)
+        .map((finding) => `- [${escapeFindingText(finding.severity)}] ${escapeFindingText(finding.file_path)}:${escapeFindingText(finding.line_number)} ${escapeFindingText(finding.category)}: ${escapeFindingText(finding.message)}`)
         .join("\n");
 }
 async function shareReport(report, apiKey, apiBase) {

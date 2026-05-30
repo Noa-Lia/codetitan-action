@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="https://codetitan.dev/logos/wordmark-light.png" alt="CodeTitan" width="360" />
+</p>
+
 # CodeTitan Core
 
 `@noalia/codetitan-core` is the shared verification engine behind the public CodeTitan CLI and GitHub Action.
