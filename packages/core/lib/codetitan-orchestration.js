@@ -529,6 +529,10 @@ class CodeTitanOrchestration {
       personalizationScore:
         enhancements.learnedProfile?.personalizationScore || 0,
       prRiskScore: enhancements.prRiskScore || null,
+      // Honest skip accounting: recognized source files (e.g. .vue/.svelte)
+      // that exist but were not analyzed. Surfaced so the report never claims
+      // "clean" over a file class it never examined.
+      skippedSourceFiles: orchMetrics?.skippedSourceFiles || 0,
     };
 
     return {

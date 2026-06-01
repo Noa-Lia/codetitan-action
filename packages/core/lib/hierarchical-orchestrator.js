@@ -97,6 +97,7 @@ class HierarchicalOrchestrator {
       const ignoreRoot = options.profileProjectRoot || projectPath;
       const files = await this.discoverFiles(projectPath, ignoreRoot);
       this.metrics.totalFiles = files.length;
+      // skippedSourceFiles is set inside discoverFiles() on this.metrics.
       if (this.verbose) {
         console.log(`[FILES] Discovered ${files.length} files`);
       }
@@ -352,17 +353,50 @@ class HierarchicalOrchestrator {
     ]);
     const SKIP_DIR_PREFIXES = [".next"];
 
-    // File extensions to analyze
+    // File extensions to analyze. .cjs/.mjs are JS/TS-family and MUST be
+    // included — omitting them was a silent false negative (the file was
+    // dropped here, never analyzed, yet reported "0 skipped" and "clean").
+    // detectLanguage() maps them to "js" so the rule loops AND the taint engine
+    // (taint-analyzer.js allowlist) engage.
+    //
+    // NOTE: .cts/.mts are deliberately EXCLUDED from analysis (2026-05-31 audit).
+    // The taint engine's own extension allowlist (taint-analyzer.js) does not
+    // include them, so analyzing .cts/.mts would run regex rules but SILENTLY
+    // skip the flagship taint detectors while reporting the file "analyzed" —
+    // the exact silent-FN this P0 fix exists to kill. Re-add .cts/.mts here ONLY
+    // together with the taint-analyzer allowlist. Until then they are counted as
+    // SKIPPED source files (see UNANALYZED_SOURCE_EXTS below) so the report never
+    // claims "0 skipped / clean" over a .cts/.mts file it never taint-analyzed.
     const extensions = [
       ".js",
       ".ts",
       ".jsx",
       ".tsx",
+      ".cjs",
+      ".mjs",
       ".py",
       ".java",
       ".go",
       ".rb",
     ];
+
+    // Source extensions that exist in the wild but are NOT yet fully analyzed,
+    // counted as SKIPPED and surfaced — never silently dropped while the repo is
+    // reported "clean". This is the honest-skip-counter: "0 skipped" must mean we
+    // looked at everything in scope, not "we didn't count what we ignored."
+    //   - .vue/.svelte/.astro: single-file-component formats need a real
+    //     extractor, not just an allowlist entry.
+    //   - .cts/.mts: excluded from `extensions` above because the taint engine
+    //     can't analyze them yet (see NOTE there); count them as skipped so we
+    //     stay honest until taint support lands.
+    const UNANALYZED_SOURCE_EXTS = new Set([
+      ".vue",
+      ".svelte",
+      ".astro",
+      ".cts",
+      ".mts",
+    ]);
+    let skippedSourceFiles = 0;
 
     const self = this;
     async function walk(dir) {
@@ -390,8 +424,13 @@ class HierarchicalOrchestrator {
               continue;
             await walk(fullPath);
           } else if (entry.isFile()) {
-            const ext = path.extname(entry.name);
-            if (!extensions.includes(ext)) continue;
+            const ext = path.extname(entry.name).toLowerCase();
+            if (!extensions.includes(ext)) {
+              // Count recognized-but-unanalyzed source files so the report
+              // never claims "clean" over a file class it never examined.
+              if (UNANALYZED_SOURCE_EXTS.has(ext)) skippedSourceFiles += 1;
+              continue;
+            }
             if (
               ignorePatterns.length > 0 &&
               self.matchesIgnorePattern(
@@ -411,6 +450,9 @@ class HierarchicalOrchestrator {
     }
 
     await walk(projectPath);
+    // Record the skipped-source count on metrics (NOT on the returned array —
+    // attaching enumerable props to the array breaks callers that deep-equal it).
+    this.metrics.skippedSourceFiles = skippedSourceFiles;
     return files;
   }
 

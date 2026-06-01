@@ -641,6 +641,33 @@ const PLACEHOLDER_REGEX =
 // all-caps or all-lowercase.
 const MARKER_STRING_REGEX = /^(?:[A-Z][A-Z0-9_]{2,39}|[a-z][a-z_]{2,29})$/;
 
+// Documented public/example tokens that are NOT live credentials. Keyed on the
+// matched token's structural shape, never on the repo. Covers AWS's own
+// documented example access key (suffix EXAMPLE) and the placeholder family.
+// Closes self-detection on secret-scanner allowlists (secretlint) + public
+// well-known tokens (2026-05-30 partner scan).
+function isWellKnownExampleSecret(token) {
+  if (!token) return false;
+  // AWS's documented example key, e.g. AKIAIOSFODNN7EXAMPLE — the literal AWS
+  // docs use everywhere. Any AKIA...EXAMPLE is documentation, not a credential.
+  if (/^AKIA[0-9A-Z]+EXAMPLE$/.test(token)) return true;
+  // The token IS a placeholder/example string. Must be a WHOLE-TOKEN match,
+  // anchored — NOT an unanchored substring scan. (Reverted 2026-05-31 audit:
+  // the old unanchored PLACEHOLDER_REGEX.test(token) suppressed REAL secrets
+  // whose random body merely contained "mock"/"fake"/"test"/"example"
+  // — e.g. sk_live_mock4eC39HqLyjWDarjtT1zd — across 9 provider families. A
+  // security guard must FAIL OPEN: only suppress when the token is ENTIRELY a
+  // placeholder. docs/plans/2026-05-31-fp-arc-audit-findings.md)
+  if (
+    /^(?:YOUR_[A-Z_]*|<[A-Z_]+>|x{3,}|change[_-]?me|placeholder|example|dummy|fake|mock|test[-_]?key)$/i.test(
+      token,
+    )
+  ) {
+    return true;
+  }
+  return false;
+}
+
 /**
  * Calculate Shannon entropy for a string (bits per character).
  * High entropy (>4.5) for long strings is a strong secret signal.
@@ -707,6 +734,31 @@ function looksLikeConfigUrlAssignment(val) {
 
 function stripQuotedStrings(line) {
   return line.replace(/(['"`])(?:\\.|(?!\1)[\s\S])*?\1/g, "''");
+}
+
+// SQL_INJECTION_STRING_FORMAT refinement. Returns true ONLY if the line has at
+// least one ${...} interpolation AND every interpolation is a compile-time
+// constant identifier — an UPPER_SNAKE constant (${MAX_ROWS}, ${SCHEMA_VERSION})
+// or a const-map / property access rooted at one (${TABLE_NAMES[t]},
+// ${COLUMNS.id}). These are developer-controlled schema metadata, never user
+// input, so the template literal is not injectable. ANY interpolation that is
+// NOT a constant identifier (a bare lowercase local like ${tableName}, a
+// member chain like ${req.query.t}, or a call like ${fn(x)}) makes this return
+// false — the finding keeps firing. Deliberately conservative: an FP is
+// tolerable, an SQL-injection false negative is not.
+function allSqlInterpolationsAreConstantIdentifiers(line) {
+  const interps = line.match(/\$\{([^}]*)\}/g);
+  if (!interps || interps.length === 0) return false;
+  // An interpolation body is "constant" iff it starts with an UPPER_SNAKE
+  // identifier (>=2 chars, all uppercase/digit/underscore) optionally followed
+  // by a [index] or .prop chain whose own root segments are also UPPER_SNAKE or
+  // a short lowercase index var inside []. We require the ROOT to be UPPER_SNAKE.
+  const CONST_INTERP =
+    /^\s*[A-Z][A-Z0-9_]+(?:\s*\[\s*[A-Za-z_$][\w$]*\s*\]|\s*\.\s*[A-Za-z_$][\w$]*)*\s*$/;
+  return interps.every((raw) => {
+    const body = raw.slice(2, -1); // strip ${ and }
+    return CONST_INTERP.test(body);
+  });
 }
 
 function isSensitiveConsoleLog(line) {
@@ -1055,6 +1107,31 @@ function isStaticLiteralEval(line) {
   if (/\brequire\s*(?:\(|\.main\b)/.test(body)) return true;
   if (/^(?:__filename|__dirname)$/.test(body.trim())) return true;
   return false;
+}
+
+// EVAL_USAGE member-access guard. The base pattern /\beval\s*\(/ matches `.eval(`
+// member calls (e.g. `poly.monomial.eval(x)`, `this.eval(...)`) — a method named
+// `eval`, NOT the JS global `eval()`. Suppress those, EXCEPT when the receiver is
+// the global object itself (window/globalThis/self/global.eval == real eval).
+// Strings are already stripped by the caller before this fires, so a quoted
+// ".eval(" cannot reach here. Structural property: a `.` immediately before
+// `eval` (a non-global member access) is not dynamic evaluation.
+function isMemberAccessEval(line) {
+  const code = stripQuotedStrings(line);
+  // Real global eval reached via a global receiver — keep firing.
+  if (/\b(?:window|globalThis|self|global)\s*\.\s*eval\s*\(/.test(code)) {
+    return false;
+  }
+  // NOTE: a previous "if stripping strings removes all eval( → suppress (prose)"
+  // branch was REVERTED 2026-05-31 — it hid a real `${eval(userInput)}` inside a
+  // template literal (stripQuotedStrings eats the whole backtick span incl. the
+  // live call). A security guard must FAIL OPEN. The MikroORM help-text FP it
+  // chased is tolerable; an eval FN is not. (audit: docs/plans/2026-05-31-fp-arc-audit-findings.md)
+  // `.eval(` or `#eval(` with no global receiver = a method named eval.
+  // Only a guard if there is NO bare global `eval(` elsewhere on the line.
+  const hasMemberEval = /[.#]\s*eval\s*\(/.test(code);
+  const hasGlobalEval = /(?<![.#\w])eval\s*\(/.test(code);
+  return hasMemberEval && !hasGlobalEval;
 }
 
 function isFunctionLikeDefinition(line) {
@@ -1456,6 +1533,11 @@ function detectSecurityIssues(context) {
       // workarounds, not dynamic eval. Suppress when the argument is a single
       // quoted literal with no interpolation.
       if (rule.id === "EVAL_USAGE" && isStaticLiteralEval(line)) return;
+      // Member-access `.eval(` (e.g. poly.monomial.eval(x), this.eval(...)) is
+      // a method named eval, not the JS global — suppress unless the receiver
+      // is the global object. Closes noble-curves / MikroORM / dotenvx FPs
+      // (2026-05-30 partner-scan audit).
+      if (rule.id === "EVAL_USAGE" && isMemberAccessEval(line)) return;
       // G3a guard (2026-05-19): EVAL_USAGE / COMMAND_EXEC fire on Flask's
       // documented lifecycle APIs (PYTHONSTARTUP exec in `flask shell`,
       // from_pyfile config loader). Both are framework-controlled paths,
@@ -1659,9 +1741,54 @@ function detectSecurityIssues(context) {
       .join("\n");
     const isHtmlParse =
       /parseFromString\s*\([\s\S]{0,200}?['"`]text\/html['"`]/.test(xxeWindow);
+    // The WHATWG **browser** DOMParser cannot resolve external entities — so it
+    // is not an XXE sink. But a SERVER-SIDE DOMParser (e.g.
+    // `new (require('@xmldom/xmldom').DOMParser)()` / `import {DOMParser} from
+    // 'xmldom'`) CAN, depending on version/config. So this is an ALLOWLIST keyed
+    // on a POSITIVE browser signal, NOT a blocklist — a security guard must FAIL
+    // OPEN. (Reverted 2026-05-31 audit: the old "suppress unless a known server
+    // lib token is present" blocklist suppressed real server-xmldom XXE because
+    // it didn't recognize the lib. docs/plans/2026-05-31-fp-arc-audit-findings.md)
+    //
+    // Positive browser signal: a bare `new DOMParser()` (the global, no
+    // module-qualified receiver) AND no server XML-lib import anywhere in the
+    // file. If the file imports/requires any server XML parser (incl. a
+    // DOMParser pulled from xmldom/jsdom/@xmldom), we do NOT treat it as the
+    // browser global → keep firing. Closes the Astro/deep-chat browser-DOMParser
+    // FPs while NOT hiding server xmldom.
+    // Match the server-XML-lib specifier across ALL import forms, not just
+    // `require("x")` / `from "x"`. Codex F3 re-attack (2026-05-31) found that
+    // `await import("@xmldom/xmldom")` and `require(`@xmldom/xmldom`)` named the
+    // server lib DIRECTLY yet slipped past the old regex (no `import(` branch,
+    // no backtick specifier) → isBrowserDomParser went true → real server XXE
+    // suppressed. Widening the import matcher is strictly FAIL-OPEN (it makes
+    // the browser-suppression fire LESS often), so it cannot add an FN; the only
+    // cost is a tolerable FP if a file lazy-imports a server XML lib AND also
+    // uses a true browser DOMParser elsewhere. Quote class is ['"`] for the
+    // call forms; `from` keeps ['"] (backtick is invalid in a static `from`).
+    const SERVER_XML_LIB =
+      /(?:@?xmldom(?:\/xmldom)?|jsdom|libxmljs2?|xml2js|sax|node-expat|fast-xml-parser)/;
+    const importsServerXmlLib = new RegExp(
+      "(?:\\b(?:require|import)\\s*\\(\\s*['\"`]|\\bfrom\\s+['\"])" +
+        SERVER_XML_LIB.source +
+        "['\"`]",
+    ).test(context.content);
+    const bareBrowserDomParser =
+      /\bnew\s+DOMParser\s*\(/.test(xxeWindow) &&
+      !/[.\])]\s*DOMParser\b|DOMParser\s*[:=]/.test(xxeWindow); // not a member/aliased DOMParser
+    // A second, distinct server-XML constructor in the window is independent
+    // evidence of real XML parsing — do NOT let the browser-DOMParser signal
+    // mask it (fail open).
+    const hasOtherServerXmlCtor =
+      /\bnew\s+(?:XMLParser|libxmljs2?|xml2js|sax)\b|\.(?:parseXml|parseXmlString)\s*\(/.test(
+        xxeWindow,
+      );
+    const isBrowserDomParser =
+      bareBrowserDomParser && !importsServerXmlLib && !hasOtherServerXmlCtor;
     if (
       xxeMatch &&
       !isHtmlParse &&
+      !isBrowserDomParser &&
       !COMMENT_REGEX.test(normalized) &&
       !isTestFile &&
       !importsFastXmlParser &&
@@ -1883,6 +2010,18 @@ function detectSecurityIssues(context) {
             /\bapiKey\s*:/.test(line)
           )
             continue;
+        }
+
+        // Example/placeholder guard applied to the MATCHED TOKEN itself, not
+        // just to an assigned literal. The placeholder check above only ran on
+        // extractAssignedStringLiteral (a key="value" shape), so a documented
+        // example token inside an ARRAY/allowlist — e.g. ["AKIAIOSFODNN7EXAMPLE"]
+        // — bypassed it and fired. Suppress AWS's documented example key
+        // (AKIA...EXAMPLE) and any matched token that is itself a placeholder.
+        // Closes secretlint (AWS EXAMPLE key in its own allowlist) + read-frog
+        // public-token FPs from the 2026-05-30 partner scan.
+        if (isWellKnownExampleSecret(match[0])) {
+          break;
         }
 
         foundSecretCategories.add(rule.id);
@@ -2192,12 +2331,18 @@ function detectSecurityIssues(context) {
           "fmt.Sprintf used to build SQL query; use parameterized queries (?, $1) instead.",
       },
       {
+        // Reading a secret from an env var is the RECOMMENDED 12-factor
+        // practice — the literal opposite of a hardcoded secret. Categorizing
+        // it HARDCODED_SECRET (2026-05-30 partner scan: 12 FPs in deep-chat
+        // example-servers) reads as an obvious false alarm to any Go dev. This
+        // is an informational advisory about secrets-manager adoption, not a
+        // credential-in-source finding.
         pattern: /os\.Getenv\s*\(\s*["']\w*(?:SECRET|KEY|PASSWORD|TOKEN|API)/,
-        category: "HARDCODED_SECRET",
-        severity: "MEDIUM",
-        impact: 6,
+        category: "SECRET_FROM_ENV",
+        severity: "LOW",
+        impact: 3,
         message:
-          "Consider using a secrets manager instead of bare environment variable access for credentials.",
+          "Secret read from an environment variable (good practice). For higher assurance, consider a managed secrets store with rotation.",
       },
     ];
 
@@ -2313,7 +2458,18 @@ function detectSecurityIssues(context) {
     const aiRules = [
       {
         id: "AI_CODE_RISK_EMPTY_CATCH",
-        severity: "MEDIUM",
+        // LOW + impact 3: a bare empty catch is a code smell, not a security
+        // vuln. At MEDIUM these dominated reports (126 in one repo, 2026-05-30
+        // partner scan). At LOW/impact-3 it is DEFERRED from the default CLI
+        // MVP contract (MIN_IMPACT_BY_SEVERITY.LOW=5) — i.e. it does NOT appear
+        // on the default partner-facing CLI report. This is BY DESIGN (de-noise);
+        // it still emits from the engine and surfaces via `--rawFindings` and on
+        // the GitHub Action path (which has no impact gate), and is counted in
+        // the report's deferredCategoryCounts (never silently dropped). It
+        // remains a true positive; we just don't lead the default report with it.
+        // (Clarified 2026-05-31 audit — prior "keep firing, ranked LOW" comment
+        // was misleading about default-contract visibility.)
+        severity: "LOW",
         // Match empty catch bodies — but exempt the `catch (_)` / `catch (_err)` convention
         // (ESLint no-unused-vars leading-underscore = intentional-ignore).
         // Matches: `catch {}`, `catch (err) {}`, `catch (err, ctx) {}`.
@@ -2321,7 +2477,7 @@ function detectSecurityIssues(context) {
         pattern: /catch\s*(?:\(\s*(?!_)[^)]*\))?\s*\{\s*\}/,
         message:
           "Empty catch block swallows errors — a common LLM pattern. Add error handling or logging.",
-        impact: 6,
+        impact: 3,
       },
       {
         id: "AI_CODE_RISK_PERMISSIVE_CORS",
@@ -2682,6 +2838,22 @@ function detectSecurityIssues(context) {
       // lineGuard: a regex that, if it matches the current line, suppresses the rule.
       // Use this for inline mitigations (e.g. a SQL escaper wrapping the interpolation).
       if (rule.lineGuard && rule.lineGuard.test(line)) return;
+
+      // SQL_INJECTION per-interpolation refinement (NOT a wider lineGuard — a
+      // regex .test() would suppress the WHOLE line on its first safe match,
+      // hiding `SELECT ${req.query.t} FROM ${SAFE_CONST}`, a real injection).
+      // Suppress ONLY when EVERY ${...} interpolation is provably safe:
+      //   - an UPPER_SNAKE constant / const-map access (${MAX_ROWS}, ${TABLE_NAMES[t]})
+      // A bare lowercase local (${tableName}) or req./user-input interpolation
+      // keeps the finding firing. Closes MikroORM/oh-my-pi const-identifier FPs
+      // (2026-05-30 partner scan); intentionally NARROW per the audit — does
+      // NOT attempt a backward-provenance taint trace (that is its own change).
+      if (
+        rule.id === "SQL_INJECTION_STRING_FORMAT" &&
+        allSqlInterpolationsAreConstantIdentifiers(line)
+      ) {
+        return;
+      }
 
       // Maintainer-acknowledged suppression comments on the previous line.
       // If the line above carries a biome-ignore / eslint-disable / codetitan-
