@@ -382,12 +382,44 @@ class CodeTitanOrchestration {
 
     const analysisRoot = path.resolve(analysisProjectPath);
     const stableRoot = path.resolve(projectRoot || analysisProjectPath);
+    // Findings from the production pipeline carry ABSOLUTE paths (verified: the
+    // file walker emits absolute paths, and the synthesizer/normalizer preserve
+    // them). A relative rawPath is resolved against the analysis root — its
+    // natural base. (A relative path is fundamentally ambiguous between
+    // leaf-relative and repo-relative; since the live pipeline never produces
+    // one, we don't add an fs probe to disambiguate an unreachable case. Codex
+    // flagged a duplication on a hand-constructed repo-relative input — noted as
+    // not pipeline-reachable.)
     const absolutePath = path.isAbsolute(filePath)
       ? path.resolve(filePath)
       : path.resolve(analysisRoot, filePath);
     const normalizedAnalysisRoot = analysisRoot.toLowerCase();
+    const normalizedStableRoot = stableRoot.toLowerCase();
     const normalizedAbsolutePath = absolutePath.toLowerCase();
 
+    // Case 1 — the file already lives under the stable repo root. This is the
+    // per-target-subdir scan: analysisRoot is a SUBDIR of the repo (e.g.
+    // analyze apps/api/src inside …/Custos). Re-rooting the path relative to
+    // the analysis LEAF would drop the middle subpath
+    // (…/Custos/apps/api/src/server.ts → …/Custos/server.ts), collapsing
+    // same-named files across packages into one colliding profile key. Compute
+    // the path relative to the REPO ROOT so the file keeps its true
+    // repo-relative position (apps/api/src/server.ts). (Custos field report
+    // BUG-2, 2026-06-04.)
+    if (
+      normalizedAbsolutePath === normalizedStableRoot ||
+      normalizedAbsolutePath.startsWith(`${normalizedStableRoot}${path.sep}`)
+    ) {
+      const relativeToRepo = path.relative(stableRoot, absolutePath);
+      return path.resolve(stableRoot, relativeToRepo);
+    }
+
+    // Case 2 — the file is under the analysis root but NOT under the stable
+    // root. This is diff-aware mode: analysisRoot is a temp workspace whose
+    // layout MIRRORS the repo structure (createChangedFilesWorkspace copies
+    // each changed file preserving its repo-relative path). Here the
+    // path-relative-to-analysisRoot IS the repo-relative path, so re-root it
+    // onto the stable root unchanged.
     if (
       normalizedAbsolutePath === normalizedAnalysisRoot ||
       normalizedAbsolutePath.startsWith(`${normalizedAnalysisRoot}${path.sep}`)

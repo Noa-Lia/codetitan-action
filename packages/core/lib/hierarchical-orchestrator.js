@@ -288,29 +288,172 @@ class HierarchicalOrchestrator {
   }
 
   /**
+   * Tokenize a normalized ignore pattern into literal / `*` / `**` tokens.
+   * Mirrors the old regex translation's scan order (`**` claimed greedily
+   * left-to-right first, then `*`), so `***` → globstar + star. Every other
+   * character — including regex metacharacters and `?` — is a LITERAL.
+   * (`?` was never a working glob wildcard here: the old translation left it
+   * unescaped in the regex where it acted as a stray quantifier; treating it
+   * as a literal is the predictable behavior.)
+   */
+  tokenizeIgnorePattern(pattern) {
+    const tokens = [];
+    let literal = "";
+    let i = 0;
+    while (i < pattern.length) {
+      if (pattern[i] === "*") {
+        if (literal) {
+          tokens.push({ type: "lit", value: literal });
+          literal = "";
+        }
+        if (pattern[i + 1] === "*") {
+          tokens.push({ type: "globstar" });
+          i += 2;
+        } else {
+          tokens.push({ type: "star" });
+          i += 1;
+        }
+      } else {
+        literal += pattern[i];
+        i += 1;
+      }
+    }
+    if (literal) tokens.push({ type: "lit", value: literal });
+    return tokens;
+  }
+
+  /**
+   * Build a NON-BACKTRACKING matcher for one ignore pattern.
+   *
+   * Semantics (unchanged from the regex translation it replaces):
+   *   `*`  — zero or more chars within ONE path segment (never crosses `/`)
+   *   `**` — zero or more chars, `/` included
+   *   plus the directory-prefix rule: the pattern matches the whole relative
+   *   path, or a leading prefix of it that ends immediately before a `/`
+   *   (the old trailing `(/.*)?$`), so `dist` matches both `dist` and
+   *   `dist/bundle.js` but never `distx`.
+   *
+   * Implementation: forward reachability DP over token list × path positions.
+   * `reachable[i]` = "the tokens consumed so far can end exactly at s[0..i)".
+   * Each token is one linear sweep (literal: shift by the literal; `*`: flood
+   * within the current segment; `**`: flood to end-of-string), so matching is
+   * O(pattern length × path length) with NO backtracking — an adversarial
+   * pattern (`*a*a*a…`) against a long path segment is polynomial, not
+   * exponential. This closes the BUG-1 ReDoS residual that the previous
+   * regex-based matcher documented as a follow-up.
+   */
+  buildIgnoreMatcher(pattern) {
+    const tokens = this.tokenizeIgnorePattern(pattern);
+
+    // Fast path: no wildcards — the vast majority of real .gitignore lines
+    // (plain names like `node_modules`). Exact match or directory prefix.
+    if (tokens.length === 1 && tokens[0].type === "lit") {
+      const literal = tokens[0].value;
+      const prefix = `${literal}/`;
+      return (s) => s === literal || s.startsWith(prefix);
+    }
+
+    return (input) => {
+      const s = String(input);
+      const n = s.length;
+      let reachable = new Array(n + 1).fill(false);
+      reachable[0] = true;
+
+      for (const token of tokens) {
+        const next = new Array(n + 1).fill(false);
+        if (token.type === "lit") {
+          const literal = token.value;
+          for (let i = 0; i + literal.length <= n; i++) {
+            if (reachable[i] && s.startsWith(literal, i)) {
+              next[i + literal.length] = true;
+            }
+          }
+        } else if (token.type === "star") {
+          // Flood forward within the current segment: once a position is
+          // reachable, every later position up to the next `/` is too.
+          let carry = false;
+          for (let i = 0; i <= n; i++) {
+            if (i > 0 && s[i - 1] === "/") carry = false; // `*` can't consume `/`
+            carry = carry || reachable[i];
+            next[i] = carry;
+          }
+        } else {
+          // globstar: flood forward unconditionally.
+          let carry = false;
+          for (let i = 0; i <= n; i++) {
+            carry = carry || reachable[i];
+            next[i] = carry;
+          }
+        }
+        reachable = next;
+      }
+
+      // Directory-prefix acceptance — the old `(/.*)?$`.
+      for (let j = 0; j <= n; j++) {
+        if (reachable[j] && (j === n || s[j] === "/")) return true;
+      }
+      return false;
+    };
+  }
+
+  /**
+   * Compile raw ignore patterns to reusable matchers ONCE.
+   *
+   * BUG-1 (Custos field report, 2026-06-04): `matchesIgnorePattern` used to
+   * call `new RegExp(...)` for every pattern on every file/dir during the walk
+   * — O(files × patterns) regex COMPILATIONS. At a real repo root with a large
+   * .gitignore that pegs one CPU core for minutes with no output (observed:
+   * 639s CPU, ~2 MB mem, zero progress). Compiling each pattern exactly once
+   * here removes that storm.
+   *
+   * BUG-1 ReDoS residual (closed): the first fix still translated patterns to
+   * backtracking regexes, so `*a*a*a…` against a long path segment could go
+   * super-linear inside one `.test()`; a 12-wildcard cap dropped dense lines
+   * as a crude backstop (over-scanning their files). Matching now runs through
+   * `buildIgnoreMatcher` — a linear-sweep DP with no backtracking — so the cap
+   * is gone: wildcard-dense patterns are HONORED (files correctly ignored)
+   * and adversarial patterns from untrusted .gitignore lines (fork-PR Action,
+   * external cold-audit) stay polynomial.
+   *
+   * @param {string[]} patterns - raw .gitignore/.codetitanignore path patterns
+   * @returns {Array<{ raw: string, match: (relativePath: string) => boolean }>}
+   */
+  compileIgnoreMatchers(patterns) {
+    const matchers = [];
+    for (const pattern of patterns || []) {
+      const p = String(pattern).replace(/\\/g, "/");
+      if (!p) continue;
+      matchers.push({ raw: p, match: this.buildIgnoreMatcher(p) });
+    }
+    return matchers;
+  }
+
+  /**
    * Returns true if the given absolute path matches any of the ignore patterns.
    * Supports ** glob wildcards and directory-prefix matching.
+   *
+   * `patterns` may be either raw strings or pre-compiled matchers
+   * ({ raw, regex }). Pre-compiled matchers are the hot path (see
+   * compileIgnoreMatchers / discoverFiles); raw strings are compiled on demand
+   * for backward compatibility with any direct caller.
    */
   matchesIgnorePattern(absolutePath, projectPath, patterns) {
     const relative = path
       .relative(projectPath, absolutePath)
       .replace(/\\/g, "/");
-    for (const pattern of patterns) {
-      const p = pattern.replace(/\\/g, "/");
-      // Exact match
-      if (p === relative) return true;
-      // glob **  handling: convert to regex
-      // Build regex: replace ** and * separately to avoid collision
-      const regexStr =
-        "^" +
-        p
-          .replace(/\*\*/g, "\x00GLOBSTAR\x00") // stash ** before escaping
-          .replace(/\*/g, "\x00STAR\x00") // stash * before escaping
-          .replace(/[.+^${}()|[\]\\]/g, "\\$&") // escape regex special chars
-          .replace(/\x00GLOBSTAR\x00/g, ".*") // ** → .* (any path segment)
-          .replace(/\x00STAR\x00/g, "[^/]*") + // * → single-segment wildcard
-        "(/.*)?$";
-      if (new RegExp(regexStr).test(relative)) return true;
+    const matchers =
+      patterns.length > 0 && typeof patterns[0] === "object"
+        ? patterns
+        : this.compileIgnoreMatchers(patterns);
+    for (const matcher of matchers) {
+      // Exact match (cheap, no matcher call)
+      if (matcher.raw === relative) return true;
+      // `match` is the current compiled shape; `regex` kept for any external
+      // caller still holding pre-rewrite { raw, regex } objects.
+      if (
+        matcher.match ? matcher.match(relative) : matcher.regex.test(relative)
+      )
+        return true;
     }
     return false;
   }
@@ -324,11 +467,34 @@ class HierarchicalOrchestrator {
     const files = [];
     const resolvedIgnoreRoot = ignoreRoot || projectPath;
     const ignorePatterns = await this.loadIgnorePatterns(resolvedIgnoreRoot);
+    // BUG-1: compile every ignore pattern to a RegExp ONCE here, then reuse the
+    // compiled matchers across the whole walk. Previously each pattern was
+    // recompiled per file/dir (O(files × patterns) `new RegExp`), which pegged
+    // a CPU core for minutes at a real repo root with a large .gitignore.
+    const ignoreMatchers = this.compileIgnoreMatchers(ignorePatterns);
     if (this.verbose && ignorePatterns.length > 0) {
       console.log(
         `[FILES] Loaded ${ignorePatterns.length} ignore pattern(s) from .codetitanignore + .gitignore`,
       );
     }
+
+    // BUG-1 safety net — wall-clock deadline (configurable; default 120s) +
+    // periodic heartbeat. The deadline is cooperative — checked between
+    // directory reads and between entries. Ignore matching itself is now
+    // linear-time per pattern (buildIgnoreMatcher, non-backtracking), so a
+    // single match can no longer stall past the budget; the deadline's job is
+    // bounding the tree TRAVERSAL on very large repos and surfacing a clear
+    // error instead of silence.
+    const discoveryTimeoutMs =
+      Number(
+        (this.taskOptions && this.taskOptions.discoveryTimeoutMs) ||
+          process.env.CODETITAN_DISCOVERY_TIMEOUT_MS ||
+          0,
+      ) || 120000;
+    const discoveryStart = Date.now();
+    let visitedEntries = 0;
+    let lastHeartbeat = discoveryStart;
+    const HEARTBEAT_MS = 5000;
     const SKIP_DIRS = new Set([
       "node_modules",
       ".git",
@@ -399,12 +565,44 @@ class HierarchicalOrchestrator {
     let skippedSourceFiles = 0;
 
     const self = this;
+    // BUG-1 deadline guard: abort discovery once it exceeds the wall-clock
+    // budget instead of pegging a core indefinitely. Throws a typed error so the
+    // orchestrator surfaces a clear message rather than a silent hang. Checked
+    // at each walk(dir) AND per-entry, so a single directory returning a huge
+    // entry list cannot run its whole loop past the budget. (Per-pattern
+    // matching is linear-time — see buildIgnoreMatcher — so no single match
+    // can outrun the checks.)
+    const checkDeadline = () => {
+      if (Date.now() - discoveryStart > discoveryTimeoutMs) {
+        const err = new Error(
+          `File discovery exceeded ${discoveryTimeoutMs}ms (visited ${visitedEntries} entries, found ${files.length} so far). ` +
+            `Aborting to avoid a hang. If this is a very large repo, raise CODETITAN_DISCOVERY_TIMEOUT_MS or scope the scan to a subdirectory.`,
+        );
+        err.code = "DISCOVERY_TIMEOUT";
+        throw err;
+      }
+    };
     async function walk(dir) {
+      checkDeadline();
       try {
         const entries = await fs.readdir(dir, { withFileTypes: true });
 
         for (const entry of entries) {
           const fullPath = path.join(dir, entry.name);
+
+          // BUG-1 heartbeat: periodically show the scan is alive. Emitted to
+          // stderr-style console.warn so it never corrupts machine-parseable
+          // stdout (--format json/sarif/sbom/markdown), and only when not in
+          // quiet mode.
+          visitedEntries += 1;
+          // Per-entry deadline check (cheap): bounds a single huge directory.
+          if ((visitedEntries & 0x3ff) === 0) checkDeadline();
+          if (!self.quiet && Date.now() - lastHeartbeat > HEARTBEAT_MS) {
+            lastHeartbeat = Date.now();
+            console.warn(
+              `[FILES] still scanning… ${visitedEntries} entries visited, ${files.length} source file(s) found`,
+            );
+          }
 
           // Skip node_modules, .git, build directories, etc.
           if (entry.isDirectory()) {
@@ -414,11 +612,11 @@ class HierarchicalOrchestrator {
             )
               continue;
             if (
-              ignorePatterns.length > 0 &&
+              ignoreMatchers.length > 0 &&
               self.matchesIgnorePattern(
                 fullPath,
                 resolvedIgnoreRoot,
-                ignorePatterns,
+                ignoreMatchers,
               )
             )
               continue;
@@ -432,11 +630,11 @@ class HierarchicalOrchestrator {
               continue;
             }
             if (
-              ignorePatterns.length > 0 &&
+              ignoreMatchers.length > 0 &&
               self.matchesIgnorePattern(
                 fullPath,
                 resolvedIgnoreRoot,
-                ignorePatterns,
+                ignoreMatchers,
               )
             )
               continue;
@@ -444,6 +642,9 @@ class HierarchicalOrchestrator {
           }
         }
       } catch (error) {
+        // Re-throw the deadline abort; only swallow real I/O errors (a dir we
+        // can't read should be skipped, not fatal).
+        if (error && error.code === "DISCOVERY_TIMEOUT") throw error;
         // Skip directories we can't read
         console.warn(`[WARNING]  Skipping ${dir}: ${error.message}`);
       }

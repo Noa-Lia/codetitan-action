@@ -42,7 +42,13 @@ class LearnedProfileManager {
     this.dismissedRulesPath =
       options.dismissedRulesPath ||
       path.join(require("os").homedir(), ".codetitan", "dismissed-rules.json");
-    this.profileVersion = options.profileVersion || 1;
+    // v2 (2026-06-04): profiles persisted by pre-v2 code may carry
+    // suppressionRules copied from the OLD flat, repo-agnostic dismissed-rules
+    // store — a cross-repo / fixture false-negative if read back. loadProfile
+    // drops suppressionRules from any profile with profileVersion < 2 so a
+    // poisoned pre-fix profile can't re-suppress a real finding on the first
+    // post-upgrade scan. (Agent-2 review finding.)
+    this.profileVersion = options.profileVersion || 2;
   }
 
   buildRepoFingerprint(projectRoot = this.projectRoot) {
@@ -155,13 +161,31 @@ class LearnedProfileManager {
         return this.createDefaultProfile(projectRoot);
       }
 
+      // Migration gate (v2): a profile persisted by pre-v2 code may have had the
+      // OLD flat, repo-agnostic dismissed-rules store copied wholesale into its
+      // suppressionRules. Reading that back would re-suppress a real finding in
+      // an unrelated repo (the exact cross-repo / fixture false-negative the v2
+      // store-scoping fixes) on the FIRST post-upgrade scan, BEFORE updateProfile
+      // rebuilds suppressionRules from the scoped store. Drop suppressionRules
+      // from any sub-v2 profile so they can never be applied. Safe: updateProfile
+      // repopulates suppressionRules from the per-repo bucket every run.
+      // Fail CLOSED: keep suppressionRules ONLY when the persisted version is a
+      // real number >= 2. Require typeof number (not just numeric-coercible) so
+      // a forged "2.0.0"/"v2"/{}/[2] — all of which coerce oddly — DROPS rather
+      // than survives the gate. (`NaN < 2` is false, so a naive `< 2` check
+      // would have kept the poison; an array like [2] coerces to 2 under
+      // Number(), so a typeof guard is needed too.)
+      const pv = parsed.profileVersion;
+      const suppressionRules =
+        typeof pv === "number" && pv >= 2 ? parsed.suppressionRules || {} : {};
+
       return {
         ...this.createDefaultProfile(projectRoot),
         ...parsed,
         categoryStats: parsed.categoryStats || {},
         fileRiskScores: parsed.fileRiskScores || {},
         hotDirectories: parsed.hotDirectories || {},
-        suppressionRules: parsed.suppressionRules || {},
+        suppressionRules,
         fixerAcceptance: this.normalizeFixerAcceptance(
           parsed.fixerAcceptance || {},
         ),
@@ -187,7 +211,34 @@ class LearnedProfileManager {
         typeof fs.writeFileSync === "function"
       ) {
         fs.mkdirSync(path.dirname(resolvedPath), { recursive: true });
-        fs.writeFileSync(resolvedPath, serialized, "utf8");
+        if (typeof fs.renameSync === "function") {
+          // Temp-file + rename so a crash or concurrent reader never sees a
+          // torn profile. A torn read makes loadProfile fall back to the
+          // default profile, and the next saveProfile then persists that
+          // default — silently discarding the accumulated learning history.
+          // Concurrent read-modify-write stays last-writer-wins (no lockfile):
+          // fail-open, a lost update only under-counts, never suppresses.
+          const tempPath = `${resolvedPath}.${process.pid}.${crypto
+            .randomBytes(6)
+            .toString("hex")}.tmp`;
+          try {
+            fs.writeFileSync(tempPath, serialized, "utf8");
+            fs.renameSync(tempPath, resolvedPath);
+          } catch (_) {
+            // Windows can refuse the rename while AV/indexers hold the
+            // destination — fall back to the direct write, clean the temp.
+            fs.writeFileSync(resolvedPath, serialized, "utf8");
+            if (typeof fs.rmSync === "function") {
+              try {
+                fs.rmSync(tempPath, { force: true });
+              } catch (_) {
+                // best-effort cleanup
+              }
+            }
+          }
+        } else {
+          fs.writeFileSync(resolvedPath, serialized, "utf8");
+        }
       } else if (fs.promises && typeof fs.promises.writeFile === "function") {
         const mkdirPromise =
           typeof fs.promises.mkdir === "function"
@@ -241,7 +292,29 @@ class LearnedProfileManager {
     return `${normalizedCategory}:${normalizedSnippet}`;
   }
 
-  loadDismissalRules() {
+  /**
+   * Load the dismissal-rule counts that apply to THIS repo only.
+   *
+   * BUG-3 (Custos field report, 2026-06-04): the dismissed-rules store at
+   * ~/.codetitan/dismissed-rules.json was a flat, repo-agnostic
+   * `{ "CATEGORY:snippet": count }` map, and updateProfile copied the WHOLE
+   * file into every repo's `suppressionRules`. Fixture dismissals recorded
+   * while developing CodeTitan (e.g. `HARDCODED_SECRET:const API_KEY =
+   * "sk_test_1234567890";`) therefore bled into unrelated repos and, at the
+   * auto-suppress threshold, could silently drop a REAL secret finding in a
+   * partner's code — a trust-destroying false negative.
+   *
+   * The store is now namespaced by repoFingerprint:
+   *   { "version": 2, "repos": { "<fingerprint>": { "CAT:snip": n } } }
+   * Only the current repo's bucket is returned. A LEGACY flat file (no
+   * `version`/`repos`, bare `CAT:snip` keys at the top level) is treated as
+   * un-attributable and returns {} — it is never applied to any repo, which
+   * closes the leak for stores written before this change.
+   *
+   * @param {string} [projectRoot] - Repo root whose dismissals to load.
+   *   Defaults to this.projectRoot. The fingerprint is derived from it.
+   */
+  loadDismissalRules(projectRoot = this.projectRoot) {
     try {
       if (
         typeof fs.existsSync !== "function" ||
@@ -253,10 +326,34 @@ class LearnedProfileManager {
       if (!fs.existsSync(this.dismissedRulesPath)) {
         return {};
       }
-      return JSON.parse(fs.readFileSync(this.dismissedRulesPath, "utf8"));
+      const parsed = JSON.parse(
+        fs.readFileSync(this.dismissedRulesPath, "utf8"),
+      );
+      return this.selectRepoDismissals(parsed, projectRoot);
     } catch (_) {
       return {};
     }
+  }
+
+  /**
+   * Extract the current repo's dismissal bucket from a parsed store.
+   * Shared shape contract with the CLI writer (packages/cli/src/lib/dismissals.ts):
+   *   v2 → { version: 2, repos: { "<fp>": { "CAT:snip": n } } }
+   *   legacy → bare { "CAT:snip": n } (returns {} — never applied; see above)
+   */
+  selectRepoDismissals(parsed, projectRoot = this.projectRoot) {
+    if (!parsed || typeof parsed !== "object") {
+      return {};
+    }
+    if (parsed.repos && typeof parsed.repos === "object") {
+      const fingerprint = this.buildRepoFingerprint(projectRoot);
+      const bucket = parsed.repos[fingerprint];
+      return bucket && typeof bucket === "object" ? bucket : {};
+    }
+    // Legacy flat store — un-attributable to a repo. Do NOT apply it (closes
+    // the cross-repo leak). Returning {} means pre-existing global dismissals
+    // simply stop being honored until re-recorded against a specific repo.
+    return {};
   }
 
   computePersonalizationScore(profile) {
@@ -432,6 +529,13 @@ class LearnedProfileManager {
       },
     };
 
+    // Stamp the current schema version. The `...profile` spread above carries
+    // the loaded profile's OLD profileVersion; without this override a migrated
+    // (sub-v2) profile would be re-saved as sub-v2 and loadProfile would keep
+    // dropping its suppressionRules every run. suppressionRules are rebuilt from
+    // the scoped store just below, so promoting to v2 here is safe.
+    next.profileVersion = this.profileVersion;
+
     next.runCount = Number(next.runCount || 0) + 1;
     next.lastRunAt = new Date().toISOString();
 
@@ -481,7 +585,9 @@ class LearnedProfileManager {
       next.categoryStats[category] = categoryEntry;
     });
 
-    const dismissals = this.loadDismissalRules();
+    // Per-repo dismissals only (BUG-3): scope by the profile's own repo root so
+    // one repo's suppressions never leak into another's profile.
+    const dismissals = this.loadDismissalRules(projectRoot);
     next.suppressionRules = dismissals;
 
     const acceptedFindings = Array.isArray(metadata.acceptedFindings)

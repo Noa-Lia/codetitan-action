@@ -209,16 +209,40 @@ function createChangedFilesWorkspace(projectRoot, changedFiles, options = {}) {
     copyFilePreservingStructure(rootPath, workspaceRoot, filePath);
   }
 
-  for (const fileName of CONTEXT_ROOT_FILES) {
-    const sourcePath = path.join(rootPath, fileName);
-    if (!fs.existsSync(sourcePath)) {
+  // Context manifests (package.json/tsconfig/…) are sourced from the
+  // workspace's own root plus any caller-provided scopes under it. The scopes
+  // exist for subdir-target scans keyed to the repo root (BUG-2 residual): the
+  // target subdir's manifests must still land in the workspace — at their
+  // repo-relative position — or a monorepo package scan loses its own
+  // dependency/compiler context. Scopes outside rootPath cannot mirror into
+  // the workspace and are skipped.
+  const contextDirs = [rootPath];
+  const seenContextDirs = new Set([normalizePath(rootPath)]);
+  for (const scope of options.contextScopes || []) {
+    const resolvedScope = path.resolve(String(scope || ""));
+    const scopeKey = normalizePath(resolvedScope);
+    if (seenContextDirs.has(scopeKey)) {
       continue;
     }
-    const stat = fs.statSync(sourcePath);
-    if (!stat.isFile()) {
+    if (!scopeKey.startsWith(`${normalizePath(rootPath)}${path.sep}`)) {
       continue;
     }
-    copyFilePreservingStructure(rootPath, workspaceRoot, sourcePath);
+    seenContextDirs.add(scopeKey);
+    contextDirs.push(resolvedScope);
+  }
+
+  for (const contextDir of contextDirs) {
+    for (const fileName of CONTEXT_ROOT_FILES) {
+      const sourcePath = path.join(contextDir, fileName);
+      if (!fs.existsSync(sourcePath)) {
+        continue;
+      }
+      const stat = fs.statSync(sourcePath);
+      if (!stat.isFile()) {
+        continue;
+      }
+      copyFilePreservingStructure(rootPath, workspaceRoot, sourcePath);
+    }
   }
 
   return workspaceRoot;
