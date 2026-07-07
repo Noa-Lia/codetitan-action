@@ -14,7 +14,7 @@ const { analyzeCSharpSecurity } = require("./csharp-security-analyzer");
 const { EXTENDED_SECURITY_RULES } = require("./security-rules-extended");
 
 const TEST_FILE_REGEX =
-  /(?:[/\\](?:tests?|__tests__|__mocks__|benchmarks?|bench|perf|perfs|fixtures?|e2e|integration)(?:[/\\]|$)|(?:^|[/\\])test_[^/\\]+\.[^.]+$|[._-](?:test|spec|tests|bench|benchmark|perf)\.[^.]+$|jest\.setup\.[jt]s$|vitest\.setup\.[jt]s$)/i;
+  /(?:[/\\](?:tests?|__tests__|__mocks__|benchmarks?|bench|perf|perfs|fixtures?|e2e|integration)(?:[/\\]|$)|(?:^|[/\\])test_[^/\\]+\.[^.]+$|[._-](?:test|spec|tests|bench|benchmark|perf|poku)\.[^.]+$|jest\.setup\.[jt]s$|vitest\.setup\.[jt]s$)/i;
 // Matches benchmark/fixture dirs that should be fully excluded from secrets scanning
 const BENCH_DIR_REGEX = /[/\\](?:benchmarks?|bench)[/\\]/i;
 // Engine infrastructure files and build scripts that intentionally call exec/spawn as part of their function
@@ -73,6 +73,19 @@ const SENSITIVE_TEMPLATE_INTERPOLATION_REGEX =
   /\$\{[^}]*\b(?:password|passwd|token|secret|apiKey|api_key|authToken|authorization)\b[^}]*}/i;
 const SENSITIVE_ENV_ACCESS_REGEX =
   /process\.env\.[A-Z0-9_]*(?:PASSWORD|TOKEN|SECRET|API_KEY|APIKEY|AUTHORIZATION|AUTH_TOKEN|ACCESS_KEY)[A-Z0-9_]*/i;
+// T2 (cold-audit sweep 2026-06-10): build-metadata env vars read as sensitive
+// only because a tool name embeds a keyword — secretlint's
+// `process.env.SECRETLINT_VERSION` contains "SECRET" but is a version string.
+// A _VERSION/_BUILD/_COMMIT/_SHA/_REVISION suffix marks metadata, not
+// credential material.
+const ENV_METADATA_SUFFIX_REGEX = /_(?:VERSION|BUILD|COMMIT|SHA|REVISION)$/i;
+// T2 (NodeSecure/cli loggers): `i18n.getTokenSync(token, ...)` logs a UI
+// translation string — the `token` identifier is a translation KEY, not an
+// auth credential. Scoped to the `i18n.`-qualified call shape so a real
+// `auth.getToken()` result being logged still fires.
+const I18N_GET_TOKEN_CALL_REGEX = /\bi18n\s*\.\s*getTokens?(?:Sync)?\s*\(/;
+const SENSITIVE_LOG_IDENTIFIER_EXCEPT_TOKEN_REGEX =
+  /\b(?:password|passwd|secret|apiKey|api_key|authToken|authorization)\b/i;
 
 // Matches log-adjacent outer calls that wrap a redaction helper whose last
 // argument is a redaction-flag string literal. The helper redacts before the
@@ -655,7 +668,10 @@ function isWellKnownExampleSecret(token) {
   // anchored — NOT an unanchored substring scan. (Reverted 2026-05-31 audit:
   // the old unanchored PLACEHOLDER_REGEX.test(token) suppressed REAL secrets
   // whose random body merely contained "mock"/"fake"/"test"/"example"
-  // — e.g. sk_live_mock4eC39HqLyjWDarjtT1zd — across 9 provider families. A
+  // — e.g. a Stripe-live-prefixed key with "mock" mid-body — across 9
+  // provider families. (Example spelled generically on purpose: the literal
+  // string tripped GitHub push protection on every downstream mirror/consumer
+  // of shipped core source — 2026-06-01 mirror-push incident.) A
   // security guard must FAIL OPEN: only suppress when the token is ENTIRELY a
   // placeholder. docs/plans/2026-05-31-fp-arc-audit-findings.md)
   if (
@@ -695,11 +711,20 @@ function looksLikeSecret(val) {
   if (looksLikeConfigUrlAssignment(val)) return false;
   if (looksLikeGeneratedCharset(val)) return false;
   if (looksLikeRouteOrRegexPattern(val)) return false;
+  if (looksLikeRegexSourceString(val)) return false; // T3
   // HTTP ETags — bare inner value after quote-stripping: <hex>-<base64> or W/"<hex>-<base64>"
   if (/^(W\/)?"?[0-9a-f]+-[A-Za-z0-9+/]+=*"?$/.test(val)) return false;
   // Prose messages
   if ((val.match(/ /g) || []).length > 3) return false;
   if (/^[A-Za-z][A-Za-z .'":,!?-]+$/.test(val)) return false;
+  // T8 (cold-audit sweep 2026-06-10, read-frog FPs): natural-language text in
+  // dense scripts is entropy-rich — a Chinese sample-translation or prompt
+  // string clears the 4.5 Shannon floor without containing any credential.
+  // Real secret material is ASCII (base64/hex/token alphabets), so meaningful
+  // non-ASCII presence marks prose, not a secret. Ratio (not any-single-char)
+  // so an ASCII token pasted next to one accented char still scans.
+  const nonAsciiCount = (val.match(/[^\x20-\x7e]/g) || []).length;
+  if (nonAsciiCount / val.length > 0.2) return false;
   return shannonEntropy(val) > 4.5;
 }
 
@@ -726,6 +751,16 @@ function looksLikeGeneratedCharset(val) {
 
 function looksLikeRouteOrRegexPattern(val) {
   return /[\\/]/.test(val) && /(?:\(\?:|\(\?!|\\\.|\.\*|\|)/.test(val);
+}
+
+// T3 (cold-audit sweep 2026-06-10, secretlint): secret-DETECTION-rule source
+// assigns regex snippets to keyword-named consts — `const SECRET =
+// "[-_.~a-z0-9]{40}"` in secretlint-rule-azure/src/index.ts:27. A character
+// class immediately followed by a counted quantifier is regex source, not
+// credential material — real secrets are drawn from base64/hex/token
+// alphabets that exclude `[` and `{`.
+function looksLikeRegexSourceString(val) {
+  return /\[[^\]]+\]\s*\{\d+(?:,\d*)?\}/.test(val);
 }
 
 function looksLikeConfigUrlAssignment(val) {
@@ -769,7 +804,26 @@ function isSensitiveConsoleLog(line) {
   if (SENSITIVE_TEMPLATE_INTERPOLATION_REGEX.test(line)) return true;
 
   const codeWithoutStrings = stripQuotedStrings(line);
-  if (SENSITIVE_ENV_ACCESS_REGEX.test(codeWithoutStrings)) return true;
+  // T2: scan ALL sensitive-looking env accesses; only metadata-suffixed names
+  // (SECRETLINT_VERSION, FOO_TOKEN_SHA) are exempt — any non-metadata access
+  // on the same line still fires.
+  const envAccesses =
+    codeWithoutStrings.match(
+      new RegExp(SENSITIVE_ENV_ACCESS_REGEX.source, "gi"),
+    ) || [];
+  if (envAccesses.some((name) => !ENV_METADATA_SUFFIX_REGEX.test(name))) {
+    return true;
+  }
+
+  // T2: i18n translation-key lookups — suppress ONLY when `token` is the sole
+  // sensitive identifier on the line; password/secret/apiKey alongside the
+  // i18n call still fires.
+  if (
+    I18N_GET_TOKEN_CALL_REGEX.test(codeWithoutStrings) &&
+    !SENSITIVE_LOG_IDENTIFIER_EXCEPT_TOKEN_REGEX.test(codeWithoutStrings)
+  ) {
+    return false;
+  }
 
   return SENSITIVE_LOG_IDENTIFIER_REGEX.test(codeWithoutStrings);
 }
@@ -1974,6 +2028,7 @@ function detectSecurityIssues(context) {
           if (PLACEHOLDER_REGEX.test(assignedSecretValue)) continue;
           if (MARKER_STRING_REGEX.test(assignedSecretValue)) continue;
           if (hasLowSecretEntropy(assignedSecretValue)) continue;
+          if (looksLikeRegexSourceString(assignedSecretValue)) continue; // T3
           if (/^file:/i.test(assignedSecretValue)) continue;
           if (
             /^(?:postgres(?:ql)?|mysql|mongodb|redis):\/\/[^@]*@(?:localhost|127\.0\.0\.1|0\.0\.0\.0)(?::\d+)?\b/i.test(

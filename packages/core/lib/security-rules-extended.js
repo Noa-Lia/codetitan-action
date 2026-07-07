@@ -355,7 +355,18 @@ const AUTH_RULES = [
     id: "WEAK_JWT_SECRET",
     severity: "CRITICAL",
     impact: 10,
-    pattern: /(?:jwt\.sign|sign\s*\([^)]+,\s*)(?:['"`][^'"`]{1,31}['"`])/,
+    // T1 (cold-audit sweep 2026-06-10): the old unanchored `sign\s*\(` matched
+    // INSIDE `Object.assign(config, "…")` — NodeSecure vis-network
+    // network.ts:544 (graph colors) and cdxgen npmutils.js:325 both fired with
+    // no JWT in sight. `(?<![\w.])` blocks substring hits (assign/cosign) and
+    // dotted non-jwt namespaces (crypto.sign); `jwt.sign` keeps its own
+    // qualified alternative.
+    pattern:
+      /(?:\bjwt\.sign|(?<![\w.])sign)\s*\([^)]+,\s*['"`][^'"`]{1,31}['"`]/,
+    // The rule is only meaningful in a file that actually touches JWTs — same
+    // context discipline as TAINT_COMMAND_INJECTION's child_process
+    // fileImportGuard (taint-analyzer.js, 2026-04-20).
+    fileRequires: /jsonwebtoken|\bjwt|\bjose\b/i,
     message:
       "JWT signed with a short secret (< 32 characters) — brute-forceable. Use a cryptographically random secret of at least 256 bits.",
     skipTest: true,
